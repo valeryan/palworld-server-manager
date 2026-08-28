@@ -108,6 +108,16 @@ export async function POST(req, { params }) {
     }
   }
 
+  // --- the "Playing …" presence line ---
+  // { presence: { type, text, url } } — normalized on read, so an unknown type or a URL
+  // on a non-streaming presence is dropped rather than stored. Applied live to the
+  // connected bot so the change shows in Discord without waiting for a reconnect.
+  if (body.presence && typeof body.presence === "object") {
+    const next = cfgLib.normalizePresence({ presence: body.presence });
+    bot.writeConfig(params.id, { presence: next });
+    bot.updatePresence(params.id);
+  }
+
   // --- live status board: post a self-updating card, or stop one ---
   // { statusBoard: { action: "add"|"remove", channelId, channelName?, id? } }. Posting
   // talks to Discord (and may be refused for a channel the bot can't send in), so this

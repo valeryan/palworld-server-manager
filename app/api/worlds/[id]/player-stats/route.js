@@ -70,3 +70,27 @@ export async function GET(req, { params }) {
     return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
   }
 }
+
+// DELETE /api/worlds/[id]/player-stats — purge one player's join/leave history, removing a
+// leftover platform/account-name row from the Player Activity board. Body: { id?, name }.
+// Mod-only rows (id "mod:…") have no stored history to delete — those live in the mod's own
+// players.json — so the caller keeps its × off them.
+export async function DELETE(req, { params }) {
+  const w = dbm.getWorld(params.id);
+  if (!w) return NextResponse.json({ ok: false, error: "not found" }, { status: 404 });
+  const denied = ra.guardResponse(req, { worldId: params.id, tab: "players", action: "players.purge", mutating: true });
+  if (denied) return denied;
+  let b = {};
+  try { b = await req.json(); } catch {}
+  const name = String(b.name || "").trim();
+  // The board's id is either a raw user id, or "name:<lower>" / "mod:<name>" when derived.
+  const rawId = String(b.id || "");
+  const userId = /^(name:|mod:)/.test(rawId) ? "" : rawId;
+  if (!name && !userId) return NextResponse.json({ ok: false, error: "nothing to remove" }, { status: 400 });
+  try {
+    dbm.deleteSessionsByIdentity(w.world_id, { userId, name });
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
+  }
+}

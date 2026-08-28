@@ -16,4 +16,7 @@ contextBridge.exposeInMainWorld("desktop", {
   // Remote Access: apply the same-network (LAN) bind by restarting the local server.
   getLanBind: () => ipcRenderer.invoke("remote-get-lanbind"),
   setLanBind: (enabled) => ipcRenderer.invoke("remote-set-lanbind", enabled),
+  // Remote Access: change the port the whole UI listens on (restarts the server + reloads).
+  getManagerPort: () => ipcRenderer.invoke("remote-get-port"),
+  setManagerPort: (port) => ipcRenderer.invoke("remote-set-port", port),
 });

@@ -21,6 +21,7 @@ export default function RemoteAccessPage() {
   const [worlds, setWorlds] = useState([]);
   const [busy, setBusy] = useState(false);
   const [restarting, setRestarting] = useState(false);
+  const [port, setPort] = useState("");
   const [editing, setEditing] = useState(null); // code object or {__new:true}
   const [auditFor, setAuditFor] = useState(null); // code object
   const isElectron = typeof window !== "undefined" && window.desktop?.isElectron;
@@ -39,6 +40,31 @@ export default function RemoteAccessPage() {
     const id = setInterval(loadCodes, 4000);
     return () => clearInterval(id);
   }, [loadCodes]);
+
+  // Keep the port field in step with the saved value.
+  useEffect(() => { if (cfg?.configuredPort) setPort(String(cfg.configuredPort)); }, [cfg?.configuredPort]);
+
+  const applyPort = async () => {
+    const n = Number(port);
+    if (!Number.isInteger(n) || n < 1024 || n > 65535) { toast(t("remote.portInvalid"), "error"); return; }
+    if (n === cfg.configuredPort) return;
+    setBusy(true);
+    try {
+      // Persist the choice (writes the marker + setting) before asking electron to rebind.
+      await api("/api/remote/config", { method: "POST", body: { port: n } });
+      if (isElectron && window.desktop?.setManagerPort) {
+        setRestarting(true);
+        toast(t("remote.portApplying", { port: n }), "success");
+        // Restarts the server and walks the window to the new port — this page then reloads,
+        // so anything after here usually doesn't run.
+        await window.desktop.setManagerPort(n);
+      } else {
+        toast(t("remote.portSavedWeb", { port: n }), "success");
+        await loadCfg();
+      }
+    } catch (e) { toast(e.message, "error"); }
+    finally { setBusy(false); setRestarting(false); }
+  };
 
   const setEnabled = async (on) => {
     setBusy(true);
@@ -136,6 +162,29 @@ export default function RemoteAccessPage() {
           </div>
         </div>
       )}
+
+      {/* Manager port */}
+      <div className="panel" style={{ padding: "1.2rem", marginTop: "1rem" }}>
+        <h3 className="heading" style={{ fontSize: "1.05rem", marginTop: 0 }}>{t("remote.portTitle")}</h3>
+        <p className="subtle" style={{ fontWeight: 600, fontSize: "0.8rem", marginTop: 0, maxWidth: 660 }}>{t("remote.portDesc")}</p>
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+          <input
+            className="input" type="number" min={1024} max={65535} style={{ maxWidth: 140 }}
+            value={port} onChange={(e) => setPort(e.target.value)} disabled={busy || restarting}
+          />
+          <button
+            className="btn btn-primary" onClick={applyPort}
+            disabled={busy || restarting || !port || Number(port) === cfg.configuredPort}
+          >
+            {t("remote.portApply")}
+          </button>
+          <span className="subtle" style={{ fontSize: "0.78rem", fontWeight: 600 }}>{t("remote.portCurrent", { port: cfg.configuredPort })}</span>
+        </div>
+        {!isElectron && (
+          <p className="subtle" style={{ fontSize: "0.76rem", marginTop: "0.6rem", marginBottom: 0 }}>{t("remote.portWebNote")}</p>
+        )}
+        {restarting && <div className="subtle" style={{ fontWeight: 700, fontSize: "0.8rem", marginTop: 8 }}>{t("remote.restarting")}</div>}
+      </div>
 
       {/* Codes */}
       <div className="panel" style={{ padding: "1.2rem", marginTop: "1rem" }}>

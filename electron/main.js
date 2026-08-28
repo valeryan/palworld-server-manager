@@ -13,15 +13,36 @@ app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
 app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 
-// Run without Chromium's sandbox on Linux ONLY when running as root (issue #32, and the
-// blank-window regression it caused in #32's first fix). Electron's sandbox genuinely
-// can't initialize as root — the common headless-server case abol01 hit — so we need
-// --no-sandbox there. But forcing it unconditionally on Linux blanked the window for
-// ordinary non-root desktop AppImage users, whose sandbox works fine, so we gate it on
-// uid 0. It's safe here regardless: the renderer only ever loads this app's own
-// 127.0.0.1 UI. A non-root user with a broken sandbox can still pass --no-sandbox itself.
-if (process.platform === "linux" && typeof process.getuid === "function" && process.getuid() === 0) {
-  app.commandLine.appendSwitch("no-sandbox");
+// Run without Chromium's sandbox on Linux when it genuinely can't work (issues #32, #38),
+// and only then — forcing it unconditionally blanked the window for ordinary non-root
+// desktop AppImage users whose sandbox is fine (the #32 first-fix regression). It's safe
+// wherever we do apply it: the renderer only ever loads this app's own 127.0.0.1 UI.
+//
+// Two cases need it:
+//   1. Running as root — Electron's SUID sandbox refuses to init as root (headless boxes).
+//   2. The SUID helper is present but not owned by root with mode 4755. Chromium FATAL-
+//      aborts on this ("The SUID sandbox helper binary was found, but is not configured
+//      correctly…"), which is exactly what killed GNOME autostart in #38: the AppImage
+//      mounts under /tmp where the helper never gets its setuid bit. A correctly-installed
+//      sandbox fails this check false, so those users keep their working sandbox untouched.
+const _pathEarly = require("path");
+const _fsEarly = require("fs");
+function suidSandboxBroken() {
+  try {
+    const helper = _pathEarly.join(_pathEarly.dirname(process.execPath), "chrome-sandbox");
+    const st = _fsEarly.statSync(helper); // throws when the helper isn't there at all
+    const setuid = (st.mode & 0o4000) !== 0;
+    return st.uid !== 0 || !setuid;
+  } catch {
+    // No helper (or unreadable): let Electron fall back to its namespace sandbox rather
+    // than forcing --no-sandbox — that's the path ordinary desktop AppImages take fine.
+    return false;
+  }
+}
+if (process.platform === "linux" && typeof process.getuid === "function") {
+  if (process.getuid() === 0 || suidSandboxBroken()) {
+    app.commandLine.appendSwitch("no-sandbox");
+  }
 }
 const path = require("path");
 const fs = require("fs");
@@ -31,7 +52,10 @@ const http = require("http");
 const crypto = require("crypto");
 
 const isDev = process.env.NODE_ENV === "development";
-const PORT = 4317;
+// The port the Next server (the whole UI) listens on. Default 4317, but overridable via a
+// marker file so a host whose provider only allows a specific port range can move it. Read
+// once at startup (below, after dataDir is available) and updated live by the port IPC.
+let PORT = 4317;
 
 // Per-launch secret proving a request is the trusted desktop app rather than a Remote
 // Access guest (lib/remoteauth). Passed to the server as env and pre-set as an HttpOnly
@@ -99,6 +123,19 @@ function readBindHost() {
   } catch {}
   return "127.0.0.1";
 }
+
+// Which port the Next server should listen on. Loopback-default 4317 unless the user moved
+// it in Remote Access; the choice is mirrored into a marker file (the DB is the source of
+// truth) so we can read it here without opening sqlite before the server is up. Out-of-range
+// values fall back to the default rather than trying to bind a port we never could.
+function readPort() {
+  try {
+    const p = Number(JSON.parse(fs.readFileSync(path.join(dataDir(), "remote-port.json"), "utf8")).port);
+    if (Number.isInteger(p) && p >= 1024 && p <= 65535) return p;
+  } catch {}
+  return 4317;
+}
+PORT = readPort();
 
 function resourcePath() {
   // In a packaged app, the standalone server lives under resources/app.
@@ -582,4 +619,21 @@ ipcMain.handle("remote-set-lanbind", async (_e, enabled) => {
   try { fs.writeFileSync(path.join(dataDir(), "remote-bind.json"), JSON.stringify({ host }), "utf8"); } catch {}
   const ok = await restartNextServer();
   return { ok, host };
+});
+
+// Remote Access — change the port the whole UI listens on. Persist the marker, restart the
+// server on the new port, then walk the window over to it (the old port is now dead). The
+// renderer's own page is discarded by that navigation, so it needs nothing back but the result.
+ipcMain.handle("remote-get-port", () => PORT);
+ipcMain.handle("remote-set-port", async (_e, port) => {
+  const n = Number(port);
+  if (!Number.isInteger(n) || n < 1024 || n > 65535) return { ok: false, port: PORT };
+  if (n === PORT) return { ok: true, port: PORT };
+  try { fs.writeFileSync(path.join(dataDir(), "remote-port.json"), JSON.stringify({ port: n }), "utf8"); } catch {}
+  PORT = n;
+  const ok = await restartNextServer();
+  if (ok && mainWindow) {
+    try { mainWindow.loadURL(`http://127.0.0.1:${PORT}/remote-access`); } catch {}
+  }
+  return { ok, port: PORT };
 });

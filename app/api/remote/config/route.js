@@ -37,10 +37,19 @@ function writeBindMarker(lan) {
   catch { /* non-fatal — main.js falls back to loopback */ }
 }
 
+// Same idea for the chosen port: main.js reads this marker at (re)start to bind the server.
+function writePortMarker(port) {
+  try { fs.writeFileSync(P.remotePort(), JSON.stringify({ port }), "utf8"); }
+  catch { /* non-fatal — main.js falls back to the default port */ }
+}
+
 function state(req) {
   return {
     enabled: ra.isEnabled(),
     lanBind: ra.lanBindEnabled(),
+    // The port electron will bind on the next (re)start — what the input should show, and
+    // which may differ from the port this request came in on until that restart happens.
+    configuredPort: ra.managerPort(),
     ...urls(req),
   };
 }
@@ -58,6 +67,16 @@ export async function POST(req) {
   let enabledNow = false;
   if ("enabled" in b) { ra.setEnabled(!!b.enabled); enabledNow = !!b.enabled; }
   if ("lanBind" in b) { ra.setLanBind(!!b.lanBind); writeBindMarker(!!b.lanBind); }
+  if ("port" in b) {
+    // Reject an out-of-range port up front so the user sees why, rather than silently
+    // clamping to the default and leaving them puzzled.
+    const n = Number(b.port);
+    if (!Number.isInteger(n) || n < 1024 || n > 65535) {
+      return NextResponse.json({ ok: false, error: "Port must be a whole number between 1024 and 65535." }, { status: 400 });
+    }
+    const saved = ra.setManagerPort(n);
+    writePortMarker(saved);
+  }
 
   const res = NextResponse.json({ ok: true, ...state(req) });
   // The session that enables Remote Access must stay trusted afterwards: hand it the admin

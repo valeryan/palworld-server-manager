@@ -64,6 +64,17 @@ export default function PlayersPanel({ worldId, players, onChange }) {
     finally { setSavingCfg(false); }
   };
 
+  // Forget a leftover platform/account-name row — the residual name a connect logged before
+  // the in-game name loaded. Removes it from the board and from the stored join history.
+  const purgePlayer = async (s) => {
+    if (!confirm(t("players.purgeConfirm", { name: s.name || "—" }))) return;
+    try {
+      await api(`/api/worlds/${worldId}/player-stats`, { method: "DELETE", body: { id: s.id, name: s.name } });
+      setStats((cur) => (cur || []).filter((x) => x.id !== s.id));
+      toast(t("players.purged"), "success");
+    } catch (e) { toast(e.message, "error"); }
+  };
+
   // The leaderboard reads from the DB, so it refreshes on its own cadence (independent of
   // the live-player poll) and right after a kick/ban changes who's around.
   useEffect(() => {
@@ -198,6 +209,7 @@ export default function PlayersPanel({ worldId, players, onChange }) {
                     t("players.currentStreak"), t("players.longestStreak"), t("players.totalLogins")].map((h, i) => (
                     <th key={i} className="subtle" title={hasMod && h === t("players.modStreak") ? t("players.modStreakTip") : undefined} style={{ padding: "0.4rem 0.6rem", fontFamily: "var(--font-display)", fontSize: "0.68rem", textTransform: "uppercase", letterSpacing: "0.04em", textAlign: i >= 3 ? "center" : "left" }}>{h}</th>
                   ))}
+                  <th style={{ width: 32 }} />
                 </tr>
               </thead>
               <tbody>
@@ -229,6 +241,16 @@ export default function PlayersPanel({ worldId, players, onChange }) {
                       </td>
                       <td style={{ padding: "0.55rem 0.6rem", fontWeight: 700, textAlign: "center" }}>{s.longestStreak || "—"}</td>
                       <td style={{ padding: "0.55rem 0.6rem", fontWeight: 700, textAlign: "center" }} className="subtle">{s.totalLogins}</td>
+                      <td style={{ padding: "0.35rem 0.4rem", textAlign: "center" }}>
+                        {/* Mod-only rows come from the mod's own file, so there's nothing here to purge. */}
+                        {!s.modOnly && (
+                          <button
+                            className="btn btn-ghost" onClick={() => purgePlayer(s)}
+                            title={t("players.purgeTitle")} aria-label={t("players.purgeTitle")}
+                            style={{ padding: "0.1rem 0.4rem", fontSize: "0.8rem", lineHeight: 1, color: "var(--muted)" }}
+                          >×</button>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}

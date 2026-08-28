@@ -210,6 +210,9 @@ export default function DiscordBotPanel({ world }) {
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  // The "Playing …" presence form. Kept in sync with the saved value: whenever the server
+  // hands back a (normalized) presence — including after our own save — mirror it here.
+  const [presence, setPresence] = useState({ type: "none", text: "", url: "" });
 
   // Roles and members come from Discord live, so they go stale the moment someone adds
   // a role over there. Kept separate from the config load so Refresh can re-pull just
@@ -237,6 +240,11 @@ export default function DiscordBotPanel({ world }) {
   };
 
   useEffect(() => { load(); }, [load]);
+  // Reflect the saved presence into the form whenever it changes on the server side.
+  const pType = cfg?.presence?.type, pText = cfg?.presence?.text, pUrl = cfg?.presence?.url;
+  useEffect(() => {
+    if (pType !== undefined) setPresence({ type: pType || "none", text: pText || "", url: pUrl || "" });
+  }, [pType, pText, pUrl]);
   // The link only completes once someone runs /authorize over in Discord, so poll
   // while we're waiting rather than making them reload the page to see it land.
   useEffect(() => {
@@ -262,6 +270,9 @@ export default function DiscordBotPanel({ world }) {
     const ok = await save({ token: token.trim() }, t("bot.tokenSaved"));
     if (ok) setToken(""); // never leave the secret sitting in the field
   };
+
+  const savePresence = () =>
+    save({ presence: { type: presence.type, text: presence.text.trim(), url: presence.url.trim() } }, t("bot.presenceSaved"));
 
   const removeBot = async () => {
     if (!confirm(t("bot.confirmRemove"))) return;
@@ -398,6 +409,54 @@ export default function DiscordBotPanel({ world }) {
             >
               {t("bot.copyInvite")}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ---- bot presence: the "Playing …" line under its name ---- */}
+      {cfg.hasToken && (
+        <div className="panel" style={panel}>
+          <h3 className="heading" style={step}>{t("bot.presenceTitle")}</h3>
+          <p className="subtle" style={{ fontSize: "0.8rem" }}>{t("bot.presenceDesc")}</p>
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+            <select
+              className="input" style={{ maxWidth: 210 }} value={presence.type}
+              onChange={(e) => setPresence({ ...presence, type: e.target.value })} disabled={busy}
+            >
+              {(cfg.presenceTypes || []).map((ty) => (
+                <option key={ty} value={ty}>{t(`bot.presence_${ty}`)}</option>
+              ))}
+            </select>
+            {presence.type !== "none" && (
+              <input
+                className="input" style={{ flex: "1 1 260px" }} maxLength={128}
+                placeholder={presence.type === "custom" ? t("bot.presenceCustomPlaceholder") : t("bot.presenceTextPlaceholder")}
+                value={presence.text} onChange={(e) => setPresence({ ...presence, text: e.target.value })} disabled={busy}
+              />
+            )}
+          </div>
+          {presence.type === "streaming" && (
+            <div style={{ marginTop: "0.5rem" }}>
+              <input
+                className="input" style={{ maxWidth: 440 }} placeholder={t("bot.presenceUrlPlaceholder")}
+                value={presence.url} onChange={(e) => setPresence({ ...presence, url: e.target.value })} disabled={busy}
+              />
+              <p className="subtle" style={{ fontSize: "0.72rem", marginTop: "0.35rem", marginBottom: 0 }}>{t("bot.presenceUrlHint")}</p>
+            </div>
+          )}
+          <div style={{ marginTop: "0.7rem", display: "flex", alignItems: "center", gap: "0.7rem", flexWrap: "wrap" }}>
+            <button className="btn btn-primary" onClick={savePresence} disabled={busy || (presence.type !== "none" && !presence.text.trim())}>
+              {t("common.save")}
+            </button>
+            {presence.type !== "none" && presence.text.trim() && (
+              <span className="subtle" style={{ fontSize: "0.76rem" }}>
+                {t("bot.presencePreview", {
+                  text: presence.type === "custom"
+                    ? presence.text
+                    : `${t(`bot.presence_${presence.type}`)} ${presence.text}`,
+                })}
+              </span>
+            )}
           </div>
         </div>
       )}
