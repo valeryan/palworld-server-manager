@@ -55,9 +55,15 @@ export default function RemoteAccessPage() {
       if (isElectron && window.desktop?.setManagerPort) {
         setRestarting(true);
         toast(t("remote.portApplying", { port: n }), "success");
-        // Restarts the server and walks the window to the new port — this page then reloads,
-        // so anything after here usually doesn't run.
-        await window.desktop.setManagerPort(n);
+        // On success the app rebinds and navigates the window to the new port, so this page
+        // unmounts and nothing below runs. If it couldn't rebind — a dev build, where the
+        // server is pinned by `next dev -p` and Electron doesn't own it — the window stays
+        // put; say so honestly and refresh so the "still on port X" note appears.
+        const res = await window.desktop.setManagerPort(n);
+        if (!res || !res.ok) {
+          toast(t(cfg.dev ? "remote.portDevBlocked" : "remote.portRestartFailed", { port: n }), cfg.dev ? "success" : "error");
+          await loadCfg();
+        }
       } else {
         toast(t("remote.portSavedWeb", { port: n }), "success");
         await loadCfg();
@@ -180,6 +186,15 @@ export default function RemoteAccessPage() {
           </button>
           <span className="subtle" style={{ fontSize: "0.78rem", fontWeight: 600 }}>{t("remote.portCurrent", { port: cfg.configuredPort })}</span>
         </div>
+        {cfg.dev ? (
+          <p className="subtle" style={{ fontSize: "0.76rem", fontWeight: 600, marginTop: "0.6rem", marginBottom: 0 }}>
+            {t("remote.portDevNote", { live: cfg.port })}
+          </p>
+        ) : cfg.configuredPort !== cfg.port ? (
+          <p style={{ fontSize: "0.76rem", fontWeight: 600, marginTop: "0.6rem", marginBottom: 0, color: "var(--yellow)" }}>
+            {t("remote.portPending", { configured: cfg.configuredPort, live: cfg.port })}
+          </p>
+        ) : null}
         {!isElectron && (
           <p className="subtle" style={{ fontSize: "0.76rem", marginTop: "0.6rem", marginBottom: 0 }}>{t("remote.portWebNote")}</p>
         )}

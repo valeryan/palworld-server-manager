@@ -3,27 +3,16 @@
 All notable changes to Palworld Server Manager are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [2.10.0] — 2026-08-29
 
 ### Added
-- **Set the Discord bot's status.** The **Discord Bot** tab has a new **Bot status** card to give the
-  bot a presence line under its name — Playing, Streaming, Watching, Competing in, or a free-form
-  **Custom** status. Streaming shows Discord's purple label when given a Twitch/YouTube link. The change
-  applies live while the bot is online. (Requested by a user.)
-- **Change the manager port.** **Remote Access** has a new **Manager port** setting so the whole UI can
-  move off the default `4317` — for hosts or providers that only allow a specific port range. Applying
-  it restarts the local server and reloads the window on the new port. (Requested by a user.)
-- **Remove a player from Player Activity.** Each row on the Players tab's activity board has an **×** to
-  forget that player's stored join history — for clearing a leftover platform/account name that lingered
-  from a connect logged before the in-game name loaded. (Requested by a user.)
+- Discord bot status — give the bot a Playing / Streaming / Watching / Competing / Custom activity line, applied live.
+- Configurable manager port — move the whole UI off the default 4317 for hosts with a restricted port range.
+- Remove a player from Player Activity — clear out a leftover platform/account name from the board.
 
 ### Fixed
-- **Linux AppImage autostart no longer crashes with a chrome-sandbox error.** Launched at login (GNOME
-  autostart), the AppImage mounts under `/tmp` where its sandbox helper never gets its setuid bit, so
-  Chromium aborted with "The SUID sandbox helper binary … is not configured correctly". The app now
-  detects that exact condition and disables the sandbox only then — so autostart works, while desktop
-  users whose sandbox is correctly configured keep it (no repeat of the 2.8.11 blank-window regression).
-  (Reported in #38.)
+- Linux AppImage autostart no longer crashes with a chrome-sandbox error (#38).
+- A server that won't start with the console window hidden now auto-retries via `PalServer.exe`, with a hint pointing at the toggle.
 
 ## [2.9.2] — 2026-08-15
 

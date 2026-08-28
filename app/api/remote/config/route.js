@@ -50,6 +50,10 @@ function state(req) {
     // The port electron will bind on the next (re)start — what the input should show, and
     // which may differ from the port this request came in on until that restart happens.
     configuredPort: ra.managerPort(),
+    // In a dev build the server is pinned by `next dev -p` and Electron doesn't own it, so a
+    // port change can't take effect (even across restarts) — the UI uses this to say so
+    // rather than telling the user to restart, which wouldn't help here.
+    dev: process.env.NODE_ENV !== "production",
     ...urls(req),
   };
 }
