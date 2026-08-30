@@ -20,6 +20,11 @@ export function middleware(req) {
     pathname.startsWith("/api") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/locales") ||
+    // Static map assets (the Palworld world image + its calibration) the Map tab loads
+    // directly. Without this a guest's <img>/fetch for them is redirected to /remote, so
+    // the map falls back to the plain abstract backdrop. The trailing slash keeps this to
+    // the /map/ asset dir and NOT the /map-calibration admin page. Public files, safe to serve.
+    pathname.startsWith("/map/") ||
     pathname === "/icon.png" ||
     pathname === "/favicon.ico"
   ) return NextResponse.next();
