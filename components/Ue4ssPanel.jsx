@@ -87,14 +87,36 @@ export default function Ue4ssPanel({ worldId, running }) {
           </p>
           <p className="subtle" style={{ fontWeight: 600, fontSize: "0.78rem", margin: "0 0 10px" }}>
             {t("ue4ss.getUe4ssLabel")}{" "}
+            <a href="https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest" target="_blank" rel="noreferrer"
+              style={{ color: "var(--accent)", fontWeight: 700 }}>{t("ue4ss.experimentalLink")}</a>
+            {" · "}
             <a href="https://pwmodding.wiki/docs/users/ue4ss/installation-server" target="_blank" rel="noreferrer"
               style={{ color: "var(--accent)", fontWeight: 700 }}>{t("ue4ss.installGuide")}</a>
             {" · "}
             <a href="https://github.com/UE4SS-RE/RE-UE4SS/releases" target="_blank" rel="noreferrer"
               style={{ color: "var(--accent)", fontWeight: 700 }}>{t("ue4ss.releases")}</a>
           </p>
+          <p className="subtle" style={{ fontWeight: 600, fontSize: "0.74rem", margin: "0 0 10px" }}>{t("ue4ss.experimentalNote")}</p>
           <button className="btn btn-primary" style={{ padding: "0.4rem 0.8rem" }} disabled={busy || running} onClick={installUe4ss}>
             <Icon name="upload" size={15} /> {t("ue4ss.installBtn")}
+          </button>
+          {running && <span className="subtle" style={{ fontWeight: 700, fontSize: "0.74rem", marginLeft: 8 }}>{t("ue4ss.stopFirst")}</span>}
+        </div>
+      )}
+
+      {data.installed && data.offsetTableMissing && (
+        <div className="panel-inset" style={{ padding: "0.8rem 1rem", borderLeft: "3px solid var(--red)", marginBottom: "1rem" }}>
+          <div style={{ fontWeight: 800, fontSize: "0.86rem", marginBottom: 4, color: "var(--red)" }}>{t("ue4ss.offsetMissingTitle")}</div>
+          <p className="subtle" style={{ fontWeight: 600, fontSize: "0.78rem", margin: "0 0 8px" }}>
+            <Trans i18nKey="ue4ss.offsetMissingDesc" components={{ code: <code /> }} />
+          </p>
+          <p className="subtle" style={{ fontWeight: 600, fontSize: "0.78rem", margin: "0 0 10px" }}>
+            {t("ue4ss.getExperimentalLabel")}{" "}
+            <a href="https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest" target="_blank" rel="noreferrer"
+              style={{ color: "var(--accent)", fontWeight: 700 }}>{t("ue4ss.experimentalLink")}</a>
+          </p>
+          <button className="btn btn-primary" style={{ padding: "0.35rem 0.7rem" }} disabled={busy || running} onClick={installUe4ss}>
+            <Icon name="upload" size={15} /> {t("ue4ss.reinstallBtn")}
           </button>
           {running && <span className="subtle" style={{ fontWeight: 700, fontSize: "0.74rem", marginLeft: 8 }}>{t("ue4ss.stopFirst")}</span>}
         </div>

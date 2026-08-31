@@ -31,10 +31,14 @@ export default function DeathsPanel({ worldId, running, onGoToUe4ss, onGoToDisco
   }, [load]);
 
   const installMod = async () => {
+    // UE4SS is present but missing its offset table (MemberVariableLayout.ini): enabling the
+    // relay would crash the server on the first death. Make the user acknowledge before install.
+    if (data?.offsetTableMissing && !confirm(t("deaths.offsetMissingConfirm"))) return;
     setInstalling(true);
     try {
       const r = await api(`/api/worlds/${worldId}/deaths`, { method: "POST" });
-      toast(r.ue4ssDetected ? t("deaths.installedRestart") : t("deaths.copiedNoUe4ss"),
+      if (r.offsetTableMissing) toast(t("deaths.offsetMissingInstalled"), "error");
+      else toast(r.ue4ssDetected ? t("deaths.installedRestart") : t("deaths.copiedNoUe4ss"),
         r.ue4ssDetected ? "success" : "error");
       load();
     } catch (e) { toast(e.message, "error"); }
@@ -89,6 +93,24 @@ export default function DeathsPanel({ worldId, running, onGoToUe4ss, onGoToDisco
         </div>
       )}
 
+      {/* UE4SS present but its offset table (MemberVariableLayout.ini) is missing. Hooking a
+          game event without it crashes the dedicated server on death — a native access
+          violation Lua can't catch. Warn loudly and point at the UE4SS tab to reinstall. */}
+      {data && data.ue4ssInstalled && data.offsetTableMissing && (
+        <div className="panel-inset" style={{ padding: "0.8rem 1rem", borderLeft: "3px solid var(--red)" }}>
+          <div style={{ fontWeight: 800, fontSize: "0.9rem", marginBottom: 4, color: "var(--red)" }}>{t("deaths.offsetMissingTitle")}</div>
+          <p className="subtle" style={{ fontWeight: 600, fontSize: "0.78rem", margin: "0 0 8px" }}>{t("deaths.offsetMissingDesc")}</p>
+          <p className="subtle" style={{ fontWeight: 600, fontSize: "0.78rem", margin: "0 0 8px" }}>
+            {t("deaths.offsetMissingGet")}{" "}
+            <a href="https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest" target="_blank" rel="noreferrer"
+              style={{ color: "var(--accent)", fontWeight: 700 }}>{t("deaths.offsetMissingLink")}</a>
+          </p>
+          <button className="btn btn-primary" style={{ padding: "0.35rem 0.7rem" }} onClick={onGoToUe4ss}>
+            <Icon name="shield" size={15} /> {t("deaths.offsetMissingFix")}
+          </button>
+        </div>
+      )}
+
       {/* Step 2: UE4SS present but relay not installed */}
       {data && data.ue4ssInstalled && !data.modInstalled && (
         <div className="panel-inset" style={{ padding: "0.8rem 1rem", borderLeft: "3px solid var(--yellow)" }}>
@@ -110,6 +132,10 @@ export default function DeathsPanel({ worldId, running, onGoToUe4ss, onGoToDisco
           </div>
           <button className="btn btn-ghost" style={{ padding: "0.3rem 0.6rem", fontSize: "0.76rem" }} onClick={onGoToDiscord}>
             <Icon name="bell" size={14} /> {t("deaths.configureDiscord")}
+          </button>
+          <button className="btn btn-ghost" style={{ padding: "0.3rem 0.6rem", fontSize: "0.76rem" }}
+            onClick={installMod} disabled={installing || running} title={running ? t("deaths.stopToChange") : t("deaths.updateModHint")}>
+            <Icon name="download" size={14} /> {installing ? t("deaths.installing") : t("deaths.updateMod")}
           </button>
           <button className="btn btn-danger" style={{ padding: "0.3rem 0.6rem", fontSize: "0.76rem" }}
             onClick={removeMod} disabled={removing || running} title={running ? t("deaths.stopToRemove") : undefined}>

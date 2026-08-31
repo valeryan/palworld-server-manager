@@ -3,6 +3,16 @@
 All notable changes to Palworld Server Manager are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.11.0] — 2026-08-30
+
+### Added
+- Death tracking now warns when your UE4SS is missing `MemberVariableLayout.ini` — the offset table whose absence hard-crashes the dedicated server on the first player death (a native crash Lua can't catch), even when the UE4SS version looks correct. The Deaths and UE4SS tabs flag it, link the Experimental UE4SS build (which includes the file), and prompt a reinstall before you enable the relay.
+- Direct link to the Experimental UE4SS build (required for Palworld) on the Mods/UE4SS page, plus an "Update mod" button on the Deaths tab to re-copy the bundled relay without removing it first.
+
+### Fixed
+- Death messages name the killer again. The relay had been reduced to "death-only" (no killer) after the crash above was mis-blamed on its killer-attribution hook; with the real cause found, attribution is restored — so the feed shows the Pal/player who killed you and the cause, and Discord routes to the correct template (killed by a Pal / killed by a player / environmental) instead of always using the environmental one.
+- Remote Access now shows the real Palworld map for guests instead of the plain fallback backdrop (guest requests for the map image/calibration were being redirected away).
+
 ## [2.10.0] — 2026-08-29
 
 ### Added

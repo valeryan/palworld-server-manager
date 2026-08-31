@@ -18,8 +18,8 @@ export async function GET(req, { params }) {
   try {
     if (sup.isRunning(params.id) || sup.pidAlive(w.process_id)) sup.ensureDeathTail(params.id, w.install_dir);
   } catch {}
-  let ue4ssInstalled = false;
-  try { ue4ssInstalled = ue4ss.detect(w.install_dir).installed; } catch {}
+  let ue4ssInstalled = false, offsetTableMissing = false;
+  try { const d = ue4ss.detect(w.install_dir); ue4ssInstalled = d.installed; offsetTableMissing = d.offsetTableMissing; } catch {}
 
   // Re-resolve each death's killer name from its raw codename through the current
   // world -> global -> default override chain, so renaming a Pal (or naming a new one)
@@ -40,6 +40,7 @@ export async function GET(req, { params }) {
     counts: dbm.deathCounts(params.id, 50),
     modInstalled: sup.deathModInstalled(w.install_dir),
     ue4ssInstalled,
+    offsetTableMissing,
     bundledAvailable: !!sup.bundledDeathModDir(),
   });
 }
@@ -53,8 +54,10 @@ export async function POST(req, { params }) {
   if (sup.isRunning(params.id)) return NextResponse.json({ ok: false, error: "Stop the server before changing mods." }, { status: 409 });
   try {
     const res = sup.installDeathMod(w.install_dir);
+    let offsetTableMissing = false;
+    try { offsetTableMissing = ue4ss.detect(w.install_dir).offsetTableMissing; } catch {}
     dbm.logEvent(params.id, "mods", "Installed death tracking mod (PSMDeathRelay)");
-    return NextResponse.json({ ok: true, ...res });
+    return NextResponse.json({ ok: true, ...res, offsetTableMissing });
   } catch (e) {
     return NextResponse.json({ ok: false, error: e.message }, { status: 400 });
   }
