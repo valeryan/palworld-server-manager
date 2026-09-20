@@ -16,8 +16,8 @@ gate** is checked.
 - [x] Detect port conflicts between registered worlds
 - [x] Register a new Linux or Windows/Wine world
 - [ ] Edit every world property in the UI — **Partial: API exists; UI is incomplete**
-- [ ] Adopt an existing installation with an explicit confirmation flow
-- [ ] Remove a registration with confirmation without deleting server files
+- [x] Adopt an existing installation with an explicit selection flow
+- [x] Remove a registration with confirmation without deleting server files
 - [x] Keep jobs, logs, backups, and configuration records isolated by world
 - [ ] Import/export a portable world registration
 
@@ -27,7 +27,7 @@ gate** is checked.
 - [x] Fleet list uses the original Start/Stop/Manage hierarchy
 - [x] Dedicated per-world workspace with a persistent status header
 - [x] Core tabs follow Overview, Players, Console, Settings, Backups, Schedule, Admin
-- [ ] Operations/download progress has a dedicated navigation destination
+- [x] Operations/download progress has a dedicated navigation destination
 
 ## Installation and updates
 
@@ -128,7 +128,8 @@ gate** is checked.
 - [x] Single-instance lock and tray support
 - [x] User-confirmed rendering through the KDE/RDP session
 - [ ] Directory picker wired into world forms
-- [ ] Desktop settings for close-to-tray and startup behavior
+- [x] Desktop setting for close-to-tray behavior
+- [ ] Desktop setting for launch-at-login behavior
 - [ ] LAN binding and manager-port configuration
 
 ## Migration and safety

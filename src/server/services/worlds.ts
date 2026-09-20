@@ -88,6 +88,14 @@ export async function createWorld(raw: unknown): Promise<WorldView> {
   return (await getWorld(row.id))!;
 }
 
+export async function adoptWorld(raw: unknown): Promise<WorldView> {
+  const input = createWorldSchema.parse(raw);
+  const executable = input.platform === "windows" ? "PalServer.exe" : "PalServer.sh";
+  try { await access(path.join(input.installDir, executable)); }
+  catch { throw new Error(`Existing installation is missing ${executable}.`); }
+  return createWorld(input);
+}
+
 export async function updateWorld(id: string, raw: unknown): Promise<WorldView> {
   const current = await getWorld(id);
   if (!current) throw new Error("World not found.");

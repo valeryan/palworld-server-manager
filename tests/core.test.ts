@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { pathsOverlap } from "@/server/services/worlds";
+import { adoptWorld, pathsOverlap } from "@/server/services/worlds";
 import { commandFor, parseArguments } from "@/server/services/processes";
 import { createWorldSchema } from "@/contracts/world";
 import { createScheduleSchema } from "@/contracts/schedule";
@@ -16,6 +16,9 @@ describe("world isolation", () => {
     expect(pathsOverlap("/srv/pal/a", "/srv/pal/ab")).toBe(false);
   });
   it("rejects invalid ports", () => { expect(() => createWorldSchema.parse({ displayName: "x", installDir: "/tmp/x", gamePort: 70_000 })).toThrow(); });
+  it("rejects adoption when the platform executable is missing", async () => {
+    await expect(adoptWorld({ displayName: "missing", installDir: path.join(tmpdir(), "psm-missing-install"), platform: "linux" })).rejects.toThrow("missing PalServer.sh");
+  });
 });
 
 describe("launch argument parser", () => {

@@ -1,4 +1,4 @@
-import { createWorld, listWorlds } from "@/server/services/worlds";
+import { adoptWorld, createWorld, listWorlds } from "@/server/services/worlds";
 import { errorResponse, publicWorld, requireAdmin } from "@/server/http";
 
 export const runtime = "nodejs";
@@ -11,6 +11,6 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const denied = requireAdmin(request); if (denied) return denied;
-  try { return Response.json({ ok: true, world: publicWorld(await createWorld(await request.json())) }, { status: 201 }); }
+  try { const body = await request.json(); const world = new URL(request.url).searchParams.get("mode") === "adopt" ? await adoptWorld(body) : await createWorld(body); return Response.json({ ok: true, world: publicWorld(world) }, { status: 201 }); }
   catch (error) { return errorResponse(error); }
 }

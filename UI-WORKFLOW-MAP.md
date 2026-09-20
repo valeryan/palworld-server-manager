@@ -6,6 +6,7 @@ not for implementation architecture or pixel-perfect styling.
 | Operator task | Original workflow | Rewrite target |
 | --- | --- | --- |
 | Choose a server | Worlds fleet list | Worlds fleet list |
+| Add a server | Choose install-new or use-existing | Choose install-new or use-existing |
 | Start or stop quickly | Controls on the world row | Controls on the world row |
 | Manage one server | Open a dedicated world page | Open a dedicated world workspace |
 | Check health | World header and Overview | World header, quick statistics, Overview |
@@ -16,6 +17,7 @@ not for implementation architecture or pixel-perfect styling.
 | Automate operations | Schedule tab | Schedule tab |
 | Change manager/launch settings | Admin tab | Admin tab |
 | Follow installs and updates | Downloads navigation/page | Operations navigation/page |
+| Change application behavior | Settings navigation/page | Settings navigation/page |
 
 Core rules:
 

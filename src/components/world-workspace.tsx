@@ -2,10 +2,10 @@
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import type { ReactNode } from "react";
 import type { WorldView } from "@/contracts/world";
-import { WorldEditDialog } from "./world-edit-dialog";
-import { WorldSchedulesDialog } from "./world-schedules-dialog";
+import { WorldAdminPanel } from "./world-edit-dialog";
+import { WorldSchedulesPanel } from "./world-schedules-dialog";
+import { AppShell } from "./app-shell";
 
 type SafeWorld = Omit<WorldView, "adminPassword" | "serverPassword" | "env">;
 type Tab = "overview" | "players" | "console" | "settings" | "backups" | "schedule" | "admin";
@@ -13,6 +13,7 @@ type Live = { reachable: boolean; info?: Record<string, unknown>; players?: { pl
 type Activity = { events: Array<{ id: number; kind: string; message: string; createdAt: number }>; sessions: Array<{ id: number; playerName: string | null; event: string; createdAt: number }> };
 type Logs = { selected: string | null; sizeBytes?: number; content: string };
 type Configuration = { path: string; exists: boolean; content: string; running: boolean };
+type ConfigVersion = { id: string; note: string | null; createdAt: number; sizeBytes: number };
 type Backup = { id: string; filePath: string; sizeBytes: number; reason: string; verified: boolean; createdAt: number };
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> { const response = await fetch(url, { ...init, headers: { "content-type": "application/json", ...init?.headers } }); const body = await response.json(); if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`); return body; }
@@ -20,21 +21,23 @@ const tabs: Array<{ id: Tab; label: string }> = [{ id: "overview", label: "Overv
 const stamp = (value: number) => new Date(value).toLocaleString();
 
 export function WorldWorkspace({ worldId }: { worldId: string }) {
-  const client = useQueryClient(); const [tab, setTab] = useState<Tab>("overview"); const [notice, setNotice] = useState<string | null>(null); const [editOpen, setEditOpen] = useState(false); const [scheduleOpen, setScheduleOpen] = useState(false); const [draft, setDraft] = useState<string | null>(null);
+  const client = useQueryClient(); const [tab, setTab] = useState<Tab>("overview"); const [notice, setNotice] = useState<string | null>(null); const [draft, setDraft] = useState<string | null>(null);
   const worldQuery = useQuery({ queryKey: ["world", worldId], queryFn: async () => (await json<{ world: SafeWorld }>(`/api/worlds/${worldId}`)).world, refetchInterval: 4_000 });
   const world = worldQuery.data;
   const liveQuery = useQuery({ queryKey: ["world-status", worldId], queryFn: async () => (await json<{ status: Live }>(`/api/worlds/${worldId}/status`)).status, refetchInterval: world?.status === "running" ? 5_000 : false });
   const activityQuery = useQuery({ queryKey: ["world-activity", worldId], queryFn: async () => (await json<{ activity: Activity }>(`/api/worlds/${worldId}/activity`)).activity, refetchInterval: 10_000 });
   const logsQuery = useQuery({ queryKey: ["world-logs", worldId], queryFn: async () => (await json<{ logs: Logs }>(`/api/worlds/${worldId}/logs`)).logs, refetchInterval: tab === "console" && world?.status === "running" ? 2_000 : false });
   const configurationQuery = useQuery({ queryKey: ["configuration", worldId], queryFn: async () => (await json<{ configuration: Configuration }>(`/api/worlds/${worldId}/configuration`)).configuration });
+  const versionsQuery = useQuery({ queryKey: ["configuration-versions", worldId], queryFn: async () => (await json<{ versions: ConfigVersion[] }>(`/api/worlds/${worldId}/configuration/versions`)).versions });
   const backupsQuery = useQuery({ queryKey: ["backups", worldId], queryFn: async () => (await json<{ backups: Backup[] }>(`/api/worlds/${worldId}/backups`)).backups });
   const action = useMutation({ mutationFn: (payload: Record<string, unknown>) => json<{ jobId: string }>(`/api/worlds/${worldId}/actions`, { method: "POST", body: JSON.stringify(payload) }), onSuccess: () => { setNotice("Operation queued"); void client.invalidateQueries({ queryKey: ["world", worldId] }); }, onError: (error) => setNotice(error.message) });
-  const saveConfig = useMutation({ mutationFn: () => json(`/api/worlds/${worldId}/configuration`, { method: "PUT", body: JSON.stringify({ content: draft ?? configurationQuery.data?.content ?? "" }) }), onSuccess: () => { setNotice("Configuration saved; restart to apply changes"); void configurationQuery.refetch(); }, onError: (error) => setNotice(error.message) });
-  if (worldQuery.isLoading) return <WorkspaceShell><div className="empty">Loading world…</div></WorkspaceShell>;
-  if (!world) return <WorkspaceShell><div className="empty error">World not found.</div></WorkspaceShell>;
+  const saveConfig = useMutation({ mutationFn: () => json(`/api/worlds/${worldId}/configuration`, { method: "PUT", body: JSON.stringify({ content: draft ?? configurationQuery.data?.content ?? "" }) }), onSuccess: () => { setNotice("Configuration saved; restart to apply changes"); void configurationQuery.refetch(); void versionsQuery.refetch(); }, onError: (error) => setNotice(error.message) });
+  const restoreConfig = useMutation({ mutationFn: (versionId: string) => json<{ result: { content: string } }>(`/api/worlds/${worldId}/configuration/versions/${versionId}/restore`, { method: "POST" }), onSuccess: ({ result }) => { setDraft(result.content); setNotice("Configuration version restored; restart to apply changes"); void versionsQuery.refetch(); }, onError: (error) => setNotice(error.message) });
+  if (worldQuery.isLoading) return <AppShell active="worlds" className="world-workspace"><div className="empty">Loading world…</div></AppShell>;
+  if (!world) return <AppShell active="worlds" className="world-workspace"><div className="empty error">World not found.</div></AppShell>;
   const live = liveQuery.data; const metrics = live?.metrics ?? {}; const players = live?.players?.players ?? [];
   const run = (name: string) => action.mutate({ action: name });
-  return <WorkspaceShell>
+  return <AppShell active="worlds" className="world-workspace">
     <Link className="back-link" href="/">← All worlds</Link>
     {notice && <button className="notice" onClick={() => setNotice(null)}>{notice}<span>×</span></button>}
     <section className="world-banner"><div className="world-banner-head"><div className="world-icon large">{world.displayName.slice(0, 1).toUpperCase()}</div><div className="world-title"><div><h1>{world.displayName}</h1><Status value={world.status} /></div><p>{String(live?.info?.servername ?? world.installDir)}</p></div><div className="world-primary-actions">{world.status === "running" ? <><button className="button ghost" onClick={() => run("restart")}>Restart</button><button className="button danger" onClick={() => run("stop")}>Stop</button></> : <button className="button primary" onClick={() => run("start")}>Start</button>}<button className="button ghost" disabled={world.status === "running"} onClick={() => run(world.buildId ? "update" : "install")}>Update</button></div></div>
@@ -46,17 +49,13 @@ export function WorldWorkspace({ worldId }: { worldId: string }) {
       {tab === "overview" && <Overview activity={activityQuery.data} live={live} />}
       {tab === "players" && <Players players={players} reachable={Boolean(live?.reachable)} />}
       {tab === "console" && <Console logs={logsQuery.data} onRefresh={() => void logsQuery.refetch()} />}
-      {tab === "settings" && <div><div className="panel-heading"><div><h2>PalWorldSettings.ini</h2><p>{configurationQuery.data?.path}</p></div><button className="button primary" disabled={saveConfig.isPending} onClick={() => saveConfig.mutate()}>Save settings</button></div><textarea className="settings-editor" value={draft ?? configurationQuery.data?.content ?? ""} onChange={(event) => setDraft(event.target.value)} spellCheck={false} /></div>}
+      {tab === "settings" && <div><div className="panel-heading"><div><h2>PalWorldSettings.ini</h2><p>{configurationQuery.data?.path}</p></div><button className="button primary" disabled={saveConfig.isPending} onClick={() => saveConfig.mutate()}>Save settings</button></div><textarea className="settings-editor" value={draft ?? configurationQuery.data?.content ?? ""} onChange={(event) => setDraft(event.target.value)} spellCheck={false} /><h2 className="settings-history-title">Version history</h2><div className="record-list">{(versionsQuery.data ?? []).map((version) => <div key={version.id}><span><strong>{version.note ?? "configuration version"}</strong><small>{stamp(version.createdAt)} · {version.sizeBytes} bytes</small></span><button disabled={restoreConfig.isPending || world.status === "running"} onClick={() => restoreConfig.mutate(version.id)}>Restore</button></div>)}{!(versionsQuery.data ?? []).length && <p className="muted">No saved versions yet.</p>}</div></div>}
       {tab === "backups" && <Backups records={backupsQuery.data ?? []} running={world.status === "running"} onBackup={() => action.mutate({ action: "backup", reason: "manual" })} onRestore={(backupId) => { if (window.confirm("Restore this verified backup? A safety backup will be created first.")) action.mutate({ action: "restore", backupId }); }} />}
-      {tab === "schedule" && <div className="tab-empty"><h2>Automated operations</h2><p>Configure recurring verified backups and graceful restarts for this world.</p><button className="button primary" onClick={() => setScheduleOpen(true)}>Manage schedules</button></div>}
-      {tab === "admin" && <div className="tab-empty"><h2>World administration</h2><p>Network ports, launch behavior, Wine settings, autostart, and crash recovery.</p><button className="button primary" onClick={() => setEditOpen(true)}>Edit world profile</button></div>}
+      {tab === "schedule" && <WorldSchedulesPanel world={world} onNotice={setNotice} />}
+      {tab === "admin" && <WorldAdminPanel world={world} onSaved={() => void worldQuery.refetch()} onNotice={setNotice} />}
     </section>
-    {editOpen && <WorldEditDialog world={world} onClose={() => setEditOpen(false)} onSaved={() => void worldQuery.refetch()} onNotice={setNotice} />}
-    {scheduleOpen && <WorldSchedulesDialog world={world} onClose={() => setScheduleOpen(false)} onNotice={setNotice} />}
-  </WorkspaceShell>;
+  </AppShell>;
 }
-
-function WorkspaceShell({ children }: { children: ReactNode }) { return <div className="app-shell"><aside className="sidebar"><Link className="brand" href="/"><span className="brand-mark">P</span><div><strong>Palworld</strong><small>Server Manager</small></div></Link><nav><Link className="active" href="/">Worlds</Link><Link href="/#operations">Operations</Link></nav><div className="sidebar-foot"><span className="pulse" />Local manager online<small>Core-first alpha</small></div></aside><main className="workspace world-workspace">{children}</main></div>; }
 function Status({ value }: { value: SafeWorld["status"] }) { return <span className={`status status-${value}`}><i />{value}</span>; }
 function Quick({ label, value }: { label: string; value: string }) { return <article><strong>{value}</strong><span>{label}</span></article>; }
 function formatUptime(seconds: number, reachable?: boolean) { if (!reachable) return "—"; const hours = Math.floor(seconds / 3600); const minutes = Math.floor((seconds % 3600) / 60); return `${hours}h ${minutes}m`; }
