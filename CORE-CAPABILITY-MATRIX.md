@@ -64,7 +64,7 @@ gate** is checked.
 - [x] Atomic configuration writes
 - [x] Snapshot before edit and retain saved versions
 - [x] Restore a historical configuration version
-- [ ] Structured editor for common Palworld settings
+- [x] Structured editor for common Palworld settings
 - [ ] Synchronize managed ports/passwords/REST/RCON values into the INI
 - [ ] Show a clear restart-required state after changes
 - [ ] Portable configuration import/export
@@ -160,7 +160,7 @@ gate** is checked.
 - [x] Legacy importer fixture test with source immutability
 - [x] TypeScript, ESLint, Vitest, Next production build, and Electron build
 - [x] Browser smoke test against both imported copied worlds
-- [ ] Unit tests for state machines, retention, schedules, and INI transformations
+- [ ] Unit tests for state machines, retention, schedules, and INI transformations — **Partial: schedules and quote/tuple-safe INI transformations are covered**
 - [ ] Fake SteamCMD/process/REST/RCON/filesystem adapter tests
 - [ ] Playwright workflows for all critical management operations
 - [ ] Packaged Electron workflow tests

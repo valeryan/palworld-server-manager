@@ -8,6 +8,7 @@ import { commandFor, parseArguments } from "@/server/services/processes";
 import { createWorldSchema } from "@/contracts/world";
 import { createScheduleSchema } from "@/contracts/schedule";
 import { nextRun } from "@/server/services/schedules";
+import { applyConfigurationOptions, parseConfigurationOptions } from "@/server/services/configuration";
 
 describe("world isolation", () => {
   it("detects equal and nested paths", () => {
@@ -41,6 +42,17 @@ describe("schedules", () => {
   it("rejects invalid intervals and daily times", () => {
     expect(() => createScheduleSchema.parse({ action: "backup", mode: "interval", intervalMinutes: 0 })).toThrow();
     expect(() => createScheduleSchema.parse({ action: "restart", mode: "daily", timeOfDay: "25:00" })).toThrow();
+  });
+});
+
+describe("PalWorldSettings transformations", () => {
+  const ini = "[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(ServerName=\"Family, \\\"Friends\\\"\",ExpRate=1.000000,RegionBanListURL=\"\",SomeTuple=(X=1,Y=2))\n";
+  it("parses quoted commas and nested tuples", () => {
+    expect(parseConfigurationOptions(ini)).toMatchObject({ ServerName: '"Family, \\\"Friends\\\""', ExpRate: "1.000000", SomeTuple: "(X=1,Y=2)" });
+  });
+  it("updates only selected settings and preserves unknown values", () => {
+    const changed = applyConfigurationOptions(ini, { ExpRate: "2.5", bEnableFastTravel: "True" });
+    expect(parseConfigurationOptions(changed)).toMatchObject({ ServerName: '"Family, \\\"Friends\\\""', ExpRate: "2.5", SomeTuple: "(X=1,Y=2)", bEnableFastTravel: "True" });
   });
 });
 
