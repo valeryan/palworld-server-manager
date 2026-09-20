@@ -29,8 +29,16 @@ describe("legacy import", () => {
     directory = await mkdtemp(path.join(tmpdir(), "psm-import-test-"));
     const sourcePath = path.join(directory, "registry.sqlite");
     const legacy = new DatabaseSync(sourcePath);
-    legacy.exec(`CREATE TABLE worlds (world_id TEXT PRIMARY KEY, display_name TEXT NOT NULL, install_dir TEXT NOT NULL, platform TEXT, game_port INTEGER, query_port INTEGER, rest_api_port INTEGER, rcon_port INTEGER, admin_password TEXT, rest_api_enabled INTEGER, rcon_enabled INTEGER, status TEXT, autostart INTEGER, crash_guard INTEGER, created_at INTEGER);`);
+    legacy.exec(`
+      CREATE TABLE worlds (world_id TEXT PRIMARY KEY, display_name TEXT NOT NULL, install_dir TEXT NOT NULL, platform TEXT, game_port INTEGER, query_port INTEGER, rest_api_port INTEGER, rcon_port INTEGER, admin_password TEXT, rest_api_enabled INTEGER, rcon_enabled INTEGER, status TEXT, autostart INTEGER, crash_guard INTEGER, created_at INTEGER);
+      CREATE TABLE events (id INTEGER PRIMARY KEY, world_id TEXT, kind TEXT, message TEXT, created_at INTEGER);
+      CREATE TABLE sessions (id INTEGER PRIMARY KEY, world_id TEXT, user_id TEXT, player_name TEXT, event TEXT, created_at INTEGER);
+      CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT);
+    `);
     legacy.prepare("INSERT INTO worlds VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run("legacy-world", "Legacy", path.join(directory, "server"), "linux", 20101, 20102, 20103, 20104, "secret", 1, 0, "stopped", 0, 1, Date.now());
+    legacy.prepare("INSERT INTO events VALUES (1, 'legacy-world', 'start', 'Started', ?)").run(Date.now());
+    legacy.prepare("INSERT INTO sessions VALUES (1, 'legacy-world', 'player-1', 'Tester', 'join', ?)").run(Date.now());
+    legacy.prepare("INSERT INTO app_settings VALUES ('language', '\"en\"')").run();
     legacy.close();
     const before = await readFile(sourcePath);
     process.env.PALWORLD_MANAGER_DATA_DIR = path.join(directory, "next-data");
@@ -39,6 +47,8 @@ describe("legacy import", () => {
     const { getWorld } = await import("@/server/services/worlds");
     const report = await importLegacyDatabase(sourcePath);
     expect(report.imported).toEqual(["legacy-world"]);
+    expect(report.counts).toMatchObject({ worlds: 1, events: 1, sessions: 1, app_settings: 1 });
+    expect(report.verification).toEqual({ worldCount: 1, relationshipErrors: 0, criticalFieldsPresent: true });
     expect((await getWorld("legacy-world"))?.displayName).toBe("Legacy");
     expect(await readFile(sourcePath)).toEqual(before);
   });

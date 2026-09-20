@@ -11,7 +11,9 @@ export const worlds = sqliteTable("worlds", {
   extraArgs: text("extra_args").notNull().default(""), environment: text("environment", { mode: "json" }).$type<Record<string, string>>().notNull().default({}),
   wineBinary: text("wine_binary").notNull().default("wine"), winePrefix: text("wine_prefix"), wineLaunchFlags: text("wine_launch_flags").notNull().default(""),
   status: text("status", { enum: ["stopped", "starting", "running", "stopping", "crashed", "unknown"] }).notNull().default("stopped"),
-  processId: integer("process_id"), buildId: text("build_id"), latestBuildId: text("latest_build_id"), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+  processId: integer("process_id"), buildId: text("build_id"), latestBuildId: text("latest_build_id"),
+  lastStartedAt: integer("last_started_at"), crashCount: integer("crash_count").notNull().default(0), modsEnabled: integer("mods_enabled", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
 }, (table) => [uniqueIndex("worlds_install_dir_unique").on(table.installDir)]);
 
 export const jobs = sqliteTable("jobs", {
@@ -32,8 +34,10 @@ export const backups = sqliteTable("backups", {
 
 export const schedules = sqliteTable("schedules", {
   id: text("id").primaryKey(), worldId: text("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
-  action: text("action", { enum: ["backup", "restart", "update", "message"] }).notNull(), mode: text("mode", { enum: ["interval", "daily"] }).notNull(),
-  intervalMinutes: integer("interval_minutes"), timeOfDay: text("time_of_day"), message: text("message"), enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  action: text("action", { enum: ["backup", "restart", "update", "system_message", "onscreen_notice"] }).notNull(),
+  mode: text("mode", { enum: ["interval", "daily", "minutes", "on_join"] }).notNull(), intervalHours: integer("interval_hours"),
+  intervalMinutes: integer("interval_minutes"), timeOfDay: text("time_of_day"), message: text("message"), joinMatch: text("join_match"), joinDelaySeconds: integer("join_delay_seconds"),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   skipNext: integer("skip_next", { mode: "boolean" }).notNull().default(false), lastRunAt: integer("last_run_at"), nextRunAt: integer("next_run_at"), createdAt: integer("created_at").notNull(),
 });
 
@@ -41,6 +45,22 @@ export const configVersions = sqliteTable("config_versions", {
   id: text("id").primaryKey(), worldId: text("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }), fileName: text("file_name").notNull(),
   content: text("content").notNull(), note: text("note"), createdAt: integer("created_at").notNull(),
 }, (table) => [index("config_versions_world_created_idx").on(table.worldId, table.createdAt)]);
+
+export const sessions = sqliteTable("sessions", {
+  id: integer("id").primaryKey({ autoIncrement: true }), worldId: text("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
+  userId: text("user_id"), playerName: text("player_name"), event: text("event", { enum: ["join", "leave"] }).notNull(), createdAt: integer("created_at").notNull(),
+}, (table) => [index("sessions_world_created_idx").on(table.worldId, table.createdAt)]);
+
+export const deaths = sqliteTable("deaths", {
+  id: integer("id").primaryKey({ autoIncrement: true }), worldId: text("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
+  victim: text("victim").notNull(), cause: text("cause"), killer: text("killer"), killerRaw: text("killer_raw"), killerKind: text("killer_kind"), createdAt: integer("created_at").notNull(),
+}, (table) => [index("deaths_world_created_idx").on(table.worldId, table.createdAt)]);
+
+export const mods = sqliteTable("mods", {
+  id: text("id").primaryKey(), worldId: text("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }), packageName: text("package_name").notNull(),
+  displayName: text("display_name"), workshopId: text("workshop_id"), version: text("version"), source: text("source"), folder: text("folder"),
+  serverOnly: integer("server_only", { mode: "boolean" }).notNull().default(true), enabled: integer("enabled", { mode: "boolean" }).notNull().default(true), createdAt: integer("created_at").notNull(),
+}, (table) => [index("mods_world_idx").on(table.worldId)]);
 
 export const appSettings = sqliteTable("app_settings", { key: text("key").primaryKey(), value: text("value", { mode: "json" }).$type<unknown>() });
 export const legacyImports = sqliteTable("legacy_imports", {
