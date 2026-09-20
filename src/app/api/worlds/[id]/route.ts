@@ -1,5 +1,6 @@
 import { errorResponse, publicWorld, requireAdmin } from "@/server/http";
 import { getWorld, unregisterWorld, updateWorld } from "@/server/services/worlds";
+import { syncManagedConfiguration } from "@/server/services/configuration";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,7 +13,10 @@ export async function GET(_request: Request, context: Context) {
 
 export async function PATCH(request: Request, context: Context) {
   const denied = requireAdmin(request); if (denied) return denied;
-  try { const { id } = await context.params; return Response.json({ ok: true, world: publicWorld(await updateWorld(id, await request.json())) }); }
+  try { const { id } = await context.params; const world = await updateWorld(id, await request.json()); let configuration;
+    try { configuration = await syncManagedConfiguration(id); }
+    catch (error) { configuration = { synchronized: false, reason: error instanceof Error ? error.message : String(error) }; }
+    return Response.json({ ok: true, world: publicWorld(world), configuration }); }
   catch (error) { return errorResponse(error); }
 }
 

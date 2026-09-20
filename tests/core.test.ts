@@ -8,7 +8,7 @@ import { commandFor, parseArguments } from "@/server/services/processes";
 import { createWorldSchema } from "@/contracts/world";
 import { createScheduleSchema } from "@/contracts/schedule";
 import { nextRun } from "@/server/services/schedules";
-import { applyConfigurationOptions, parseConfigurationOptions } from "@/server/services/configuration";
+import { applyConfigurationOptions, managedConfigurationChanges, parseConfigurationOptions } from "@/server/services/configuration";
 
 describe("world isolation", () => {
   it("detects equal and nested paths", () => {
@@ -53,6 +53,10 @@ describe("PalWorldSettings transformations", () => {
   it("updates only selected settings and preserves unknown values", () => {
     const changed = applyConfigurationOptions(ini, { ExpRate: "2.5", bEnableFastTravel: "True" });
     expect(parseConfigurationOptions(changed)).toMatchObject({ ServerName: '"Family, \\\"Friends\\\""', ExpRate: "2.5", SomeTuple: "(X=1,Y=2)", bEnableFastTravel: "True" });
+  });
+  it("maps manager-owned network and credential values", () => {
+    const world = { ...createWorldSchema.parse({ displayName: "Test", installDir: "/tmp/test", gamePort: 8211, restApiPort: 8213, rconPort: 25575, adminPassword: "a\"b", serverPassword: "secret", restApiEnabled: true, rconEnabled: false }), id: "world", status: "stopped" as const, processId: null, buildId: null, latestBuildId: null, createdAt: 1, updatedAt: 1 };
+    expect(managedConfigurationChanges(world)).toMatchObject({ PublicPort: "8211", AdminPassword: '"a\\\"b"', ServerPassword: '"secret"', RESTAPIEnabled: "True", RESTAPIPort: "8213", RCONEnabled: "False", RCONPort: "25575" });
   });
 });
 

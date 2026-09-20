@@ -5,6 +5,7 @@ import path from "node:path";
 import { and, desc, eq } from "drizzle-orm";
 import { database } from "@/server/db";
 import { configVersions, events } from "@/server/db/schema";
+import type { WorldView } from "@/contracts/world";
 import { getWorld } from "./worlds";
 
 function configPath(installDir: string, platform: "linux" | "windows") {
@@ -97,6 +98,26 @@ export async function readConfigurationOptions(worldId: string) {
 export async function saveConfigurationOptions(worldId: string, changes: Record<string, string>) {
   const configuration = await readConfiguration(worldId);
   return saveConfiguration(worldId, applyConfigurationOptions(configuration.content, changes));
+}
+
+export function managedConfigurationChanges(world: WorldView): Record<string, string> {
+  return {
+    PublicPort: String(world.gamePort),
+    AdminPassword: JSON.stringify(world.adminPassword),
+    ServerPassword: JSON.stringify(world.serverPassword),
+    RESTAPIEnabled: world.restApiEnabled ? "True" : "False",
+    RESTAPIPort: String(world.restApiPort),
+    RCONEnabled: world.rconEnabled ? "True" : "False",
+    RCONPort: String(world.rconPort),
+  };
+}
+
+export async function syncManagedConfiguration(worldId: string) {
+  const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
+  const configuration = await readConfiguration(worldId);
+  if (!configuration.content) return { synchronized: false, reason: "PalWorldSettings.ini is not available yet." };
+  const result = await saveConfiguration(worldId, applyConfigurationOptions(configuration.content, managedConfigurationChanges(world)));
+  return { synchronized: true, ...result };
 }
 
 export async function listConfigurationVersions(worldId: string) {

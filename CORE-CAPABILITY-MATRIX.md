@@ -65,7 +65,7 @@ gate** is checked.
 - [x] Snapshot before edit and retain saved versions
 - [x] Restore a historical configuration version
 - [x] Structured editor for common Palworld settings
-- [ ] Synchronize managed ports/passwords/REST/RCON values into the INI
+- [x] Synchronize managed ports/passwords/REST/RCON values into the INI
 - [ ] Show a clear restart-required state after changes
 - [ ] Portable configuration import/export
 
