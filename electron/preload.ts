@@ -3,6 +3,8 @@ import { contextBridge, ipcRenderer } from "electron";
 const desktop = {
   pickDirectory: (): Promise<string | null> => ipcRenderer.invoke("pick-directory"),
   pickZip: (): Promise<string | null> => ipcRenderer.invoke("pick-zip"),
+  pickRegistration: (): Promise<{ fileName: string; content: string } | null> => ipcRenderer.invoke("pick-registration"),
+  saveRegistration: (defaultName: string, content: string): Promise<string | null> => ipcRenderer.invoke("save-registration", defaultName, content),
   openPath: (target: string): Promise<string> => ipcRenderer.invoke("open-path", target),
   getTheme: (): Promise<"dark" | "light"> => ipcRenderer.invoke("get-theme"),
   getLocale: (): Promise<string> => ipcRenderer.invoke("get-locale"),

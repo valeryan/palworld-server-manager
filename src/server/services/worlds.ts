@@ -3,14 +3,15 @@ import path from "node:path";
 import { access, realpath } from "node:fs/promises";
 import { and, eq, ne } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import type { CreateWorldInput, WorldView } from "@/contracts/world";
-import { createWorldSchema, parseWorldUpdate } from "@/contracts/world";
+import type { CreateWorldInput, WorldRegistration, WorldView } from "@/contracts/world";
+import { createWorldSchema, parseWorldUpdate, worldRegistrationSchema } from "@/contracts/world";
 import { database } from "@/server/db";
 import { worlds } from "@/server/db/schema";
 import { eventBus } from "./events";
 
 type WorldRow = typeof worlds.$inferSelect;
 const PORT_FIELDS = ["gamePort", "queryPort", "restApiPort", "rconPort"] as const;
+const STOP_REQUIRED_FIELDS = ["installDir", "platform", ...PORT_FIELDS, "adminPassword", "serverPassword", "restApiEnabled", "rconEnabled", "communityServer", "legacyPerfFlags", "extraArgs", "env", "wineBinary", "winePrefix", "wineLaunchFlags"] as const;
 
 function toView(row: WorldRow): WorldView {
   return {
@@ -100,6 +101,9 @@ export async function updateWorld(id: string, raw: unknown): Promise<WorldView> 
   const current = await getWorld(id);
   if (!current) throw new Error("World not found.");
   const patch = parseWorldUpdate(raw);
+  if (current.status !== "stopped" && STOP_REQUIRED_FIELDS.some((field) => Object.hasOwn(patch, field) && JSON.stringify(patch[field]) !== JSON.stringify(current[field]))) {
+    throw new Error("Stop the world before changing launch, path, port, platform, or environment settings.");
+  }
   const merged = createWorldSchema.parse({ ...current, ...patch });
   const input = await validateIsolation(merged, id);
   await database().update(worlds).set({
@@ -112,6 +116,35 @@ export async function updateWorld(id: string, raw: unknown): Promise<WorldView> 
   }).where(eq(worlds.id, id));
   eventBus().publish({ type: "world", worldId: id, data: { action: "updated" } });
   return (await getWorld(id))!;
+}
+
+export function exportWorldRegistration(world: WorldView): WorldRegistration {
+  return worldRegistrationSchema.parse({
+    format: "psm-next/world-registration",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    sourceWorldId: world.id,
+    world: {
+      displayName: world.displayName,
+      installDir: world.installDir,
+      platform: world.platform,
+      gamePort: world.gamePort,
+      queryPort: world.queryPort,
+      restApiPort: world.restApiPort,
+      rconPort: world.rconPort,
+      restApiEnabled: world.restApiEnabled,
+      rconEnabled: world.rconEnabled,
+      communityServer: world.communityServer,
+      autostart: false,
+      crashGuard: world.crashGuard,
+      legacyPerfFlags: world.legacyPerfFlags,
+      extraArgs: world.extraArgs,
+      env: world.env,
+      wineBinary: world.wineBinary,
+      winePrefix: world.winePrefix,
+      wineLaunchFlags: world.wineLaunchFlags,
+    },
+  });
 }
 
 export async function unregisterWorld(id: string): Promise<void> {

@@ -28,6 +28,14 @@ export const createWorldSchema = z.object({
 });
 
 export const updateWorldSchema = createWorldSchema.partial();
+export const portableWorldSchema = createWorldSchema.omit({ adminPassword: true, serverPassword: true }).strict();
+export const worldRegistrationSchema = z.object({
+  format: z.literal("psm-next/world-registration"),
+  version: z.literal(1),
+  exportedAt: z.iso.datetime(),
+  sourceWorldId: z.string().min(1),
+  world: portableWorldSchema,
+}).strict();
 export function parseWorldUpdate(raw: unknown): UpdateWorldInput {
   const parsed = updateWorldSchema.parse(raw);
   const provided = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
@@ -47,6 +55,7 @@ export type CreateWorldInput = z.infer<typeof createWorldSchema>;
 export type UpdateWorldInput = z.infer<typeof updateWorldSchema>;
 export type WorldActionInput = z.infer<typeof worldActionSchema>;
 export type WorldStatus = z.infer<typeof worldStatusSchema>;
+export type WorldRegistration = z.infer<typeof worldRegistrationSchema>;
 
 export interface WorldView extends CreateWorldInput {
   id: string;

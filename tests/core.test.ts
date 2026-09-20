@@ -3,9 +3,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { adoptWorld, pathsOverlap } from "@/server/services/worlds";
+import { adoptWorld, exportWorldRegistration, pathsOverlap } from "@/server/services/worlds";
 import { commandFor, parseArguments } from "@/server/services/processes";
-import { createWorldSchema, parseWorldUpdate } from "@/contracts/world";
+import { createWorldSchema, parseWorldUpdate, worldRegistrationSchema } from "@/contracts/world";
 import { createScheduleSchema } from "@/contracts/schedule";
 import { nextRun } from "@/server/services/schedules";
 import { applyConfigurationOptions, managedConfigurationChanges, parseConfigurationOptions } from "@/server/services/configuration";
@@ -23,6 +23,20 @@ describe("world isolation", () => {
   it("does not apply creation defaults to omitted update fields", () => {
     expect(parseWorldUpdate({ displayName: "Renamed" })).toEqual({ displayName: "Renamed" });
     expect(parseWorldUpdate({ displayName: "Renamed" })).not.toHaveProperty("adminPassword");
+  });
+  it("exports a versioned portable registration without credentials or autostart", () => {
+    const input = createWorldSchema.parse({ displayName: "Portable", installDir: "/srv/pal/portable", adminPassword: "admin-secret", serverPassword: "player-secret", autostart: true, env: { CUSTOM_FLAG: "enabled" } });
+    const registration = exportWorldRegistration({ ...input, id: "portable-world", status: "stopped", processId: null, buildId: null, latestBuildId: null, createdAt: 1, updatedAt: 1 });
+    expect(worldRegistrationSchema.parse(registration)).toEqual(registration);
+    expect(registration.world).not.toHaveProperty("adminPassword");
+    expect(registration.world).not.toHaveProperty("serverPassword");
+    expect(registration.world.autostart).toBe(false);
+    expect(registration.world.env).toEqual({ CUSTOM_FLAG: "enabled" });
+  });
+  it("rejects unsupported or credential-bearing registration documents", () => {
+    const base = { format: "psm-next/world-registration", version: 1, exportedAt: new Date().toISOString(), sourceWorldId: "source", world: { displayName: "Portable", installDir: "/srv/pal/portable" } };
+    expect(() => worldRegistrationSchema.parse({ ...base, version: 2 })).toThrow();
+    expect(() => worldRegistrationSchema.parse({ ...base, world: { ...base.world, adminPassword: "secret" } })).toThrow();
   });
 });
 

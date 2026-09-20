@@ -15,11 +15,11 @@ gate** is checked.
 - [x] Reject overlapping installation directories
 - [x] Detect port conflicts between registered worlds
 - [x] Register a new Linux or Windows/Wine world
-- [ ] Edit every world property in the UI — **Partial: API exists; UI is incomplete**
+- [x] Edit every world property in the UI
 - [x] Adopt an existing installation with an explicit selection flow
 - [x] Remove a registration with confirmation without deleting server files
 - [x] Keep jobs, logs, backups, and configuration records isolated by world
-- [ ] Import/export a portable world registration
+- [x] Import/export a portable world registration
 
 ## Workflow alignment
 
@@ -127,7 +127,7 @@ gate** is checked.
 - [x] Stable `psm-next.AppImage` artifact name
 - [x] Single-instance lock and tray support
 - [x] User-confirmed rendering through the KDE/RDP session
-- [ ] Directory picker wired into world forms
+- [x] Directory picker wired into world forms
 - [x] Desktop setting for close-to-tray behavior
 - [x] Desktop setting for launch-at-login behavior
 - [ ] LAN binding and manager-port configuration
