@@ -1,0 +1,9 @@
+import { errorResponse } from "@/server/http";
+import { listJobs } from "@/server/services/jobs";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export async function GET(request: Request) {
+  try { const limit = Number(new URL(request.url).searchParams.get("limit") || 100); return Response.json({ ok: true, jobs: await listJobs(limit) }); }
+  catch (error) { return errorResponse(error); }
+}
