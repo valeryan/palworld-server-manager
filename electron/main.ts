@@ -27,10 +27,14 @@ function preferences(): { closeToTray: boolean } { try { return { closeToTray: J
 function writePreferences(next: { closeToTray: boolean }) { mkdirSync(dataDir(), { recursive: true }); writeFileSync(preferencePath(), JSON.stringify(next, null, 2)); }
 
 function startServer() {
-  if (isDev) return;
+  if (isDev) { log(`Using development renderer: ${process.env.ELECTRON_START_URL}`); return; }
   const root = path.join(process.resourcesPath, "app"); const entry = path.join(root, "server.js");
+  log(`Starting bundled web server from ${entry}`);
   if (!existsSync(entry)) throw new Error(`Bundled Next server is missing: ${entry}`);
-  server = spawn(process.execPath, [entry], { cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", NODE_ENV: "production", HOSTNAME: "127.0.0.1", PORT: String(port), PSM_ADMIN_TOKEN: token, PALWORLD_MANAGER_DATA_DIR: dataDir() } });
+  const serverModules = path.join(root, "server-node_modules");
+  const nodePath = [serverModules, process.env.NODE_PATH].filter(Boolean).join(path.delimiter);
+  server = spawn(process.execPath, [entry], { cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", NODE_ENV: "production", NODE_PATH: nodePath, HOSTNAME: "127.0.0.1", PORT: String(port), PSM_ADMIN_TOKEN: token, PALWORLD_MANAGER_DATA_DIR: dataDir() } });
+  log(`Bundled web server process created (pid ${server.pid ?? "unknown"})`);
   server.stdout?.on("data", (data) => log(`[web] ${String(data).trim()}`)); server.stderr?.on("data", (data) => log(`[web:error] ${String(data).trim()}`));
   server.on("error", (error) => log(`Web server error: ${error.message}`)); server.on("exit", (code) => log(`Web server exited: ${code}`));
 }
@@ -60,9 +64,10 @@ ipcMain.handle("pick-zip", async () => { const result = await dialog.showOpenDia
 ipcMain.handle("open-path", (_event, target: string) => shell.openPath(target)); ipcMain.handle("get-theme", () => nativeTheme.shouldUseDarkColors ? "dark" : "light"); ipcMain.handle("get-locale", () => app.getLocale() || "en");
 ipcMain.handle("get-close-to-tray", () => preferences().closeToTray); ipcMain.handle("set-close-to-tray", (_event, enabled: boolean) => { writePreferences({ closeToTray: Boolean(enabled) }); return Boolean(enabled); });
 
-if (!app.requestSingleInstanceLock()) app.quit(); else {
+const ownsInstanceLock = app.requestSingleInstanceLock();
+if (!ownsInstanceLock) app.quit(); else {
   app.on("second-instance", () => void createWindow());
-  app.whenReady().then(async () => { try { mkdirSync(dataDir(), { recursive: true }); powerSaveBlocker.start("prevent-app-suspension"); startServer(); await waitForServer(); createTray(); await createWindow(); } catch (error) { showStartupError(error); } });
+  app.whenReady().then(async () => { try { mkdirSync(dataDir(), { recursive: true }); log(`Desktop ready (data ${dataDir()}, port ${port}, AppImage ${Boolean(process.env.APPIMAGE)})`); powerSaveBlocker.start("prevent-app-suspension"); startServer(); await waitForServer(); log("Bundled web server is ready"); createTray(); await createWindow(); log("Main window loaded"); } catch (error) { showStartupError(error); } });
   app.on("before-quit", () => { quitting = true; tray?.destroy(); server?.kill(); });
   app.on("window-all-closed", () => { if (!preferences().closeToTray || !tray) app.quit(); });
 }

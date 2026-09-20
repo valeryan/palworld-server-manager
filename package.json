@@ -3,6 +3,7 @@
   "version": "3.0.0-alpha.1",
   "description": "A modern multi-world Palworld dedicated server manager",
   "author": "Palworld Server Manager",
+  "desktopName": "palworld-server-manager.desktop",
   "main": "dist-electron/main.cjs",
   "private": true,
   "type": "module",
@@ -89,7 +90,8 @@
     "linux": {
       "target": ["AppImage"],
       "icon": "public/icon.png",
-      "category": "Game"
+      "category": "Game",
+      "syncDesktopName": true
     },
     "compression": "maximum",
     "electronLanguages": ["en-US"]
