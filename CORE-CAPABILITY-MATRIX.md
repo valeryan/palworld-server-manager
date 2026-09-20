@@ -129,7 +129,7 @@ gate** is checked.
 - [x] User-confirmed rendering through the KDE/RDP session
 - [ ] Directory picker wired into world forms
 - [x] Desktop setting for close-to-tray behavior
-- [ ] Desktop setting for launch-at-login behavior
+- [x] Desktop setting for launch-at-login behavior
 - [ ] LAN binding and manager-port configuration
 
 ## Migration and safety

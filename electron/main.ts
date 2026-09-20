@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, powerSaveBlocker, shell, Tray } from "electron";
 import { randomBytes } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -19,12 +19,29 @@ function sandboxNeedsCompatibility(): boolean {
 if (sandboxNeedsCompatibility()) { app.commandLine.appendSwitch("no-sandbox"); app.commandLine.appendSwitch("no-zygote"); }
 
 const isDev = Boolean(process.env.ELECTRON_START_URL); const port = Number(process.env.PSM_PORT || 4318); const token = randomBytes(32).toString("hex");
+const startHidden = process.argv.includes("--hidden");
 let window: BrowserWindow | null = null; let tray: Tray | null = null; let server: ChildProcess | null = null; let quitting = false;
 if (process.env.PORTABLE_EXECUTABLE_DIR) { const portable = path.join(process.env.PORTABLE_EXECUTABLE_DIR, "PSM-Data"); mkdirSync(portable, { recursive: true }); app.setPath("userData", portable); }
 const dataDir = () => app.getPath("userData"); const log = (message: string) => { try { appendFileSync(path.join(dataDir(), "launcher-v3.log"), `[${new Date().toISOString()}] ${message}\n`); } catch {} };
 const preferencePath = () => path.join(dataDir(), "desktop-preferences.json");
-function preferences(): { closeToTray: boolean } { try { return { closeToTray: JSON.parse(readFileSync(preferencePath(), "utf8")).closeToTray !== false }; } catch { return { closeToTray: true }; } }
-function writePreferences(next: { closeToTray: boolean }) { mkdirSync(dataDir(), { recursive: true }); writeFileSync(preferencePath(), JSON.stringify(next, null, 2)); }
+type DesktopPreferences = { closeToTray: boolean; launchAtLogin: boolean };
+function preferences(): DesktopPreferences { try { const saved = JSON.parse(readFileSync(preferencePath(), "utf8")); return { closeToTray: saved.closeToTray !== false, launchAtLogin: saved.launchAtLogin === true }; } catch { return { closeToTray: true, launchAtLogin: false }; } }
+function writePreferences(patch: Partial<DesktopPreferences>) { mkdirSync(dataDir(), { recursive: true }); writeFileSync(preferencePath(), JSON.stringify({ ...preferences(), ...patch }, null, 2)); }
+function linuxAutostartPath() { return path.join(app.getPath("home"), ".config", "autostart", "com.palworld.servermanager.next.desktop"); }
+function startupArguments() { return process.argv.slice(1).filter((argument) => argument.startsWith("--user-data-dir=")); }
+function desktopQuote(value: string) { return `"${value.replace(/([\\`"$])/g, "\\$1")}"`; }
+function setLaunchAtLogin(enabled: boolean): boolean {
+  if (isDev) throw new Error("Launch at login is only available in the packaged application.");
+  if (process.platform === "linux") {
+    const filePath = linuxAutostartPath(); mkdirSync(path.dirname(filePath), { recursive: true });
+    if (enabled) {
+      const executable = process.env.APPIMAGE || process.execPath;
+      const command = [executable, "--hidden", ...startupArguments()].map(desktopQuote).join(" ");
+      writeFileSync(filePath, `[Desktop Entry]\nType=Application\nName=Palworld Server Manager Next\nComment=Start the Palworld server supervisor at login\nExec=${command}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n`, { mode: 0o600 });
+    } else rmSync(filePath, { force: true });
+  } else app.setLoginItemSettings({ openAtLogin: enabled, args: enabled ? ["--hidden", ...startupArguments()] : [] });
+  writePreferences({ launchAtLogin: enabled }); return enabled;
+}
 
 function startServer() {
   if (isDev) { log(`Using development renderer: ${process.env.ELECTRON_START_URL}`); return; }
@@ -43,8 +60,8 @@ function ping(): Promise<boolean> { return new Promise((resolve) => { const req 
 async function waitForServer() { const deadline = Date.now() + 60_000; while (Date.now() < deadline) { if (await ping()) return; await new Promise((resolve) => setTimeout(resolve, 350)); } throw new Error("The bundled web server did not answer within 60 seconds."); }
 function iconPath() { return isDev ? path.join(__dirname, "..", "public", "icon.png") : path.join(process.resourcesPath, "app", "public", "icon.png"); }
 
-async function createWindow() {
-  if (window) { window.show(); window.focus(); return; }
+async function createWindow(show = true) {
+  if (window) { if (show) { window.show(); window.focus(); } return; }
   window = new BrowserWindow({ width: 1360, height: 860, minWidth: 960, minHeight: 640, show: false, backgroundColor: "#0b0d12", autoHideMenuBar: true, title: "Palworld Server Manager", icon: iconPath(), webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false } });
   Menu.setApplicationMenu(null); window.setMenuBarVisibility(false);
   window.webContents.on("did-fail-load", (_event, code, description, url, mainFrame) => { if (mainFrame) log(`Renderer failed ${url}: ${code} ${description}`); });
@@ -53,7 +70,7 @@ async function createWindow() {
   window.on("close", (event) => { if (!quitting && tray && preferences().closeToTray) { event.preventDefault(); window?.hide(); } }); window.on("closed", () => { window = null; });
   const url = process.env.ELECTRON_START_URL || `http://127.0.0.1:${port}`;
   await window.webContents.session.cookies.set({ url: `http://127.0.0.1:${port}`, name: "psm_admin", value: token, httpOnly: true, sameSite: "lax" });
-  await window.loadURL(url); window.once("ready-to-show", () => window?.show());
+  await window.loadURL(url); if (show) window.once("ready-to-show", () => window?.show());
 }
 
 function createTray() { try { tray = new Tray(nativeImage.createFromPath(iconPath())); tray.setToolTip("Palworld Server Manager"); tray.setContextMenu(Menu.buildFromTemplate([{ label: "Open", click: () => void createWindow() }, { type: "separator" }, { label: "Quit", click: () => { quitting = true; app.quit(); } }])); tray.on("click", () => void createWindow()); } catch (error) { log(`Tray unavailable: ${String(error)}`); } }
@@ -63,11 +80,12 @@ ipcMain.handle("pick-directory", async () => { const result = await dialog.showO
 ipcMain.handle("pick-zip", async () => { const result = await dialog.showOpenDialog(window!, { properties: ["openFile"], filters: [{ name: "Zip archives", extensions: ["zip"] }] }); return result.canceled ? null : result.filePaths[0]; });
 ipcMain.handle("open-path", (_event, target: string) => shell.openPath(target)); ipcMain.handle("get-theme", () => nativeTheme.shouldUseDarkColors ? "dark" : "light"); ipcMain.handle("get-locale", () => app.getLocale() || "en");
 ipcMain.handle("get-close-to-tray", () => preferences().closeToTray); ipcMain.handle("set-close-to-tray", (_event, enabled: boolean) => { writePreferences({ closeToTray: Boolean(enabled) }); return Boolean(enabled); });
+ipcMain.handle("get-launch-at-login", () => preferences().launchAtLogin); ipcMain.handle("set-launch-at-login", (_event, enabled: boolean) => setLaunchAtLogin(Boolean(enabled)));
 
 const ownsInstanceLock = app.requestSingleInstanceLock();
 if (!ownsInstanceLock) app.quit(); else {
   app.on("second-instance", () => void createWindow());
-  app.whenReady().then(async () => { try { mkdirSync(dataDir(), { recursive: true }); log(`Desktop ready (data ${dataDir()}, port ${port}, AppImage ${Boolean(process.env.APPIMAGE)})`); powerSaveBlocker.start("prevent-app-suspension"); startServer(); await waitForServer(); log("Bundled web server is ready"); createTray(); await createWindow(); log("Main window loaded"); } catch (error) { showStartupError(error); } });
+  app.whenReady().then(async () => { try { mkdirSync(dataDir(), { recursive: true }); log(`Desktop ready (data ${dataDir()}, port ${port}, AppImage ${Boolean(process.env.APPIMAGE)}, hidden ${startHidden})`); powerSaveBlocker.start("prevent-app-suspension"); startServer(); await waitForServer(); log("Bundled web server is ready"); createTray(); await createWindow(!startHidden); log(startHidden ? "Main window loaded hidden" : "Main window loaded"); } catch (error) { showStartupError(error); } });
   app.on("before-quit", () => { quitting = true; tray?.destroy(); server?.kill(); });
   app.on("window-all-closed", () => { if (!preferences().closeToTray || !tray) app.quit(); });
 }
