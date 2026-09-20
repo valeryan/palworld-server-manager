@@ -2,6 +2,8 @@
 
 Clean Next.js 16 and Electron rewrite focused on reliable management of multiple Palworld dedicated servers. The original application remains the behavioral reference; this branch does not preserve its internal architecture.
 
+See [CORE-CAPABILITY-MATRIX.md](./CORE-CAPABILITY-MATRIX.md) for the end-to-end acceptance checklist and current verified status.
+
 ## Requirements
 
 - Node.js 24 (`.nvmrc`)

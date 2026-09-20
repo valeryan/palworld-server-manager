@@ -78,12 +78,12 @@ gate** is checked.
 
 - [x] Persistent asynchronous job records
 - [x] Consolidated SSE world/job event stream
-- [ ] Persistent command output per job
-- [ ] Live server log viewer with pause/search/download
-- [ ] Persistent event-history screen
-- [ ] REST server information and health
-- [ ] Live player list and session history
-- [ ] Server metrics display
+- [ ] Persistent command output per job — **Partial: storage and viewer packaged; awaiting a new SteamCMD operation**
+- [ ] Live server log viewer with pause/search/download — **Partial: live tail and refresh are packaged**
+- [x] Persistent event-history screen
+- [ ] REST server information and health — **Partial: packaged; running-server verification pending**
+- [ ] Live player list and session history — **Partial: session history is packaged; live verification pending**
+- [ ] Server metrics display — **Partial: packaged; running-server verification pending**
 - [ ] Death history
 - [ ] Announce, save, kick, ban, and unban controls
 - [ ] Legacy RCON console for explicitly enabled worlds

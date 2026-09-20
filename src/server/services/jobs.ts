@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { desc, eq } from "drizzle-orm";
 import type { JobView } from "@/contracts/job";
 import { database } from "@/server/db";
-import { jobs } from "@/server/db/schema";
+import { jobLogs, jobs } from "@/server/db/schema";
 import { eventBus } from "./events";
 
 export interface JobContext {
@@ -38,7 +38,10 @@ export async function startJob(worldId: string | null, kind: string, task: (cont
           await database().update(jobs).set({ progress: Math.max(0, Math.min(100, Math.round(progress))), message }).where(eq(jobs.id, id));
           await publish(id);
         },
-        log: (message) => eventBus().publish({ type: "log", worldId: worldId ?? undefined, data: { jobId: id, message } }),
+        log: (message) => {
+          void database().insert(jobLogs).values({ jobId: id, message, createdAt: Date.now() });
+          eventBus().publish({ type: "log", worldId: worldId ?? undefined, data: { jobId: id, message } });
+        },
       });
       await database().update(jobs).set({ state: "succeeded", progress: 100, message: "Complete", finishedAt: Date.now() }).where(eq(jobs.id, id));
     } catch (error) {
@@ -53,3 +56,7 @@ export async function startJob(worldId: string | null, kind: string, task: (cont
 }
 
 export function worldIsLocked(worldId: string): boolean { return locks().has(worldId); }
+
+export async function listJobLogs(jobId: string, limit = 1_000) {
+  return database().select().from(jobLogs).where(eq(jobLogs.jobId, jobId)).orderBy(jobLogs.id).limit(Math.min(Math.max(limit, 1), 5_000));
+}

@@ -22,6 +22,11 @@ export const jobs = sqliteTable("jobs", {
   message: text("message").notNull().default(""), error: text("error"), createdAt: integer("created_at").notNull(), startedAt: integer("started_at"), finishedAt: integer("finished_at"),
 }, (table) => [index("jobs_world_created_idx").on(table.worldId, table.createdAt)]);
 
+export const jobLogs = sqliteTable("job_logs", {
+  id: integer("id").primaryKey({ autoIncrement: true }), jobId: text("job_id").notNull().references(() => jobs.id, { onDelete: "cascade" }),
+  message: text("message").notNull(), createdAt: integer("created_at").notNull(),
+}, (table) => [index("job_logs_job_created_idx").on(table.jobId, table.createdAt)]);
+
 export const events = sqliteTable("events", {
   id: integer("id").primaryKey({ autoIncrement: true }), worldId: text("world_id").references(() => worlds.id, { onDelete: "cascade" }),
   kind: text("kind").notNull(), message: text("message").notNull(), metadata: text("metadata", { mode: "json" }).$type<Record<string, unknown> | null>(), createdAt: integer("created_at").notNull(),
