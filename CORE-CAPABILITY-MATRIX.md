@@ -52,7 +52,7 @@ gate** is checked.
 - [x] Start and operate both copied worlds simultaneously
 - [x] Reconcile running processes after manager restart
 - [x] Recover a deliberately crashed copied server
-- [ ] Verify autostart after reboot/login — **Partial: packaged manager relaunch starts an enabled copied world and reaches authenticated REST health**
+- [x] Verify autostart after reboot/login — **Confirmed after a full KDE login reboot: the manager started hidden, launched only copied world 1, and accepted a Palworld client connection**
 - [x] Keep servers running while the UI is hidden to the tray
 - [x] Prevent two desktop manager instances
 - [ ] Confirmed bulk start/stop/restart controls
@@ -171,7 +171,7 @@ gate** is checked.
 - [x] Both copies operate simultaneously and port-conflict handling is demonstrated
 - [ ] Scheduling, recovery, autostart, tray, and restart reconciliation pass
 - [ ] Remote administration and authentication pass
-- [ ] Packaged AppImage renders reliably in the actual KDE/RDP session
+- [x] Packaged AppImage renders reliably in the actual KDE/RDP session
 - [ ] No original server-directory writes occurred during development
 - [ ] Production import rehearsal and rollback rehearsal pass
 - [ ] User approves replacing the known-good AppImage
