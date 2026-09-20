@@ -89,6 +89,7 @@
     },
     "linux": {
       "target": ["AppImage"],
+      "artifactName": "psm-next.AppImage",
       "icon": "public/icon.png",
       "category": "Game",
       "syncDesktopName": true
