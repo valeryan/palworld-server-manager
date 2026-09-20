@@ -28,6 +28,11 @@ export const createWorldSchema = z.object({
 });
 
 export const updateWorldSchema = createWorldSchema.partial();
+export function parseWorldUpdate(raw: unknown): UpdateWorldInput {
+  const parsed = updateWorldSchema.parse(raw);
+  const provided = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  return Object.fromEntries(Object.entries(parsed).filter(([key]) => Object.hasOwn(provided, key))) as UpdateWorldInput;
+}
 export const worldActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("start") }),
   z.object({ action: z.literal("stop"), force: z.boolean().default(false) }),

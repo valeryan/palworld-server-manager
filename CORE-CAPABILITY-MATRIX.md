@@ -51,8 +51,8 @@ gate** is checked.
 - [x] Reject a duplicate operation for the same world
 - [x] Start and operate both copied worlds simultaneously
 - [x] Reconcile running processes after manager restart
-- [ ] Recover a deliberately crashed copied server
-- [ ] Verify autostart after reboot/login
+- [x] Recover a deliberately crashed copied server
+- [ ] Verify autostart after reboot/login — **Partial: packaged manager relaunch starts an enabled copied world and reaches authenticated REST health**
 - [ ] Keep servers running while the UI is hidden to the tray
 - [x] Prevent two desktop manager instances
 - [ ] Confirmed bulk start/stop/restart controls

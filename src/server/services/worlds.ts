@@ -3,8 +3,8 @@ import path from "node:path";
 import { access, realpath } from "node:fs/promises";
 import { and, eq, ne } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import type { CreateWorldInput, UpdateWorldInput, WorldView } from "@/contracts/world";
-import { createWorldSchema, updateWorldSchema } from "@/contracts/world";
+import type { CreateWorldInput, WorldView } from "@/contracts/world";
+import { createWorldSchema, parseWorldUpdate } from "@/contracts/world";
 import { database } from "@/server/db";
 import { worlds } from "@/server/db/schema";
 import { eventBus } from "./events";
@@ -99,7 +99,7 @@ export async function adoptWorld(raw: unknown): Promise<WorldView> {
 export async function updateWorld(id: string, raw: unknown): Promise<WorldView> {
   const current = await getWorld(id);
   if (!current) throw new Error("World not found.");
-  const patch = updateWorldSchema.parse(raw) as UpdateWorldInput;
+  const patch = parseWorldUpdate(raw);
   const merged = createWorldSchema.parse({ ...current, ...patch });
   const input = await validateIsolation(merged, id);
   await database().update(worlds).set({

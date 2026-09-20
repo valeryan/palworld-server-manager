@@ -38,6 +38,20 @@ function mappedPath(value: unknown, mappings: Record<string, string>): string {
 }
 function rows(snapshot: Record<string, unknown>, table: string): LegacyRow[] { return Array.isArray(snapshot[table]) ? snapshot[table] as LegacyRow[] : []; }
 
+function quotedIniValue(content: string, key: string): string | null {
+  const encoded = content.match(new RegExp(`(?:^|[,(])${key}=("(?:\\\\.|[^"\\\\])*")`))?.[1];
+  if (!encoded) return null;
+  try { const value = JSON.parse(encoded); return typeof value === "string" ? value : null; } catch { return null; }
+}
+
+async function credentialsFromInstall(installDir: string, platform: "linux" | "windows") {
+  const flavor = platform === "windows" ? "WindowsServer" : "LinuxServer";
+  try {
+    const content = await readFile(path.join(installDir, "Pal", "Saved", "Config", flavor, "PalWorldSettings.ini"), "utf8");
+    return { adminPassword: quotedIniValue(content, "AdminPassword"), serverPassword: quotedIniValue(content, "ServerPassword") };
+  } catch { return { adminPassword: null, serverPassword: null }; }
+}
+
 async function archiveIsValid(filePath: string): Promise<boolean> {
   try { const info = await stat(filePath); return info.isFile() && new AdmZip(filePath).test(); } catch { return false; }
 }
@@ -66,20 +80,24 @@ export async function importLegacyDatabase(sourcePath: string, pathMappings: Rec
     deferredTables: tables.filter((name) => ["discord_actions", "remote_codes", "remote_sessions", "remote_audit"].includes(name)),
     counts: {}, verification: { worldCount: 0, relationshipErrors: 0, criticalFieldsPresent: false },
   };
-  const preparedWorlds = worldRows.map((row) => {
+  const preparedWorlds = await Promise.all(worldRows.map(async (row) => {
     const id = text(row.world_id);
     if (!id) throw new Error("Legacy world row is missing world_id.");
+    const installDir = mappedPath(row.install_dir, pathMappings);
+    const platform = text(row.platform, process.platform === "win32" ? "windows" : "linux") as "linux" | "windows";
+    const credentials = await credentialsFromInstall(installDir, platform);
     const input = createWorldSchema.parse({
-      displayName: text(row.display_name, id), installDir: mappedPath(row.install_dir, pathMappings), platform: text(row.platform, process.platform === "win32" ? "windows" : "linux"),
+      displayName: text(row.display_name, id), installDir, platform,
       gamePort: num(row.game_port, 8211), queryPort: num(row.query_port, 27015), restApiPort: num(row.rest_api_port, 8212), rconPort: num(row.rcon_port, 25575),
-      adminPassword: text(row.admin_password), serverPassword: text(row.server_password), restApiEnabled: bool(row.rest_api_enabled, true), rconEnabled: bool(row.rcon_enabled),
+      adminPassword: text(row.admin_password) || credentials.adminPassword || "", serverPassword: text(row.server_password) || credentials.serverPassword || "", restApiEnabled: bool(row.rest_api_enabled, true), rconEnabled: bool(row.rcon_enabled),
       communityServer: bool(row.community_server), autostart: false, crashGuard: bool(row.crash_guard, true), legacyPerfFlags: bool(row.legacy_perf_flags, true),
       extraArgs: text(row.extra_args), env: jsonObject(row.env_vars), wineBinary: text(row.wine_binary, "wine"), winePrefix: nullableText(row.wine_prefix), wineLaunchFlags: text(row.wine_launch_flags),
     });
     if (!path.isAbsolute(input.installDir)) throw new Error(`World ${id} has a non-absolute install directory.`);
-    if (row.server_password == null) report.defaulted.push(`${id}.server_password`);
+    if (!text(row.admin_password) && !credentials.adminPassword) report.defaulted.push(`${id}.admin_password`);
+    if (!text(row.server_password) && !credentials.serverPassword) report.defaulted.push(`${id}.server_password`);
     return { id, row, input };
-  });
+  }));
   for (let index = 0; index < preparedWorlds.length; index += 1) {
     for (let other = index + 1; other < preparedWorlds.length; other += 1) {
       const left = preparedWorlds[index]!; const right = preparedWorlds[other]!;

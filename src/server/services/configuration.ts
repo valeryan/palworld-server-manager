@@ -101,15 +101,18 @@ export async function saveConfigurationOptions(worldId: string, changes: Record<
 }
 
 export function managedConfigurationChanges(world: WorldView): Record<string, string> {
-  return {
+  const changes: Record<string, string> = {
     PublicPort: String(world.gamePort),
-    AdminPassword: JSON.stringify(world.adminPassword),
-    ServerPassword: JSON.stringify(world.serverPassword),
     RESTAPIEnabled: world.restApiEnabled ? "True" : "False",
     RESTAPIPort: String(world.restApiPort),
     RCONEnabled: world.rconEnabled ? "True" : "False",
     RCONPort: String(world.rconPort),
   };
+  // An empty registry credential commonly means “not imported”, not “erase the
+  // working game credential”. Explicit credential clearing belongs in its own UI.
+  if (world.adminPassword) changes.AdminPassword = JSON.stringify(world.adminPassword);
+  if (world.serverPassword) changes.ServerPassword = JSON.stringify(world.serverPassword);
+  return changes;
 }
 
 export async function syncManagedConfiguration(worldId: string) {
