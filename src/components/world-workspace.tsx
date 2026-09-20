@@ -1,0 +1,66 @@
+"use client";
+import Link from "next/link";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import type { ReactNode } from "react";
+import type { WorldView } from "@/contracts/world";
+import { WorldEditDialog } from "./world-edit-dialog";
+import { WorldSchedulesDialog } from "./world-schedules-dialog";
+
+type SafeWorld = Omit<WorldView, "adminPassword" | "serverPassword" | "env">;
+type Tab = "overview" | "players" | "console" | "settings" | "backups" | "schedule" | "admin";
+type Live = { reachable: boolean; info?: Record<string, unknown>; players?: { players?: Array<Record<string, unknown>> }; metrics?: Record<string, unknown>; error?: string };
+type Activity = { events: Array<{ id: number; kind: string; message: string; createdAt: number }>; sessions: Array<{ id: number; playerName: string | null; event: string; createdAt: number }> };
+type Logs = { selected: string | null; sizeBytes?: number; content: string };
+type Configuration = { path: string; exists: boolean; content: string; running: boolean };
+type Backup = { id: string; filePath: string; sizeBytes: number; reason: string; verified: boolean; createdAt: number };
+
+async function json<T>(url: string, init?: RequestInit): Promise<T> { const response = await fetch(url, { ...init, headers: { "content-type": "application/json", ...init?.headers } }); const body = await response.json(); if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`); return body; }
+const tabs: Array<{ id: Tab; label: string }> = [{ id: "overview", label: "Overview" }, { id: "players", label: "Players" }, { id: "console", label: "Console" }, { id: "settings", label: "Settings" }, { id: "backups", label: "Backups" }, { id: "schedule", label: "Schedule" }, { id: "admin", label: "Admin" }];
+const stamp = (value: number) => new Date(value).toLocaleString();
+
+export function WorldWorkspace({ worldId }: { worldId: string }) {
+  const client = useQueryClient(); const [tab, setTab] = useState<Tab>("overview"); const [notice, setNotice] = useState<string | null>(null); const [editOpen, setEditOpen] = useState(false); const [scheduleOpen, setScheduleOpen] = useState(false); const [draft, setDraft] = useState<string | null>(null);
+  const worldQuery = useQuery({ queryKey: ["world", worldId], queryFn: async () => (await json<{ world: SafeWorld }>(`/api/worlds/${worldId}`)).world, refetchInterval: 4_000 });
+  const world = worldQuery.data;
+  const liveQuery = useQuery({ queryKey: ["world-status", worldId], queryFn: async () => (await json<{ status: Live }>(`/api/worlds/${worldId}/status`)).status, refetchInterval: world?.status === "running" ? 5_000 : false });
+  const activityQuery = useQuery({ queryKey: ["world-activity", worldId], queryFn: async () => (await json<{ activity: Activity }>(`/api/worlds/${worldId}/activity`)).activity, refetchInterval: 10_000 });
+  const logsQuery = useQuery({ queryKey: ["world-logs", worldId], queryFn: async () => (await json<{ logs: Logs }>(`/api/worlds/${worldId}/logs`)).logs, refetchInterval: tab === "console" && world?.status === "running" ? 2_000 : false });
+  const configurationQuery = useQuery({ queryKey: ["configuration", worldId], queryFn: async () => (await json<{ configuration: Configuration }>(`/api/worlds/${worldId}/configuration`)).configuration });
+  const backupsQuery = useQuery({ queryKey: ["backups", worldId], queryFn: async () => (await json<{ backups: Backup[] }>(`/api/worlds/${worldId}/backups`)).backups });
+  const action = useMutation({ mutationFn: (payload: Record<string, unknown>) => json<{ jobId: string }>(`/api/worlds/${worldId}/actions`, { method: "POST", body: JSON.stringify(payload) }), onSuccess: () => { setNotice("Operation queued"); void client.invalidateQueries({ queryKey: ["world", worldId] }); }, onError: (error) => setNotice(error.message) });
+  const saveConfig = useMutation({ mutationFn: () => json(`/api/worlds/${worldId}/configuration`, { method: "PUT", body: JSON.stringify({ content: draft ?? configurationQuery.data?.content ?? "" }) }), onSuccess: () => { setNotice("Configuration saved; restart to apply changes"); void configurationQuery.refetch(); }, onError: (error) => setNotice(error.message) });
+  if (worldQuery.isLoading) return <WorkspaceShell><div className="empty">Loading world…</div></WorkspaceShell>;
+  if (!world) return <WorkspaceShell><div className="empty error">World not found.</div></WorkspaceShell>;
+  const live = liveQuery.data; const metrics = live?.metrics ?? {}; const players = live?.players?.players ?? [];
+  const run = (name: string) => action.mutate({ action: name });
+  return <WorkspaceShell>
+    <Link className="back-link" href="/">← All worlds</Link>
+    {notice && <button className="notice" onClick={() => setNotice(null)}>{notice}<span>×</span></button>}
+    <section className="world-banner"><div className="world-banner-head"><div className="world-icon large">{world.displayName.slice(0, 1).toUpperCase()}</div><div className="world-title"><div><h1>{world.displayName}</h1><Status value={world.status} /></div><p>{String(live?.info?.servername ?? world.installDir)}</p></div><div className="world-primary-actions">{world.status === "running" ? <><button className="button ghost" onClick={() => run("restart")}>Restart</button><button className="button danger" onClick={() => run("stop")}>Stop</button></> : <button className="button primary" onClick={() => run("start")}>Start</button>}<button className="button ghost" disabled={world.status === "running"} onClick={() => run(world.buildId ? "update" : "install")}>Update</button></div></div>
+      <div className="quick-stats"><Quick label="Players" value={live?.reachable ? `${players.length}/${String(metrics.maxplayernum ?? "—")}` : "—"} /><Quick label="Uptime" value={formatUptime(Number(metrics.uptime ?? 0), live?.reachable)} /><Quick label="In-game day" value={live?.reachable ? String(metrics.days ?? "—") : "—"} /><Quick label="Server FPS" value={live?.reachable ? String(metrics.serverfps ?? "—") : "—"} /><Quick label="Build" value={world.buildId ?? "—"} /><Quick label="Game port" value={String(world.gamePort)} /></div>
+      <div className="connection-row"><span>Connect from this PC</span><code>127.0.0.1:{world.gamePort}</code><button onClick={() => void navigator.clipboard.writeText(`127.0.0.1:${world.gamePort}`)}>Copy</button></div>
+    </section>
+    <div className="world-tabs">{tabs.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)}>{item.label}</button>)}</div>
+    <section className="world-tab-panel">
+      {tab === "overview" && <Overview activity={activityQuery.data} live={live} />}
+      {tab === "players" && <Players players={players} reachable={Boolean(live?.reachable)} />}
+      {tab === "console" && <Console logs={logsQuery.data} onRefresh={() => void logsQuery.refetch()} />}
+      {tab === "settings" && <div><div className="panel-heading"><div><h2>PalWorldSettings.ini</h2><p>{configurationQuery.data?.path}</p></div><button className="button primary" disabled={saveConfig.isPending} onClick={() => saveConfig.mutate()}>Save settings</button></div><textarea className="settings-editor" value={draft ?? configurationQuery.data?.content ?? ""} onChange={(event) => setDraft(event.target.value)} spellCheck={false} /></div>}
+      {tab === "backups" && <Backups records={backupsQuery.data ?? []} running={world.status === "running"} onBackup={() => action.mutate({ action: "backup", reason: "manual" })} onRestore={(backupId) => { if (window.confirm("Restore this verified backup? A safety backup will be created first.")) action.mutate({ action: "restore", backupId }); }} />}
+      {tab === "schedule" && <div className="tab-empty"><h2>Automated operations</h2><p>Configure recurring verified backups and graceful restarts for this world.</p><button className="button primary" onClick={() => setScheduleOpen(true)}>Manage schedules</button></div>}
+      {tab === "admin" && <div className="tab-empty"><h2>World administration</h2><p>Network ports, launch behavior, Wine settings, autostart, and crash recovery.</p><button className="button primary" onClick={() => setEditOpen(true)}>Edit world profile</button></div>}
+    </section>
+    {editOpen && <WorldEditDialog world={world} onClose={() => setEditOpen(false)} onSaved={() => void worldQuery.refetch()} onNotice={setNotice} />}
+    {scheduleOpen && <WorldSchedulesDialog world={world} onClose={() => setScheduleOpen(false)} onNotice={setNotice} />}
+  </WorkspaceShell>;
+}
+
+function WorkspaceShell({ children }: { children: ReactNode }) { return <div className="app-shell"><aside className="sidebar"><Link className="brand" href="/"><span className="brand-mark">P</span><div><strong>Palworld</strong><small>Server Manager</small></div></Link><nav><Link className="active" href="/">Worlds</Link><Link href="/#operations">Operations</Link></nav><div className="sidebar-foot"><span className="pulse" />Local manager online<small>Core-first alpha</small></div></aside><main className="workspace world-workspace">{children}</main></div>; }
+function Status({ value }: { value: SafeWorld["status"] }) { return <span className={`status status-${value}`}><i />{value}</span>; }
+function Quick({ label, value }: { label: string; value: string }) { return <article><strong>{value}</strong><span>{label}</span></article>; }
+function formatUptime(seconds: number, reachable?: boolean) { if (!reachable) return "—"; const hours = Math.floor(seconds / 3600); const minutes = Math.floor((seconds % 3600) / 60); return `${hours}h ${minutes}m`; }
+function Overview({ activity, live }: { activity?: Activity; live?: Live }) { return <div className="overview-columns"><section><h2>Recent activity</h2>{(activity?.events ?? []).length ? activity!.events.map((item) => <div className="history-row" key={item.id}><strong>{item.kind}</strong><span>{item.message}</span><time>{stamp(item.createdAt)}</time></div>) : <p className="muted">No recorded events.</p>}</section><section><h2>Join/leave history</h2>{(activity?.sessions ?? []).length ? activity!.sessions.map((item) => <div className="history-row" key={item.id}><strong>{item.event}</strong><span>{item.playerName ?? "Unknown player"}</span><time>{stamp(item.createdAt)}</time></div>) : <p className="muted">No player sessions recorded.</p>}<h2 className="health-heading">Server health</h2><p className={live?.reachable ? "green" : "muted"}>{live?.reachable ? "REST API reachable" : live?.error ?? "Server offline"}</p></section></div>; }
+function Players({ players, reachable }: { players: Array<Record<string, unknown>>; reachable: boolean }) { if (!reachable) return <div className="tab-empty"><h2>Players</h2><p>Start the server to view the live player list.</p></div>; if (!players.length) return <div className="tab-empty"><h2>Players</h2><p>No players are online.</p></div>; return <div className="record-list">{players.map((player, index) => <div key={String(player.userId ?? player.name ?? index)}><span><strong>{String(player.name ?? player.playername ?? "Unknown player")}</strong><small>{String(player.userId ?? player.userid ?? "")}</small></span></div>)}</div>; }
+function Console({ logs, onRefresh }: { logs?: Logs; onRefresh(): void }) { return <div><div className="panel-heading"><div><h2>Server console</h2><p>{logs?.selected ?? "No server log yet"}</p></div><button className="button ghost" onClick={onRefresh}>Refresh</button></div><pre className="console-output">{logs?.content || "Waiting for server output."}</pre></div>; }
+function Backups({ records, running, onBackup, onRestore }: { records: Backup[]; running: boolean; onBackup(): void; onRestore(id: string): void }) { return <div><div className="panel-heading"><div><h2>Backups</h2><p>Verified snapshots of this world&apos;s Saved directory.</p></div><button className="button primary" onClick={onBackup}>Back up now</button></div><div className="record-list">{records.length ? [...records].sort((a, b) => b.createdAt - a.createdAt).map((item) => <div key={item.id}><span><strong>{stamp(item.createdAt)}</strong><small>{Math.ceil(item.sizeBytes / 1_048_576)} MiB · {item.reason} · {item.verified ? "verified" : "unverified"}</small></span><button disabled={running || !item.verified} onClick={() => onRestore(item.id)}>Restore</button></div>) : <p className="muted">No backups yet.</p>}</div>{running && <p className="muted">Stop the server before restoring a backup.</p>}</div>; }

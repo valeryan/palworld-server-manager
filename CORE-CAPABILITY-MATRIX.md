@@ -21,6 +21,14 @@ gate** is checked.
 - [x] Keep jobs, logs, backups, and configuration records isolated by world
 - [ ] Import/export a portable world registration
 
+## Workflow alignment
+
+- [x] Document the original-to-rewrite workflow map
+- [x] Fleet list uses the original Start/Stop/Manage hierarchy
+- [x] Dedicated per-world workspace with a persistent status header
+- [x] Core tabs follow Overview, Players, Console, Settings, Backups, Schedule, Admin
+- [ ] Operations/download progress has a dedicated navigation destination
+
 ## Installation and updates
 
 - [x] Keep rewrite SteamCMD data separate from game installations
