@@ -4,6 +4,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, 
 import { request } from "node:http";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
+import { isSupersededNavigation } from "./navigation";
 
 app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
@@ -62,15 +63,23 @@ function iconPath() { return isDev ? path.join(__dirname, "..", "public", "icon.
 
 async function createWindow(show = true) {
   if (window) { if (show) { window.show(); window.focus(); } return; }
-  window = new BrowserWindow({ width: 1360, height: 860, minWidth: 960, minHeight: 640, show: false, backgroundColor: "#0b0d12", autoHideMenuBar: true, title: "Palworld Server Manager", icon: iconPath(), webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false } });
-  Menu.setApplicationMenu(null); window.setMenuBarVisibility(false);
-  window.webContents.on("did-fail-load", (_event, code, description, url, mainFrame) => { if (mainFrame) log(`Renderer failed ${url}: ${code} ${description}`); });
-  window.webContents.on("render-process-gone", (_event, details) => log(`Renderer gone: ${details.reason} (${details.exitCode})`));
-  window.webContents.setWindowOpenHandler(({ url }) => { void shell.openExternal(url); return { action: "deny" }; });
-  window.on("close", (event) => { if (!quitting && tray && preferences().closeToTray) { event.preventDefault(); window?.hide(); } }); window.on("closed", () => { window = null; });
+  const created = new BrowserWindow({ width: 1360, height: 860, minWidth: 960, minHeight: 640, show: false, backgroundColor: "#0b0d12", autoHideMenuBar: true, title: "Palworld Server Manager", icon: iconPath(), webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false } });
+  window = created;
+  Menu.setApplicationMenu(null); created.setMenuBarVisibility(false);
+  created.webContents.on("did-fail-load", (_event, code, description, url, mainFrame) => { if (mainFrame) log(`Renderer failed ${url}: ${code} ${description}`); });
+  created.webContents.on("render-process-gone", (_event, details) => log(`Renderer gone: ${details.reason} (${details.exitCode})`));
+  created.webContents.setWindowOpenHandler(({ url }) => { void shell.openExternal(url); return { action: "deny" }; });
+  created.on("close", (event) => { if (!quitting && tray && preferences().closeToTray) { event.preventDefault(); created.hide(); } });
+  created.on("closed", () => { if (window === created) window = null; });
+  if (show) created.once("ready-to-show", () => { if (!created.isDestroyed()) { created.show(); created.focus(); } });
   const url = process.env.ELECTRON_START_URL || `http://127.0.0.1:${port}`;
-  await window.webContents.session.cookies.set({ url: `http://127.0.0.1:${port}`, name: "psm_admin", value: token, httpOnly: true, sameSite: "lax" });
-  await window.loadURL(url); if (show) window.once("ready-to-show", () => window?.show());
+  await created.webContents.session.cookies.set({ url: `http://127.0.0.1:${port}`, name: "psm_admin", value: token, httpOnly: true, sameSite: "lax" });
+  try {
+    await created.loadURL(url);
+  } catch (error) {
+    if (!isSupersededNavigation(error) || created.isDestroyed()) throw error;
+    log(`Initial renderer navigation was superseded; continuing with ${created.webContents.getURL() || "the replacement route"}`);
+  }
 }
 
 function createTray() { try { tray = new Tray(nativeImage.createFromPath(iconPath())); tray.setToolTip("Palworld Server Manager"); tray.setContextMenu(Menu.buildFromTemplate([{ label: "Open", click: () => void createWindow() }, { type: "separator" }, { label: "Quit", click: () => { quitting = true; app.quit(); } }])); tray.on("click", () => void createWindow()); } catch (error) { log(`Tray unavailable: ${String(error)}`); } }
