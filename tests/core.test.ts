@@ -6,6 +6,8 @@ import { DatabaseSync } from "node:sqlite";
 import { pathsOverlap } from "@/server/services/worlds";
 import { commandFor, parseArguments } from "@/server/services/processes";
 import { createWorldSchema } from "@/contracts/world";
+import { createScheduleSchema } from "@/contracts/schedule";
+import { nextRun } from "@/server/services/schedules";
 
 describe("world isolation", () => {
   it("detects equal and nested paths", () => {
@@ -22,6 +24,20 @@ describe("launch argument parser", () => {
   it("enables configured REST and RCON endpoints explicitly", () => {
     const command = commandFor(createWorldSchema.parse({ displayName: "test", installDir: "/srv/pal", restApiEnabled: true, rconEnabled: true }) as never);
     expect(command.args).toContain("-RESTAPIEnabled=true"); expect(command.args).toContain("-RCONEnabled=true");
+  });
+});
+
+describe("schedules", () => {
+  it("calculates interval runs from the current time", () => {
+    expect(nextRun({ mode: "interval", intervalMinutes: 15 }, 1_000)).toBe(901_000);
+  });
+  it("rolls an elapsed daily time into the next day", () => {
+    const now = new Date(2026, 8, 20, 12, 0, 0).getTime();
+    expect(new Date(nextRun({ mode: "daily", timeOfDay: "04:30" }, now)).getDate()).toBe(21);
+  });
+  it("rejects invalid intervals and daily times", () => {
+    expect(() => createScheduleSchema.parse({ action: "backup", mode: "interval", intervalMinutes: 0 })).toThrow();
+    expect(() => createScheduleSchema.parse({ action: "restart", mode: "daily", timeOfDay: "25:00" })).toThrow();
   });
 });
 

@@ -30,7 +30,7 @@ gate** is checked.
 - [x] Display persistent SteamCMD output and progress in the UI
 - [x] Update copied world 1 and preserve saves/configuration
 - [x] Update copied world 2 and preserve saves/configuration
-- [ ] Run safe concurrent operations across different worlds
+- [x] Run safe concurrent operations across different worlds
 - [ ] Detect the available Palworld build before an update
 - [ ] Cancel a running install/update safely
 
@@ -41,8 +41,8 @@ gate** is checked.
 - [x] Preserve `PalWorldSettings.ini` across graceful shutdown
 - [x] Force-stop fallback for an unresponsive process tree
 - [x] Reject a duplicate operation for the same world
-- [ ] Start and operate both copied worlds simultaneously
-- [ ] Reconcile running processes after manager restart
+- [x] Start and operate both copied worlds simultaneously
+- [x] Reconcile running processes after manager restart
 - [ ] Recover a deliberately crashed copied server
 - [ ] Verify autostart after reboot/login
 - [ ] Keep servers running while the UI is hidden to the tray
@@ -81,9 +81,9 @@ gate** is checked.
 - [x] Persistent command output per job
 - [ ] Live server log viewer with pause/search/download — **Partial: live tail and refresh are packaged**
 - [x] Persistent event-history screen
-- [ ] REST server information and health — **Partial: packaged; running-server verification pending**
-- [ ] Live player list and session history — **Partial: session history is packaged; live verification pending**
-- [ ] Server metrics display — **Partial: packaged; running-server verification pending**
+- [x] REST server information and health
+- [x] Live player list and session history
+- [x] Server metrics display
 - [ ] Death history
 - [ ] Announce, save, kick, ban, and unban controls
 - [ ] Legacy RCON console for explicitly enabled worlds
@@ -91,12 +91,12 @@ gate** is checked.
 ## Scheduling
 
 - [x] Import legacy schedule definitions in a disabled state
-- [ ] Schedule editor and validation
-- [ ] Scheduled backups
+- [x] Schedule editor and validation for backups and restarts
+- [x] Scheduled backups
 - [ ] Scheduled restarts with warnings
 - [ ] Scheduled updates
 - [ ] Scheduled messages and join-triggered notices
-- [ ] Skip-next-run control
+- [x] Skip-next-run control
 - [ ] Restart-safe next-run calculation
 
 ## Mods and operational components
@@ -159,7 +159,7 @@ gate** is checked.
 ## Production cutover gate
 
 - [ ] Both copies independently pass update, configure, start, monitor, stop, restart, backup, and restore
-- [ ] Both copies operate simultaneously and port-conflict handling is demonstrated
+- [x] Both copies operate simultaneously and port-conflict handling is demonstrated
 - [ ] Scheduling, recovery, autostart, tray, and restart reconciliation pass
 - [ ] Remote administration and authentication pass
 - [ ] Packaged AppImage renders reliably in the actual KDE/RDP session

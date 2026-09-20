@@ -1,0 +1,26 @@
+"use client";
+import * as Dialog from "@radix-ui/react-dialog";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, type FormEvent } from "react";
+import type { WorldView } from "@/contracts/world";
+
+type SafeWorld = Omit<WorldView, "adminPassword" | "serverPassword" | "env">;
+type Schedule = { id: string; action: string; mode: string; intervalMinutes: number | null; timeOfDay: string | null; enabled: boolean; skipNext: boolean; lastRunAt: number | null; nextRunAt: number | null };
+async function request<T>(url: string, init?: RequestInit): Promise<T> { const response = await fetch(url, { ...init, headers: { "content-type": "application/json", ...init?.headers } }); const body = await response.json(); if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`); return body; }
+const when = (value: number | null) => value ? new Date(value).toLocaleString() : "not scheduled";
+
+export function WorldSchedulesDialog({ world, onClose, onNotice }: { world: SafeWorld; onClose(): void; onNotice(message: string): void }) {
+  const client = useQueryClient(); const [mode, setMode] = useState<"interval" | "daily">("interval");
+  const key = ["schedules", world.id];
+  const query = useQuery({ queryKey: key, queryFn: async () => (await request<{ schedules: Schedule[] }>(`/api/worlds/${world.id}/schedules`)).schedules });
+  const refresh = () => void client.invalidateQueries({ queryKey: key });
+  const create = useMutation({ mutationFn: (payload: object) => request(`/api/worlds/${world.id}/schedules`, { method: "POST", body: JSON.stringify(payload) }), onSuccess: () => { onNotice("Schedule created"); refresh(); }, onError: (error) => onNotice(error.message) });
+  const patch = useMutation({ mutationFn: ({ id, payload }: { id: string; payload: object }) => request(`/api/schedules/${id}`, { method: "PATCH", body: JSON.stringify(payload) }), onSuccess: refresh, onError: (error) => onNotice(error.message) });
+  const remove = useMutation({ mutationFn: (id: string) => request(`/api/schedules/${id}`, { method: "DELETE" }), onSuccess: () => { onNotice("Schedule deleted"); refresh(); }, onError: (error) => onNotice(error.message) });
+  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const data = new FormData(event.currentTarget); create.mutate(mode === "interval" ? { action: data.get("action"), mode, intervalMinutes: Number(data.get("intervalMinutes")), enabled: true } : { action: data.get("action"), mode, timeOfDay: data.get("timeOfDay"), enabled: true }); }
+  return <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><Dialog.Content className="dialog schedule-dialog"><Dialog.Title>{world.displayName} schedules</Dialog.Title><Dialog.Description>Schedules run in the manager runtime even when this window is hidden. Times use this computer&apos;s local timezone.</Dialog.Description>
+    <form className="schedule-form" onSubmit={submit}><label>Action<select name="action"><option value="backup">Verified backup</option><option value="restart">Graceful restart</option></select></label><label>Frequency<select name="mode" value={mode} onChange={(event) => setMode(event.target.value as "interval" | "daily")}><option value="interval">Interval</option><option value="daily">Daily</option></select></label>{mode === "interval" ? <label>Every (minutes)<input name="intervalMinutes" type="number" min="1" max="43200" defaultValue="60" /></label> : <label>Local time<input name="timeOfDay" type="time" defaultValue="04:00" /></label>}<button className="button primary" disabled={create.isPending}>Add schedule</button></form>
+    <div className="schedule-list">{query.isLoading ? <p className="muted">Loading schedules…</p> : (query.data ?? []).length === 0 ? <p className="muted">No schedules for this world.</p> : (query.data ?? []).map((item) => { const supported = (item.action === "backup" || item.action === "restart") && (item.mode === "interval" || item.mode === "daily"); return <article key={item.id}><div><strong>{item.action.replaceAll("_", " ")}</strong><span>{item.mode === "interval" ? `every ${item.intervalMinutes} minutes` : item.mode === "daily" ? `daily at ${item.timeOfDay}` : `${item.mode} · deferred`}</span><small>{supported ? `Next: ${when(item.nextRunAt)}${item.lastRunAt ? ` · Last: ${when(item.lastRunAt)}` : ""}` : "Imported for later migration; cannot be enabled yet."}</small></div><div className="schedule-actions"><button disabled={!supported && !item.enabled} onClick={() => patch.mutate({ id: item.id, payload: { enabled: !item.enabled } })}>{item.enabled ? "Disable" : "Enable"}</button><button disabled={!supported || !item.enabled || item.skipNext} onClick={() => patch.mutate({ id: item.id, payload: { skipNext: true } })}>{item.skipNext ? "Will skip" : "Skip next"}</button><button className="danger" onClick={() => remove.mutate(item.id)}>Delete</button></div></article>; })}</div>
+    <p className="muted schedule-note">Scheduled updates and messages remain unavailable until warning and shutdown handling is complete.</p><div className="dialog-actions"><button className="button ghost" onClick={onClose}>Close</button></div>
+  </Dialog.Content></Dialog.Portal></Dialog.Root>;
+}
