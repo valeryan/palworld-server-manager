@@ -32,8 +32,8 @@ export async function GET(req, { params }) {
   if (!w) return NextResponse.json({ ok: false, error: "not found" }, { status: 404 });
   // Base world read: any in-scope session may load it (needed to render anything); the
   // per-tab panels enforce their own tabs via their own routes.
-  const denied = ra.guardResponse(req, { worldId: params.id });
-  if (denied) return denied;
+  const gate = ra.authorize(req, { worldId: params.id });
+  if (!gate.ok) return NextResponse.json({ ok: false, error: gate.reason }, { status: gate.status || 403 });
   if (!w.build_id) {
     try {
       const bid = steam.readInstalledBuildId(w.install_dir);
@@ -62,7 +62,9 @@ export async function GET(req, { params }) {
   const updateState = steam.updateStateOf(w);
   return NextResponse.json({
     ok: true,
-    world: { ...w, running, updateState, updateAvailable: updateState === "available" },
+    world: gate.admin
+      ? { ...w, running, updateState, updateAvailable: updateState === "available" }
+      : ra.redactWorld({ ...w, running, updateState, updateAvailable: updateState === "available" }),
     live: { info, players, metrics, settings },
     events, sessions, schedules, backups,
   });

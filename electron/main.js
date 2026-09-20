@@ -13,6 +13,19 @@ app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
 app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 
+// Chromium normally puts renderer/GPU shared memory in /dev/shm. With some Linux
+// remote-desktop and sandbox combinations the main process can write there but its
+// renderer namespace cannot, leaving the BrowserWindow at its background colour while
+// Chromium subprocesses crash. Use /tmp for Chromium shared memory on Linux; this is the
+// same supported compatibility switch as launching the AppImage manually with
+// --disable-dev-shm-usage. Hardware acceleration remains enabled.
+const _pathEarly = require("path");
+const _fsEarly = require("fs");
+const linuxSharedMemoryCompatibility = process.platform === "linux";
+if (linuxSharedMemoryCompatibility) {
+  app.commandLine.appendSwitch("disable-dev-shm-usage");
+}
+
 // Run without Chromium's sandbox on Linux when it genuinely can't work (issues #32, #38),
 // and only then — forcing it unconditionally blanked the window for ordinary non-root
 // desktop AppImage users whose sandbox is fine (the #32 first-fix regression). It's safe
@@ -25,8 +38,6 @@ app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 //      correctly…"), which is exactly what killed GNOME autostart in #38: the AppImage
 //      mounts under /tmp where the helper never gets its setuid bit. A correctly-installed
 //      sandbox fails this check false, so those users keep their working sandbox untouched.
-const _pathEarly = require("path");
-const _fsEarly = require("fs");
 function suidSandboxBroken() {
   try {
     const helper = _pathEarly.join(_pathEarly.dirname(process.execPath), "chrome-sandbox");
@@ -40,8 +51,18 @@ function suidSandboxBroken() {
   }
 }
 if (process.platform === "linux" && typeof process.getuid === "function") {
-  if (process.getuid() === 0 || suidSandboxBroken()) {
+  // electron-builder's AppImage is assembled with all files owned by root, so stat(2)
+  // can make chrome-sandbox look correctly configured even though the FUSE mount cannot
+  // honor its setuid bit. APPIMAGE is supplied by the runtime and identifies that case.
+  if (process.getuid() === 0 || !!process.env.APPIMAGE || suidSandboxBroken()) {
     app.commandLine.appendSwitch("no-sandbox");
+    // On affected Electron/Linux builds the unsandboxed renderer is still forked from
+    // a sandboxed zygote. Its shared-memory broker then points into the dead zygote
+    // namespace: every allocation fails with ESRCH and the compositor exits SIGTRAP,
+    // leaving a permanently blank window. Directly spawning Chromium subprocesses
+    // avoids that broken mixed sandbox state. Chromium requires --no-sandbox whenever
+    // --no-zygote is used, so keep both switches in this same guarded branch.
+    app.commandLine.appendSwitch("no-zygote");
   }
 }
 const path = require("path");
@@ -484,6 +505,17 @@ function createWindow() {
   // tray click has something to reveal, but it stays hidden until asked for.
   mainWindow.once("ready-to-show", () => { if (!launchedHidden) mainWindow.show(); });
 
+  // A failed navigation or renderer crash previously looked exactly like a valid empty
+  // dark window. Record the actual failure in launcher.log so it can be diagnosed without
+  // asking a desktop user to launch Electron from a terminal.
+  mainWindow.webContents.on("did-fail-load", (_event, code, description, validatedURL, isMainFrame) => {
+    if (isMainFrame) logToFile(`Renderer failed to load ${validatedURL}: ${code} ${description}`);
+  });
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    logToFile(`Renderer process gone: ${details.reason} (exit ${details.exitCode})`);
+  });
+  mainWindow.webContents.on("did-finish-load", () => logToFile(`Renderer loaded ${url}`));
+
   // Close-to-tray: unless a real quit is underway (or the pref is off, or there's no
   // tray to hide into), the close button hides the window and leaves the app running.
   mainWindow.on("close", (e) => {
@@ -518,6 +550,9 @@ function showErrorWindow(message) {
 
 function main() {
   app.whenReady().then(async () => {
+    if (linuxSharedMemoryCompatibility) {
+      logToFile("Linux shared-memory compatibility enabled: Chromium renderer uses /tmp instead of /dev/shm");
+    }
     // Ensures Windows uses our icon (not the default Electron one) in the taskbar.
     if (process.platform === "win32") app.setAppUserModelId("com.palworld.servermanager");
     // Keep the OS from suspending this process (and starving the game server it hosts)

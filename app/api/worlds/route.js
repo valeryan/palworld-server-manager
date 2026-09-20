@@ -53,7 +53,8 @@ export async function GET(req) {
         } catch {}
       }
       const updateState = steam.updateStateOf(w);
-      return { ...w, running, apiUp, live, updateState, updateAvailable: updateState === "available" };
+      // The home/cards response never needs credentials, even for the trusted desktop.
+      return ra.redactWorld({ ...w, running, apiUp, live, updateState, updateAvailable: updateState === "available" });
     })
   );
   return NextResponse.json({ ok: true, worlds: enriched });
