@@ -53,7 +53,7 @@ gate** is checked.
 - [x] Reconcile running processes after manager restart
 - [x] Recover a deliberately crashed copied server
 - [ ] Verify autostart after reboot/login — **Partial: packaged manager relaunch starts an enabled copied world and reaches authenticated REST health**
-- [ ] Keep servers running while the UI is hidden to the tray
+- [x] Keep servers running while the UI is hidden to the tray
 - [x] Prevent two desktop manager instances
 - [ ] Confirmed bulk start/stop/restart controls
 
