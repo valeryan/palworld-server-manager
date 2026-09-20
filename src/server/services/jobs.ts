@@ -2,7 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { desc, eq } from "drizzle-orm";
 import type { JobView } from "@/contracts/job";
-import { database } from "@/server/db";
+import { database, sqliteClient } from "@/server/db";
 import { jobLogs, jobs } from "@/server/db/schema";
 import { eventBus } from "./events";
 
@@ -39,7 +39,7 @@ export async function startJob(worldId: string | null, kind: string, task: (cont
           await publish(id);
         },
         log: (message) => {
-          void database().insert(jobLogs).values({ jobId: id, message, createdAt: Date.now() });
+          sqliteClient().prepare("INSERT INTO job_logs (job_id,message,created_at) VALUES (?,?,?)").run(id, message, Date.now());
           eventBus().publish({ type: "log", worldId: worldId ?? undefined, data: { jobId: id, message } });
         },
       });

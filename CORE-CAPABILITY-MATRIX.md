@@ -27,9 +27,9 @@ gate** is checked.
 - [x] Construct Linux and Windows/Wine SteamCMD installs without a shell
 - [x] Redact configured Steam credentials from operation output
 - [x] Prevent overlapping operations on one world
-- [ ] Display persistent SteamCMD output and progress in the UI — **Partial: jobs only**
-- [ ] Update copied world 1 and preserve saves/configuration
-- [ ] Update copied world 2 and preserve saves/configuration
+- [x] Display persistent SteamCMD output and progress in the UI
+- [x] Update copied world 1 and preserve saves/configuration
+- [x] Update copied world 2 and preserve saves/configuration
 - [ ] Run safe concurrent operations across different worlds
 - [ ] Detect the available Palworld build before an update
 - [ ] Cancel a running install/update safely
@@ -68,8 +68,8 @@ gate** is checked.
 - [x] Reject corrupt archives and unsafe extraction paths
 - [x] Require a stopped world before restore
 - [x] Create a pre-restore safety backup
-- [ ] Perform and verify a destructive restore on copied world 1
-- [ ] Perform and verify a destructive restore on copied world 2
+- [x] Perform and verify a destructive restore on copied world 1
+- [x] Perform and verify a destructive restore on copied world 2
 - [ ] Backup retention rules
 - [ ] Custom backup destinations
 - [ ] Backup deletion/download controls in the UI
@@ -78,7 +78,7 @@ gate** is checked.
 
 - [x] Persistent asynchronous job records
 - [x] Consolidated SSE world/job event stream
-- [ ] Persistent command output per job — **Partial: storage and viewer packaged; awaiting a new SteamCMD operation**
+- [x] Persistent command output per job
 - [ ] Live server log viewer with pause/search/download — **Partial: live tail and refresh are packaged**
 - [x] Persistent event-history screen
 - [ ] REST server information and health — **Partial: packaged; running-server verification pending**
@@ -118,7 +118,7 @@ gate** is checked.
 - [x] AppImage contains and starts the standalone Next.js server
 - [x] Stable `psm-next.AppImage` artifact name
 - [x] Single-instance lock and tray support
-- [ ] User-confirmed rendering through the KDE/RDP session
+- [x] User-confirmed rendering through the KDE/RDP session
 - [ ] Directory picker wired into world forms
 - [ ] Desktop settings for close-to-tray and startup behavior
 - [ ] LAN binding and manager-port configuration
