@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/*": ["./drizzle/**/*"],
   },
+  outputFileTracingExcludes: {
+    "/*": ["./dist-standalone/**/*", "./release/**/*"],
+  },
 };
 
 export default nextConfig;
