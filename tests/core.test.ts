@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { pathsOverlap } from "@/server/services/worlds";
-import { parseArguments } from "@/server/services/processes";
+import { commandFor, parseArguments } from "@/server/services/processes";
 import { createWorldSchema } from "@/contracts/world";
 
 describe("world isolation", () => {
@@ -19,6 +19,10 @@ describe("world isolation", () => {
 describe("launch argument parser", () => {
   it("preserves quoted values without invoking a shell", () => { expect(parseArguments(`-flag "hello world" 'two words' plain`)).toEqual(["-flag", "hello world", "two words", "plain"]); });
   it("rejects unfinished quotes", () => { expect(() => parseArguments(`"unfinished`)).toThrow(); });
+  it("enables configured REST and RCON endpoints explicitly", () => {
+    const command = commandFor(createWorldSchema.parse({ displayName: "test", installDir: "/srv/pal", restApiEnabled: true, rconEnabled: true }) as never);
+    expect(command.args).toContain("-RESTAPIEnabled=true"); expect(command.args).toContain("-RCONEnabled=true");
+  });
 });
 
 describe("legacy import", () => {

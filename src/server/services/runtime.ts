@@ -24,7 +24,7 @@ export async function startRuntime(): Promise<void> {
   if (globalThis.__psmRuntimeStarted) return;
   globalThis.__psmRuntimeStarted = true;
   await reconcileProcesses();
-  for (const world of await listWorlds()) if (world.autostart && world.status === "stopped") await startJob(world.id, "autostart", async () => startWorld(world.id));
+  for (const world of await listWorlds()) if (world.autostart && world.status !== "running" && world.status !== "starting") await startJob(world.id, "autostart", async () => startWorld(world.id));
   globalThis.__psmSchedulerTimer = setInterval(() => void schedulerTick(), 30_000);
   globalThis.__psmSchedulerTimer.unref();
 }
