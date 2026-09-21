@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { LaunchAtLoginOptions } from "./launch-options";
 
 const desktop = {
   pickDirectory: (): Promise<string | null> => ipcRenderer.invoke("pick-directory"),
@@ -12,6 +13,8 @@ const desktop = {
   setCloseToTray: (enabled: boolean): Promise<boolean> => ipcRenderer.invoke("set-close-to-tray", enabled),
   getLaunchAtLogin: (): Promise<boolean> => ipcRenderer.invoke("get-launch-at-login"),
   setLaunchAtLogin: (enabled: boolean): Promise<boolean> => ipcRenderer.invoke("set-launch-at-login", enabled),
+  getLaunchAtLoginOptions: (): Promise<LaunchAtLoginOptions> => ipcRenderer.invoke("get-launch-at-login-options"),
+  setLaunchAtLoginOptions: (options: LaunchAtLoginOptions): Promise<LaunchAtLoginOptions> => ipcRenderer.invoke("set-launch-at-login-options", options),
 };
 contextBridge.exposeInMainWorld("psmDesktop", desktop);
 export type DesktopApi = typeof desktop;

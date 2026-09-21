@@ -5,6 +5,7 @@ import { request } from "node:http";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { isSupersededNavigation } from "./navigation";
+import { defaultLaunchAtLoginOptions, launchAtLoginArguments, normalizeLaunchAtLoginOptions, parseCustomLaunchFlags, type LaunchAtLoginOptions } from "./launch-options";
 
 app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
@@ -25,22 +26,23 @@ let window: BrowserWindow | null = null; let tray: Tray | null = null; let serve
 if (process.env.PORTABLE_EXECUTABLE_DIR) { const portable = path.join(process.env.PORTABLE_EXECUTABLE_DIR, "PSM-Data"); mkdirSync(portable, { recursive: true }); app.setPath("userData", portable); }
 const dataDir = () => app.getPath("userData"); const log = (message: string) => { try { appendFileSync(path.join(dataDir(), "launcher-v3.log"), `[${new Date().toISOString()}] ${message}\n`); } catch {} };
 const preferencePath = () => path.join(dataDir(), "desktop-preferences.json");
-type DesktopPreferences = { closeToTray: boolean; launchAtLogin: boolean };
-function preferences(): DesktopPreferences { try { const saved = JSON.parse(readFileSync(preferencePath(), "utf8")); return { closeToTray: saved.closeToTray !== false, launchAtLogin: saved.launchAtLogin === true }; } catch { return { closeToTray: true, launchAtLogin: false }; } }
+type DesktopPreferences = { closeToTray: boolean; launchAtLogin: boolean; launchOptions: LaunchAtLoginOptions };
+function preferences(): DesktopPreferences { try { const saved = JSON.parse(readFileSync(preferencePath(), "utf8")); return { closeToTray: saved.closeToTray !== false, launchAtLogin: saved.launchAtLogin === true, launchOptions: normalizeLaunchAtLoginOptions(saved.launchOptions) }; } catch { return { closeToTray: true, launchAtLogin: false, launchOptions: defaultLaunchAtLoginOptions }; } }
 function writePreferences(patch: Partial<DesktopPreferences>) { mkdirSync(dataDir(), { recursive: true }); writeFileSync(preferencePath(), JSON.stringify({ ...preferences(), ...patch }, null, 2)); }
 function linuxAutostartPath() { return path.join(app.getPath("home"), ".config", "autostart", "com.palworld.servermanager.next.desktop"); }
-function startupArguments() { return process.argv.slice(1).filter((argument) => argument.startsWith("--user-data-dir=")); }
+function persistentDataArguments() { return process.argv.slice(1).filter((argument) => argument.startsWith("--user-data-dir=")); }
 function desktopQuote(value: string) { return `"${value.replace(/([\\`"$])/g, "\\$1")}"`; }
 function setLaunchAtLogin(enabled: boolean): boolean {
   if (isDev) throw new Error("Launch at login is only available in the packaged application.");
+  const launchArguments = launchAtLoginArguments(preferences().launchOptions, persistentDataArguments());
   if (process.platform === "linux") {
     const filePath = linuxAutostartPath(); mkdirSync(path.dirname(filePath), { recursive: true });
     if (enabled) {
       const executable = process.env.APPIMAGE || process.execPath;
-      const command = [executable, "--hidden", ...startupArguments()].map(desktopQuote).join(" ");
+      const command = [executable, ...launchArguments].map(desktopQuote).join(" ");
       writeFileSync(filePath, `[Desktop Entry]\nType=Application\nName=Palworld Server Manager Next\nComment=Start the Palworld server supervisor at login\nExec=${command}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n`, { mode: 0o600 });
     } else rmSync(filePath, { force: true });
-  } else app.setLoginItemSettings({ openAtLogin: enabled, args: enabled ? ["--hidden", ...startupArguments()] : [] });
+  } else app.setLoginItemSettings({ openAtLogin: enabled, args: enabled ? launchArguments : [] });
   writePreferences({ launchAtLogin: enabled }); return enabled;
 }
 
@@ -92,6 +94,12 @@ ipcMain.handle("save-registration", async (_event, defaultName: string, content:
 ipcMain.handle("open-path", (_event, target: string) => shell.openPath(target)); ipcMain.handle("get-theme", () => nativeTheme.shouldUseDarkColors ? "dark" : "light"); ipcMain.handle("get-locale", () => app.getLocale() || "en");
 ipcMain.handle("get-close-to-tray", () => preferences().closeToTray); ipcMain.handle("set-close-to-tray", (_event, enabled: boolean) => { writePreferences({ closeToTray: Boolean(enabled) }); return Boolean(enabled); });
 ipcMain.handle("get-launch-at-login", () => preferences().launchAtLogin); ipcMain.handle("set-launch-at-login", (_event, enabled: boolean) => setLaunchAtLogin(Boolean(enabled)));
+ipcMain.handle("get-launch-at-login-options", () => preferences().launchOptions);
+ipcMain.handle("set-launch-at-login-options", (_event, value: unknown) => {
+  const launchOptions = normalizeLaunchAtLoginOptions(value); parseCustomLaunchFlags(launchOptions.customFlags); writePreferences({ launchOptions });
+  if (preferences().launchAtLogin) setLaunchAtLogin(true);
+  return launchOptions;
+});
 
 const ownsInstanceLock = app.requestSingleInstanceLock();
 if (!ownsInstanceLock) app.quit(); else {

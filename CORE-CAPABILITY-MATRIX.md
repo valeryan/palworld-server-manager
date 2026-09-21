@@ -143,6 +143,7 @@ with the original manager.
 - [x] Directory picker wired into world forms
 - [x] Desktop setting for close-to-tray behavior
 - [x] Desktop setting for launch-at-login behavior
+- [x] Validated login-launch checkboxes and custom Electron/Chromium flags with isolated autostart-file generation
 - [ ] LAN binding and manager-port configuration
 
 ## Migration and safety — Complete
