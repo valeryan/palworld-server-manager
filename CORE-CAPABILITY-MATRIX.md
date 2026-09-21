@@ -5,23 +5,27 @@ after it works end-to-end through the packaged AppImage against the isolated
 copies in `/data/Projects/psm-next-sandbox`. Code that exists but has not passed
 that test remains unchecked and is labelled **Partial**.
 
+A section is complete only when every item in that section is checked. The
+heading explicitly states **Complete** or **Incomplete** so a collection of
+foundational checkmarks cannot be mistaken for full feature parity.
+
 The original worlds are out of scope until every item in **Production cutover
 gate** is checked.
 
-## World registry and isolation
+## World registry and isolation — Complete
 
 - [x] Import both legacy worlds with stable IDs and core settings
 - [x] Keep copied world paths separate from the original installations
 - [x] Reject overlapping installation directories
 - [x] Detect port conflicts between registered worlds
 - [x] Register a new Linux or Windows/Wine world
-- [x] Edit every world property in the UI
+- [x] Edit every manager registration property in the World properties UI
 - [x] Adopt an existing installation with an explicit selection flow
 - [x] Remove a registration with confirmation without deleting server files
 - [x] Keep jobs, logs, backups, and configuration records isolated by world
 - [x] Import/export a portable world registration
 
-## Workflow alignment
+## Workflow alignment — Complete
 
 - [x] Document the original-to-rewrite workflow map
 - [x] Fleet list uses the original Start/Stop/Manage hierarchy
@@ -29,7 +33,7 @@ gate** is checked.
 - [x] Core tabs follow Overview, Players, Console, Settings, Backups, Schedule, Admin
 - [x] Operations/download progress has a dedicated navigation destination
 
-## Installation and updates
+## Installation and updates — Incomplete
 
 - [x] Keep rewrite SteamCMD data separate from game installations
 - [x] Construct Linux and Windows/Wine SteamCMD installs without a shell
@@ -42,7 +46,7 @@ gate** is checked.
 - [ ] Detect the available Palworld build before an update
 - [ ] Cancel a running install/update safely
 
-## Process lifecycle
+## Process lifecycle — Incomplete
 
 - [x] Start a copied Linux server from the packaged manager stack
 - [x] Stop through REST save plus graceful shutdown
@@ -57,19 +61,23 @@ gate** is checked.
 - [x] Prevent two desktop manager instances
 - [ ] Confirmed bulk start/stop/restart controls
 
-## Configuration
+## Configuration — Incomplete
 
 - [x] Load the correct Linux/Windows `PalWorldSettings.ini`
 - [x] Raw editor with size, NUL, quote, and parenthesis validation
 - [x] Atomic configuration writes
 - [x] Snapshot before edit and retain saved versions
 - [x] Restore a historical configuration version
-- [x] Structured editor for common Palworld settings
+- [x] Structured editor for 16 common Palworld settings
+- [ ] Complete schema-driven editor for the full original Palworld setting inventory — **Partial: 16 of approximately 108 fields are exposed**
+- [ ] Grouped setting categories and field/key search
+- [ ] Configuration presets with review-before-save behavior
+- [ ] Per-field default indicators, validation hints, and revert controls
 - [x] Synchronize managed ports/passwords/REST/RCON values into the INI
 - [ ] Show a clear restart-required state after changes
 - [ ] Portable configuration import/export
 
-## Backups and restores
+## Backups and restores — Incomplete
 
 - [x] Import and validate all four copied legacy backup archives
 - [x] Create a ZIP from a copied world's `Saved` directory
@@ -82,7 +90,7 @@ gate** is checked.
 - [ ] Custom backup destinations
 - [ ] Backup deletion/download controls in the UI
 
-## Operations and observability
+## Operations and observability — Incomplete
 
 - [x] Persistent asynchronous job records
 - [x] Consolidated SSE world/job event stream
@@ -96,7 +104,7 @@ gate** is checked.
 - [ ] Announce, save, kick, ban, and unban controls
 - [ ] Legacy RCON console for explicitly enabled worlds
 
-## Scheduling
+## Scheduling — Incomplete
 
 - [x] Import legacy schedule definitions in a disabled state
 - [x] Schedule editor and validation for backups and restarts
@@ -107,7 +115,7 @@ gate** is checked.
 - [x] Skip-next-run control
 - [ ] Restart-safe next-run calculation
 
-## Mods and operational components
+## Mods and operational components — Incomplete
 
 - [x] Preserve legacy mod records during migration
 - [ ] Scan and display installed mods
@@ -117,7 +125,7 @@ gate** is checked.
 - [ ] Login rewards management
 - [ ] Preserve mods through SteamCMD updates
 
-## Desktop and packaging
+## Desktop and packaging — Incomplete
 
 - [x] Typed Electron main/preload build
 - [x] Linux `--disable-dev-shm-usage` compatibility
@@ -132,7 +140,7 @@ gate** is checked.
 - [x] Desktop setting for launch-at-login behavior
 - [ ] LAN binding and manager-port configuration
 
-## Migration and safety
+## Migration and safety — Incomplete
 
 - [x] Read the legacy database without modifying it
 - [x] Preserve a complete legacy snapshot for deferred integrations
@@ -145,7 +153,7 @@ gate** is checked.
 - [ ] Automated source-tree no-write guard during integration tests
 - [ ] Repeatable final production import and rollback rehearsal
 
-## Remote administration and localization
+## Remote administration and localization — Incomplete
 
 - [ ] Authenticated remote administration
 - [ ] Scoped remote permissions and audit history
@@ -154,7 +162,7 @@ gate** is checked.
 - [ ] Existing language-pack discovery
 - [ ] UI localization
 
-## Automated verification
+## Automated verification — Incomplete
 
 - [x] Unit tests for path overlap, argument parsing, ports, and launch flags
 - [x] Legacy importer fixture test with source immutability
@@ -165,7 +173,7 @@ gate** is checked.
 - [ ] Playwright workflows for all critical management operations
 - [ ] Packaged Electron workflow tests
 
-## Production cutover gate
+## Production cutover gate — Blocked
 
 - [ ] Both copies independently pass update, configure, start, monitor, stop, restart, backup, and restore
 - [x] Both copies operate simultaneously and port-conflict handling is demonstrated
@@ -176,7 +184,7 @@ gate** is checked.
 - [ ] Production import rehearsal and rollback rehearsal pass
 - [ ] User approves replacing the known-good AppImage
 
-## Deferred integrations
+## Deferred integrations — Deferred
 
 These do not block the core release and must not be presented as available.
 
