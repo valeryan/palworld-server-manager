@@ -155,7 +155,7 @@ with the original manager.
 - [x] Disable copied autostart, schedules, webhooks, bots, codes, and sessions
 - [x] Rewrite copied paths and reject source/destination overlap
 - [x] Keep the production legacy database untouched
-- [ ] Automated source-tree no-write guard during integration tests
+- [x] Automated source-tree no-write guard during integration tests — **Reads protected paths from the original database and compares path/type/size/mtime/ctime/link metadata before and after the command**
 - [ ] Repeatable final production import and rollback rehearsal
 
 ## Remote administration and localization — Incomplete
