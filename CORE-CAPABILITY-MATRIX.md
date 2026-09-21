@@ -77,7 +77,7 @@ gate** is checked.
 - [x] Show a clear restart-required state after changes and clear it after restart
 - [x] Portable configuration ZIP import/export with byte-for-byte round-trip verification
 
-## Backups, restores, and scheduling — Incomplete
+## Backups, restores, and scheduling — Complete
 
 The Backups and Schedule tabs are tracked together because scheduled backups,
 maintenance windows, safety backups, and restore readiness share the same
@@ -100,20 +100,20 @@ with the original manager.
 **Schedule tab and runtime**
 
 - [x] Import legacy schedule definitions in a disabled state
-- [x] Schedule editor and validation for backups and restarts
+- [x] Schedule editor and validation for all original manager action and timing types
 - [x] Scheduled backups
 - [x] Skip-next-run control for supported schedules
-- [ ] Enable, disable, and delete controls verified end to end — **Partial: controls are implemented but not yet accepted as packaged workflows**
-- [ ] Scheduled graceful restarts with configurable player warnings and safety backups
-- [ ] Scheduled graceful stops with configurable player warnings and safety backups
-- [ ] Scheduled updates with warnings, backup, update, and prior-state restoration
-- [ ] Scheduled system messages and on-screen notices
-- [ ] Player-join message triggers with player filter, delay, and `{player}` substitution
-- [ ] Stop-when-empty schedules using REST player presence
-- [ ] Custom HTTP schedules with method, URL, headers, body, timeout, and protocol validation
-- [ ] Minute/hour intervals and daily local-time schedules matching the original controls
-- [ ] Last-run and next-run visibility with persistent operation history
-- [ ] Restart-safe next-run calculation, including overdue jobs and local-time changes
+- [x] Enable, disable, and delete controls verified end to end
+- [x] Scheduled graceful restarts with configurable player warnings and safety backups
+- [x] Scheduled graceful stops with configurable player warnings and safety backups
+- [x] Scheduled updates with warnings, backup, update, and prior-state restoration
+- [x] Scheduled system messages and on-screen notices with REST fallback
+- [x] Player-join message triggers with player filter, delay, and `{player}` substitution
+- [x] Stop-when-empty schedules using REST player presence
+- [x] Custom HTTP schedules with method, URL, headers, body, timeout, and protocol validation
+- [x] Minute/hour intervals and daily local-time schedules matching the original controls
+- [x] Last-run and next-run visibility with persistent operation history
+- [x] Restart-safe next-run calculation, including overdue jobs and local-time changes
 
 ## Operations and observability — Incomplete
 

@@ -19,5 +19,6 @@ export const palworldRest = {
   players: (world: WorldView) => request(world, "GET", "players"),
   metrics: (world: WorldView) => request(world, "GET", "metrics"),
   save: (world: WorldView) => request(world, "POST", "save"),
+  announce: (world: WorldView, message: string) => request(world, "POST", "announce", { message }),
   shutdown: (world: WorldView, waitSeconds = 15, message = "Server shutting down.") => request(world, "POST", "shutdown", { waittime: waitSeconds, message }),
 };

@@ -88,7 +88,7 @@ export async function startWorld(worldId: string): Promise<void> {
   await setRuntimeState(worldId, "running", child.pid ?? null);
 }
 
-export async function stopWorld(worldId: string, force = false): Promise<void> {
+export async function stopWorld(worldId: string, force = false, options: { waitSeconds?: number; message?: string } = {}): Promise<void> {
   const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
   if (!world.processId || !processIsAlive(world.processId)) { await setRuntimeState(worldId, "stopped", null); return; }
   await setRuntimeState(worldId, "stopping", world.processId);
@@ -98,10 +98,10 @@ export async function stopWorld(worldId: string, force = false): Promise<void> {
       const configuration = await readConfiguration(worldId);
       if (configuration.exists) intendedConfiguration = { path: configuration.path, content: configuration.content };
       await palworldRest.save(world).catch(() => undefined);
-      await palworldRest.shutdown(world, 15);
+      await palworldRest.shutdown(world, options.waitSeconds ?? 15, options.message ?? "Server shutting down.");
     } catch { /* REST may not be ready; signal fallback below remains safe. */ }
   }
-  const gracefulDeadline = Date.now() + (force ? 0 : 20_000);
+  const gracefulDeadline = Date.now() + (force ? 0 : ((options.waitSeconds ?? 15) + 10) * 1_000);
   while (processIsAlive(world.processId) && Date.now() < gracefulDeadline) await new Promise((resolve) => setTimeout(resolve, 250));
   if (processIsAlive(world.processId)) await new Promise<void>((resolve, reject) => killTree(world.processId!, force ? "SIGKILL" : "SIGTERM", (error) => error ? reject(error) : resolve()));
   const deadline = Date.now() + (force ? 3_000 : 10_000);
@@ -115,7 +115,7 @@ export async function stopWorld(worldId: string, force = false): Promise<void> {
   await setRuntimeState(worldId, "stopped", null);
 }
 
-export async function restartWorld(worldId: string): Promise<void> { await stopWorld(worldId); await startWorld(worldId); }
+export async function restartWorld(worldId: string, options: { waitSeconds?: number; message?: string } = {}): Promise<void> { await stopWorld(worldId, false, options); await startWorld(worldId); }
 
 export async function reconcileProcesses(): Promise<void> {
   for (const world of await listWorlds()) {

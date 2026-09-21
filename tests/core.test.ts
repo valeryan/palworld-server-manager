@@ -13,6 +13,7 @@ import { PALWORLD_SETTING_FIELDS, validateAndEncodeSettingChanges } from "@/cont
 import { cancelJob, listJobs, startJob } from "@/server/services/jobs";
 import { backupSettingsSchema } from "@/contracts/backup";
 import { retentionCandidates } from "@/server/services/backups";
+import { warningMessage } from "@/server/services/maintenance";
 
 describe("world isolation", () => {
   it("detects equal and nested paths", () => {
@@ -59,11 +60,24 @@ describe("schedules", () => {
   });
   it("rolls an elapsed daily time into the next day", () => {
     const now = new Date(2026, 8, 20, 12, 0, 0).getTime();
-    expect(new Date(nextRun({ mode: "daily", timeOfDay: "04:30" }, now)).getDate()).toBe(21);
+    expect(new Date(nextRun({ mode: "daily", timeOfDay: "04:30" }, now)!).getDate()).toBe(21);
   });
   it("rejects invalid intervals and daily times", () => {
     expect(() => createScheduleSchema.parse({ action: "backup", mode: "interval", intervalMinutes: 0 })).toThrow();
     expect(() => createScheduleSchema.parse({ action: "restart", mode: "daily", timeOfDay: "25:00" })).toThrow();
+  });
+  it("validates the original manager action and trigger combinations", () => {
+    expect(createScheduleSchema.parse({ action: "stop", mode: "daily", timeOfDay: "04:00" }).action).toBe("stop");
+    expect(createScheduleSchema.parse({ action: "system_message", mode: "on_join", message: "Welcome {player}", joinDelaySeconds: 5 }).mode).toBe("on_join");
+    expect(createScheduleSchema.parse({ action: "custom_http", mode: "minutes", intervalMinutes: 30, httpMethod: "POST", httpUrl: "https://example.test/hook" }).action).toBe("custom_http");
+    expect(() => createScheduleSchema.parse({ action: "idle_stop", mode: "daily", timeOfDay: "04:00" })).toThrow("Stop-when-empty");
+    expect(() => createScheduleSchema.parse({ action: "custom_http", mode: "minutes", intervalMinutes: 30, httpUrl: "ftp://example.test/file" })).toThrow("Only HTTP and HTTPS");
+  });
+  it("calculates hour, minute, event-driven, and warning values", () => {
+    expect(nextRun({ mode: "interval", intervalHours: 2 }, 1_000)).toBe(7_201_000);
+    expect(nextRun({ mode: "minutes", intervalMinutes: 5 }, 1_000)).toBe(301_000);
+    expect(nextRun({ mode: "on_join" }, 1_000)).toBeNull();
+    expect(warningMessage("{action} in {minutes}m ({seconds}s)", "restart", 90)).toBe("restart in 2m (90s)");
   });
 });
 

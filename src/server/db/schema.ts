@@ -46,11 +46,20 @@ export const backupSettings = sqliteTable("backup_settings", {
 
 export const schedules = sqliteTable("schedules", {
   id: text("id").primaryKey(), worldId: text("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
-  action: text("action", { enum: ["backup", "restart", "update", "system_message", "onscreen_notice"] }).notNull(),
+  action: text("action", { enum: ["backup", "restart", "stop", "update", "system_message", "onscreen_notice", "custom_http", "idle_stop"] }).notNull(),
   mode: text("mode", { enum: ["interval", "daily", "minutes", "on_join"] }).notNull(), intervalHours: integer("interval_hours"),
   intervalMinutes: integer("interval_minutes"), timeOfDay: text("time_of_day"), message: text("message"), joinMatch: text("join_match"), joinDelaySeconds: integer("join_delay_seconds"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   skipNext: integer("skip_next", { mode: "boolean" }).notNull().default(false), lastRunAt: integer("last_run_at"), nextRunAt: integer("next_run_at"), createdAt: integer("created_at").notNull(),
+});
+
+export const maintenanceSettings = sqliteTable("maintenance_settings", {
+  worldId: text("world_id").primaryKey().references(() => worlds.id, { onDelete: "cascade" }),
+  warningEnabled: integer("warning_enabled", { mode: "boolean" }).notNull().default(false),
+  warningLeadMinutes: integer("warning_lead_minutes").notNull().default(10),
+  warningIntervalMinutes: integer("warning_interval_minutes").notNull().default(2),
+  warningMessage: text("warning_message").notNull().default("The server will {action} in {minutes} minute(s). Please get to a safe place."),
+  updatedAt: integer("updated_at").notNull(),
 });
 
 export const configVersions = sqliteTable("config_versions", {
