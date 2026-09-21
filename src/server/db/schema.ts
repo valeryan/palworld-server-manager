@@ -37,6 +37,13 @@ export const backups = sqliteTable("backups", {
   sizeBytes: integer("size_bytes").notNull(), reason: text("reason").notNull(), verified: integer("verified", { mode: "boolean" }).notNull().default(false), createdAt: integer("created_at").notNull(),
 }, (table) => [index("backups_world_created_idx").on(table.worldId, table.createdAt)]);
 
+export const backupSettings = sqliteTable("backup_settings", {
+  worldId: text("world_id").primaryKey().references(() => worlds.id, { onDelete: "cascade" }),
+  destinationDir: text("destination_dir"),
+  retentionCount: integer("retention_count").notNull().default(0),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 export const schedules = sqliteTable("schedules", {
   id: text("id").primaryKey(), worldId: text("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
   action: text("action", { enum: ["backup", "restart", "update", "system_message", "onscreen_notice"] }).notNull(),

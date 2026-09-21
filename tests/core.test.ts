@@ -11,6 +11,8 @@ import { nextRun } from "@/server/services/schedules";
 import { applyConfigurationOptions, managedConfigurationChanges, parseConfigurationOptions } from "@/server/services/configuration";
 import { PALWORLD_SETTING_FIELDS, validateAndEncodeSettingChanges } from "@/contracts/palworld-settings";
 import { cancelJob, listJobs, startJob } from "@/server/services/jobs";
+import { backupSettingsSchema } from "@/contracts/backup";
+import { retentionCandidates } from "@/server/services/backups";
 
 describe("world isolation", () => {
   it("detects equal and nested paths", () => {
@@ -62,6 +64,18 @@ describe("schedules", () => {
   it("rejects invalid intervals and daily times", () => {
     expect(() => createScheduleSchema.parse({ action: "backup", mode: "interval", intervalMinutes: 0 })).toThrow();
     expect(() => createScheduleSchema.parse({ action: "restart", mode: "daily", timeOfDay: "25:00" })).toThrow();
+  });
+});
+
+describe("backup policy", () => {
+  it("uses unlimited retention by default and validates configured limits", () => {
+    expect(backupSettingsSchema.parse({})).toEqual({ destinationDir: null, retentionCount: 0 });
+    expect(() => backupSettingsSchema.parse({ retentionCount: 501 })).toThrow();
+  });
+  it("expires only the oldest records and always protects the new backup", () => {
+    const records = ["one", "two", "three", "new"].map((id) => ({ id }));
+    expect(retentionCandidates(records, 2, "new").map((record) => record.id)).toEqual(["one", "two"]);
+    expect(retentionCandidates(records, 0, "new")).toEqual([]);
   });
 });
 

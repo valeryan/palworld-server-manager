@@ -93,9 +93,9 @@ with the original manager.
 - [x] Create a pre-restore safety backup
 - [x] Perform and verify a destructive restore on copied world 1
 - [x] Perform and verify a destructive restore on copied world 2
-- [ ] Backup retention rules
-- [ ] Custom backup destinations
-- [ ] Backup deletion/download controls in the UI
+- [x] Backup retention rules
+- [x] Custom backup destinations with installation-overlap protection
+- [x] Backup deletion/download controls in the UI
 
 **Schedule tab and runtime**
 
