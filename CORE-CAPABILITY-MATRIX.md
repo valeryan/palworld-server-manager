@@ -129,16 +129,6 @@ with the original manager.
 - [ ] Announce, save, kick, ban, and unban controls
 - [ ] Legacy RCON console for explicitly enabled worlds
 
-## Mods and operational components — Incomplete
-
-- [x] Preserve legacy mod records during migration
-- [ ] Scan and display installed mods
-- [ ] Enable/disable mods safely
-- [ ] Install/update/remove supported mods
-- [ ] UE4SS installation and validation
-- [ ] Login rewards management
-- [ ] Preserve mods through SteamCMD updates
-
 ## Desktop and packaging — Incomplete
 
 - [x] Typed Electron main/preload build
@@ -214,9 +204,21 @@ The research and presentation standard is defined in
 - [ ] Add an automated coverage check so no schema setting can lack a reference entry
 - [ ] Review reference data when the dedicated-server build adds or changes settings
 
-## Deferred integrations — Deferred
+## Deferred integrations and extensions — Deferred
 
 These do not block the core release and must not be presented as available.
+
+**Mods and operational extensions**
+
+- [x] Preserve legacy mod records during migration for later implementation
+- [ ] Scan and display installed mods
+- [ ] Enable/disable mods safely
+- [ ] Install/update/remove supported mods
+- [ ] UE4SS installation and validation
+- [ ] Login rewards management
+- [ ] Preserve mods through SteamCMD updates
+
+**Community integrations**
 
 - [ ] Discord webhooks, bots, commands, templates, and auditing
 - [ ] Map rendering and PalSchema visualization
