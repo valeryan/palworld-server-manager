@@ -47,6 +47,7 @@ export const worldActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("restart") }),
   z.object({ action: z.literal("install") }),
   z.object({ action: z.literal("update") }),
+  z.object({ action: z.literal("check-update") }),
   z.object({ action: z.literal("backup"), reason: z.string().max(200).default("manual") }),
   z.object({ action: z.literal("restore"), backupId: z.string().min(1) }),
 ]);
@@ -63,6 +64,7 @@ export interface WorldView extends CreateWorldInput {
   processId: number | null;
   buildId: string | null;
   latestBuildId: string | null;
+  lastStartedAt: number | null;
   createdAt: number;
   updatedAt: number;
 }

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { validateAndEncodeSettingChanges } from "@/contracts/palworld-settings";
 import { errorResponse, requireAdmin } from "@/server/http";
 import { readConfigurationOptions, saveConfigurationOptions } from "@/server/services/configuration";
 
@@ -11,6 +11,6 @@ export async function GET(_request: Request, context: Context) {
 }
 export async function PUT(request: Request, context: Context) {
   const denied = requireAdmin(request); if (denied) return denied;
-  try { const input = z.object({ changes: z.record(z.string(), z.string()).refine((value) => Object.keys(value).length <= 100) }).parse(await request.json()); return Response.json({ ok: true, result: await saveConfigurationOptions((await context.params).id, input.changes) }); }
+  try { const body = await request.json() as { changes?: unknown }; const changes = validateAndEncodeSettingChanges(body.changes); return Response.json({ ok: true, result: await saveConfigurationOptions((await context.params).id, changes) }); }
   catch (error) { return errorResponse(error); }
 }

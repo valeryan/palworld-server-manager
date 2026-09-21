@@ -7,12 +7,14 @@ import { jobLogs, jobs } from "@/server/db/schema";
 import { eventBus } from "./events";
 
 export interface JobContext {
+  signal: AbortSignal;
   update(progress: number, message: string): Promise<void>;
   log(message: string): void;
 }
 
-declare global { var __psmWorldLocks: Set<string> | undefined; }
+declare global { var __psmWorldLocks: Set<string> | undefined; var __psmJobControllers: Map<string, AbortController> | undefined; }
 const locks = () => (globalThis.__psmWorldLocks ??= new Set<string>());
+const controllers = () => (globalThis.__psmJobControllers ??= new Map<string, AbortController>());
 
 async function publish(id: string): Promise<void> {
   const [job] = await database().select().from(jobs).where(eq(jobs.id, id)).limit(1);
@@ -28,12 +30,14 @@ export async function startJob(worldId: string | null, kind: string, task: (cont
   const id = randomUUID();
   await database().insert(jobs).values({ id, worldId, kind, state: "queued", progress: 0, message: "Queued", createdAt: Date.now() });
   await publish(id);
+  const controller = new AbortController(); controllers().set(id, controller);
   if (worldId) locks().add(worldId);
   void (async () => {
     try {
       await database().update(jobs).set({ state: "running", startedAt: Date.now(), message: "Starting" }).where(eq(jobs.id, id));
       await publish(id);
       await task({
+        signal: controller.signal,
         update: async (progress, message) => {
           await database().update(jobs).set({ progress: Math.max(0, Math.min(100, Math.round(progress))), message }).where(eq(jobs.id, id));
           await publish(id);
@@ -43,16 +47,29 @@ export async function startJob(worldId: string | null, kind: string, task: (cont
           eventBus().publish({ type: "log", worldId: worldId ?? undefined, data: { jobId: id, message } });
         },
       });
+      controller.signal.throwIfAborted();
       await database().update(jobs).set({ state: "succeeded", progress: 100, message: "Complete", finishedAt: Date.now() }).where(eq(jobs.id, id));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await database().update(jobs).set({ state: "failed", message: "Failed", error: message, finishedAt: Date.now() }).where(eq(jobs.id, id));
+      await database().update(jobs).set(controller.signal.aborted ? { state: "cancelled", message: "Cancelled", error: null, finishedAt: Date.now() } : { state: "failed", message: "Failed", error: message, finishedAt: Date.now() }).where(eq(jobs.id, id));
     } finally {
+      controllers().delete(id);
       if (worldId) locks().delete(worldId);
       await publish(id);
     }
   })();
   return id;
+}
+
+export async function cancelJob(id: string): Promise<void> {
+  const [job] = await database().select().from(jobs).where(eq(jobs.id, id)).limit(1);
+  if (!job) throw new Error("Job not found.");
+  if (job.state !== "queued" && job.state !== "running") throw new Error("Only queued or running jobs can be cancelled.");
+  const controller = controllers().get(id);
+  if (!controller) throw new Error("This job is no longer attached to the running manager and cannot be cancelled safely.");
+  await database().update(jobs).set({ message: "Cancelling" }).where(eq(jobs.id, id));
+  await publish(id);
+  controller.abort(new Error("Cancelled by user."));
 }
 
 export function worldIsLocked(worldId: string): boolean { return locks().has(worldId); }

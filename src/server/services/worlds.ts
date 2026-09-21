@@ -22,7 +22,7 @@ function toView(row: WorldRow): WorldView {
     crashGuard: row.crashGuard, legacyPerfFlags: row.legacyPerfFlags, extraArgs: row.extraArgs,
     env: row.environment, wineBinary: row.wineBinary, winePrefix: row.winePrefix, wineLaunchFlags: row.wineLaunchFlags,
     status: row.status, processId: row.processId, buildId: row.buildId, latestBuildId: row.latestBuildId,
-    createdAt: row.createdAt, updatedAt: row.updatedAt,
+    lastStartedAt: row.lastStartedAt, createdAt: row.createdAt, updatedAt: row.updatedAt,
   };
 }
 

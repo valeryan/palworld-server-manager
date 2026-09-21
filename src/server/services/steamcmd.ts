@@ -3,6 +3,7 @@ import { existsSync, readFileSync, renameSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import killTree from "tree-kill";
 import type { WorldView } from "@/contracts/world";
 import type { JobContext } from "./jobs";
 import { paths } from "@/server/paths";
@@ -26,14 +27,24 @@ function redact(text: string): string {
 
 async function run(command: string, args: string[], cwd: string, context: JobContext): Promise<{ code: number; output: string }> {
   return await new Promise((resolve, reject) => {
+    context.signal.throwIfAborted();
     const child = spawn(command, args, { cwd, windowsHide: true, env: process.env });
     let output = "";
+    let forceTimer: NodeJS.Timeout | undefined;
+    const abort = () => {
+      if (!child.pid) return;
+      context.log("Cancellation requested; stopping SteamCMD.");
+      killTree(child.pid, "SIGTERM", (error) => { if (error && !/no such process/i.test(error.message)) context.log(`SteamCMD termination warning: ${error.message}`); });
+      forceTimer = setTimeout(() => { if (child.exitCode == null && child.pid) killTree(child.pid, "SIGKILL", () => undefined); }, 5_000);
+      forceTimer.unref();
+    };
+    context.signal.addEventListener("abort", abort, { once: true });
     const consume = (chunk: Buffer) => {
       const text = redact(chunk.toString()); output = (output + text).slice(-512_000);
       for (const line of text.split(/\r?\n/).filter(Boolean)) context.log(line);
     };
     child.stdout?.on("data", consume); child.stderr?.on("data", consume);
-    child.on("error", reject); child.on("close", (code) => resolve({ code: code ?? -1, output }));
+    child.on("error", reject); child.on("close", (code) => { if (forceTimer) clearTimeout(forceTimer); context.signal.removeEventListener("abort", abort); if (context.signal.aborted) reject(context.signal.reason); else resolve({ code: code ?? -1, output }); });
   });
 }
 
@@ -41,7 +52,7 @@ export async function ensureSteamCmd(context: JobContext): Promise<void> {
   if (existsSync(binary())) return;
   await context.update(5, "Downloading SteamCMD");
   await mkdir(paths.steamCmd(), { recursive: true });
-  const response = await fetch(DOWNLOAD_URL);
+  const response = await fetch(DOWNLOAD_URL, { signal: context.signal });
   if (!response.ok) throw new Error(`SteamCMD download failed: HTTP ${response.status}`);
   const archive = path.join(paths.steamCmd(), process.platform === "win32" ? "steamcmd.zip" : "steamcmd.tar.gz");
   await writeFile(archive, Buffer.from(await response.arrayBuffer()));
@@ -54,6 +65,17 @@ function manifestPath(world: WorldView): string { return path.join(world.install
 export function readBuildId(world: WorldView): string | null {
   try { return readFileSync(manifestPath(world), "utf8").match(/"buildid"\s+"([^"\r\n]+)"/i)?.[1] ?? null; }
   catch { return null; }
+}
+
+export async function detectLatestBuild(worldId: string, signal?: AbortSignal): Promise<string> {
+  const response = await fetch(`https://api.steamcmd.net/v1/info/${APP_ID}`, { signal });
+  if (!response.ok) throw new Error(`Steam build lookup failed: HTTP ${response.status}`);
+  const payload = await response.json() as { data?: Record<string, { depots?: { branches?: { public?: { buildid?: string | number } } } }> };
+  const buildId = payload.data?.[APP_ID]?.depots?.branches?.public?.buildid;
+  if (!buildId) throw new Error("Steam did not report a public Palworld build.");
+  const latestBuildId = String(buildId);
+  await database().update(worlds).set({ latestBuildId, updatedAt: Date.now() }).where(eq(worlds.id, worldId));
+  return latestBuildId;
 }
 
 async function invoke(world: WorldView, context: JobContext): Promise<{ code: number; output: string }> {
@@ -69,6 +91,8 @@ async function invoke(world: WorldView, context: JobContext): Promise<{ code: nu
 }
 
 export async function installOrUpdate(world: WorldView, context: JobContext): Promise<void> {
+  const latestBuildId = await detectLatestBuild(world.id, context.signal);
+  context.log(`Latest public build: ${latestBuildId}; installed build: ${readBuildId(world) ?? "unknown"}.`);
   await ensureSteamCmd(context);
   await mkdir(world.installDir, { recursive: true });
   const before = readBuildId(world);

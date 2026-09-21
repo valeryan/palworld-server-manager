@@ -92,7 +92,10 @@ export async function saveConfiguration(worldId: string, content: string) {
 
 export async function readConfigurationOptions(worldId: string) {
   const configuration = await readConfiguration(worldId);
-  return { ...configuration, options: parseConfigurationOptions(configuration.content) };
+  const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
+  const [latest] = await database().select({ createdAt: configVersions.createdAt }).from(configVersions).where(eq(configVersions.worldId, worldId)).orderBy(desc(configVersions.createdAt)).limit(1);
+  const restartRequired = world.status === "running" && Boolean(latest && latest.createdAt > (world.lastStartedAt ?? 0));
+  return { ...configuration, options: parseConfigurationOptions(configuration.content), restartRequired };
 }
 
 export async function saveConfigurationOptions(worldId: string, changes: Record<string, string>) {

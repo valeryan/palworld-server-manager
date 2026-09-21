@@ -42,7 +42,7 @@ export async function restoreBackup(worldId: string, backupId: string, context: 
   const zip = new AdmZip(record.filePath);
   if (!zip.test() || !safeEntries(zip)) throw new Error("Backup is corrupt or contains unsafe paths.");
   await context.update(10, "Creating pre-restore backup");
-  await createBackup(worldId, `pre-restore-${backupId}`, { update: async () => {}, log: context.log });
+  await createBackup(worldId, `pre-restore-${backupId}`, { signal: context.signal, update: async () => {}, log: context.log });
   const saved = saveDirectory(world.installDir); const staging = `${saved}.restore-${randomUUID()}`;
   await mkdir(staging, { recursive: true }); zip.extractAllTo(staging, true, false);
   const extracted = path.join(staging, "Saved");

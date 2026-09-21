@@ -30,10 +30,10 @@ gate** is checked.
 - [x] Document the original-to-rewrite workflow map
 - [x] Fleet list uses the original Start/Stop/Manage hierarchy
 - [x] Dedicated per-world workspace with a persistent status header
-- [x] Core tabs follow Overview, Players, Console, Settings, Backups, Schedule, Admin
+- [x] Core tabs follow Overview, Players, Console, Server config, Backups, Schedule, World properties
 - [x] Operations/download progress has a dedicated navigation destination
 
-## Installation and updates — Incomplete
+## Installation and updates — Complete
 
 - [x] Keep rewrite SteamCMD data separate from game installations
 - [x] Construct Linux and Windows/Wine SteamCMD installs without a shell
@@ -43,10 +43,10 @@ gate** is checked.
 - [x] Update copied world 1 and preserve saves/configuration
 - [x] Update copied world 2 and preserve saves/configuration
 - [x] Run safe concurrent operations across different worlds
-- [ ] Detect the available Palworld build before an update
-- [ ] Cancel a running install/update safely
+- [x] Detect the available Palworld build before an update
+- [x] Cancel a running install/update safely
 
-## Process lifecycle — Incomplete
+## Process lifecycle — Complete
 
 - [x] Start a copied Linux server from the packaged manager stack
 - [x] Stop through REST save plus graceful shutdown
@@ -59,23 +59,23 @@ gate** is checked.
 - [x] Verify autostart after reboot/login — **Confirmed after a full KDE login reboot: the manager started hidden, launched only copied world 1, and accepted a Palworld client connection**
 - [x] Keep servers running while the UI is hidden to the tray
 - [x] Prevent two desktop manager instances
-- [ ] Confirmed bulk start/stop/restart controls
+- [x] Confirmed bulk start/stop/restart controls
 
-## Configuration — Incomplete
+## Configuration — Complete
 
 - [x] Load the correct Linux/Windows `PalWorldSettings.ini`
 - [x] Raw editor with size, NUL, quote, and parenthesis validation
 - [x] Atomic configuration writes
 - [x] Snapshot before edit and retain saved versions
 - [x] Restore a historical configuration version
-- [x] Structured editor for 16 common Palworld settings
-- [ ] Complete schema-driven editor for the full original Palworld setting inventory — **Partial: 16 of approximately 108 fields are exposed**
-- [ ] Grouped setting categories and field/key search
-- [ ] Configuration presets with review-before-save behavior
-- [ ] Per-field default indicators, validation hints, and revert controls
+- [x] Schema-driven guided editor for all 107 settings defined by the original manager
+- [x] Original numeric limits, select choices, and server-side validation for guided settings
+- [x] Grouped setting categories with descriptions, tooltips, and field/key search
+- [x] Configuration presets with review-before-save behavior
+- [x] Per-field default indicators, validation hints, and revert controls
 - [x] Synchronize managed ports/passwords/REST/RCON values into the INI
-- [ ] Show a clear restart-required state after changes
-- [ ] Portable configuration import/export
+- [x] Show a clear restart-required state after changes and clear it after restart
+- [x] Portable configuration ZIP import/export with byte-for-byte round-trip verification
 
 ## Backups and restores — Incomplete
 

@@ -3,7 +3,7 @@ import { errorResponse, requireAdmin } from "@/server/http";
 import { startJob } from "@/server/services/jobs";
 import { createBackup, restoreBackup } from "@/server/services/backups";
 import { restartWorld, startWorld, stopWorld } from "@/server/services/processes";
-import { installOrUpdate } from "@/server/services/steamcmd";
+import { detectLatestBuild, installOrUpdate } from "@/server/services/steamcmd";
 import { getWorld } from "@/server/services/worlds";
 
 export const runtime = "nodejs";
@@ -19,6 +19,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       else if (input.action === "stop") await stopWorld(id, input.force);
       else if (input.action === "restart") await restartWorld(id);
       else if (input.action === "install" || input.action === "update") await installOrUpdate((await getWorld(id))!, job);
+      else if (input.action === "check-update") { const latest = await detectLatestBuild(id, job.signal); job.log(`Latest public build is ${latest}.`); }
       else if (input.action === "backup") await createBackup(id, input.reason, job);
       else if (input.action === "restore") await restoreBackup(id, input.backupId, job);
     });

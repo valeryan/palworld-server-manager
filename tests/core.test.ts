@@ -9,6 +9,8 @@ import { createWorldSchema, parseWorldUpdate, worldRegistrationSchema } from "@/
 import { createScheduleSchema } from "@/contracts/schedule";
 import { nextRun } from "@/server/services/schedules";
 import { applyConfigurationOptions, managedConfigurationChanges, parseConfigurationOptions } from "@/server/services/configuration";
+import { PALWORLD_SETTING_FIELDS, validateAndEncodeSettingChanges } from "@/contracts/palworld-settings";
+import { cancelJob, listJobs, startJob } from "@/server/services/jobs";
 
 describe("world isolation", () => {
   it("detects equal and nested paths", () => {
@@ -26,7 +28,7 @@ describe("world isolation", () => {
   });
   it("exports a versioned portable registration without credentials or autostart", () => {
     const input = createWorldSchema.parse({ displayName: "Portable", installDir: "/srv/pal/portable", adminPassword: "admin-secret", serverPassword: "player-secret", autostart: true, env: { CUSTOM_FLAG: "enabled" } });
-    const registration = exportWorldRegistration({ ...input, id: "portable-world", status: "stopped", processId: null, buildId: null, latestBuildId: null, createdAt: 1, updatedAt: 1 });
+    const registration = exportWorldRegistration({ ...input, id: "portable-world", status: "stopped", processId: null, buildId: null, latestBuildId: null, lastStartedAt: null, createdAt: 1, updatedAt: 1 });
     expect(worldRegistrationSchema.parse(registration)).toEqual(registration);
     expect(registration.world).not.toHaveProperty("adminPassword");
     expect(registration.world).not.toHaveProperty("serverPassword");
@@ -73,13 +75,20 @@ describe("PalWorldSettings transformations", () => {
     expect(parseConfigurationOptions(changed)).toMatchObject({ ServerName: '"Family, \\\"Friends\\\""', ExpRate: "2.5", SomeTuple: "(X=1,Y=2)", bEnableFastTravel: "True" });
   });
   it("maps manager-owned network and credential values", () => {
-    const world = { ...createWorldSchema.parse({ displayName: "Test", installDir: "/tmp/test", gamePort: 8211, restApiPort: 8213, rconPort: 25575, adminPassword: "a\"b", serverPassword: "secret", restApiEnabled: true, rconEnabled: false }), id: "world", status: "stopped" as const, processId: null, buildId: null, latestBuildId: null, createdAt: 1, updatedAt: 1 };
+    const world = { ...createWorldSchema.parse({ displayName: "Test", installDir: "/tmp/test", gamePort: 8211, restApiPort: 8213, rconPort: 25575, adminPassword: "a\"b", serverPassword: "secret", restApiEnabled: true, rconEnabled: false }), id: "world", status: "stopped" as const, processId: null, buildId: null, latestBuildId: null, lastStartedAt: null, createdAt: 1, updatedAt: 1 };
     expect(managedConfigurationChanges(world)).toMatchObject({ PublicPort: "8211", AdminPassword: '"a\\\"b"', ServerPassword: '"secret"', RESTAPIEnabled: "True", RESTAPIPort: "8213", RCONEnabled: "False", RCONPort: "25575" });
   });
   it("never erases game credentials when registry credentials are absent", () => {
-    const world = { ...createWorldSchema.parse({ displayName: "Test", installDir: "/tmp/test", adminPassword: "", serverPassword: "" }), id: "world", status: "stopped" as const, processId: null, buildId: null, latestBuildId: null, createdAt: 1, updatedAt: 1 };
+    const world = { ...createWorldSchema.parse({ displayName: "Test", installDir: "/tmp/test", adminPassword: "", serverPassword: "" }), id: "world", status: "stopped" as const, processId: null, buildId: null, latestBuildId: null, lastStartedAt: null, createdAt: 1, updatedAt: 1 };
     expect(managedConfigurationChanges(world)).not.toHaveProperty("AdminPassword");
     expect(managedConfigurationChanges(world)).not.toHaveProperty("ServerPassword");
+  });
+  it("exposes and validates the complete original structured field inventory", () => {
+    expect(PALWORLD_SETTING_FIELDS).toHaveLength(107);
+    expect(validateAndEncodeSettingChanges({ BaseCampWorkerMaxNum: 50, DeathPenalty: "Item", bEnableFastTravel: false })).toEqual({ BaseCampWorkerMaxNum: "50", DeathPenalty: '"Item"', bEnableFastTravel: "False" });
+    expect(() => validateAndEncodeSettingChanges({ BaseCampWorkerMaxNum: 51 })).toThrow("cannot be higher than 50");
+    expect(() => validateAndEncodeSettingChanges({ DeathPenalty: "Everything" })).toThrow("must be one of");
+    expect(() => validateAndEncodeSettingChanges({ UnknownSetting: true })).toThrow("Unknown structured setting");
   });
 });
 
@@ -118,5 +127,18 @@ describe("legacy import", () => {
     expect((await getWorld("legacy-world"))?.adminPassword).toBe("from-ini");
     expect((await getWorld("legacy-world"))?.serverPassword).toBe("players");
     expect(await readFile(sourcePath)).toEqual(before);
+  });
+  it("cancels an attached long-running job and records cancellation", async () => {
+    const id = await startJob(null, "cancel-test", async ({ signal }) => await new Promise<void>((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await cancelJob(id);
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const job = (await listJobs(500)).find((item) => item.id === id);
+      if (job?.state === "cancelled") { expect(job.finishedAt).not.toBeNull(); return; }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error("Cancelled job did not settle.");
   });
 });
