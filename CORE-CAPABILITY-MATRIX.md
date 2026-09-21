@@ -184,6 +184,22 @@ gate** is checked.
 - [ ] Production import rehearsal and rollback rehearsal pass
 - [ ] User approves replacing the known-good AppImage
 
+## Post-core administrator guidance — Enhancement backlog
+
+This section improves usability but does not block the core-management release.
+The research and presentation standard is defined in
+[`PALWORLD-SETTINGS-REFERENCE.md`](PALWORLD-SETTINGS-REFERENCE.md).
+
+- [ ] Document all 107 guided settings with a plain-language purpose and cited source
+- [ ] Record the verified default, unit, choices, and minimum/maximum where a source establishes them
+- [ ] Explain what increasing and decreasing every numeric setting does
+- [ ] Document performance costs, destructive effects, dependencies, deprecations, and restart requirements
+- [ ] Label each claim as official, shipped-default, verified-by-test, community-sourced, or unknown
+- [ ] Replace terse field hints with concise administrator-facing help derived from the reference
+- [ ] Provide expanded in-app help with source links for every guided setting
+- [ ] Add an automated coverage check so no schema setting can lack a reference entry
+- [ ] Review reference data when the dedicated-server build adds or changes settings
+
 ## Deferred integrations — Deferred
 
 These do not block the core release and must not be presented as available.
