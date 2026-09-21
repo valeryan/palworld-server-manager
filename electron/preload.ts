@@ -15,6 +15,8 @@ const desktop = {
   setLaunchAtLogin: (enabled: boolean): Promise<boolean> => ipcRenderer.invoke("set-launch-at-login", enabled),
   getLaunchAtLoginOptions: (): Promise<LaunchAtLoginOptions> => ipcRenderer.invoke("get-launch-at-login-options"),
   setLaunchAtLoginOptions: (options: LaunchAtLoginOptions): Promise<LaunchAtLoginOptions> => ipcRenderer.invoke("set-launch-at-login-options", options),
+  getManagerPort: (): Promise<{ configured: number; active: number }> => ipcRenderer.invoke("get-manager-port"),
+  setManagerPort: (port: number): Promise<{ configured: number; active: number; restartRequired: boolean }> => ipcRenderer.invoke("set-manager-port", port),
 };
 contextBridge.exposeInMainWorld("psmDesktop", desktop);
 export type DesktopApi = typeof desktop;

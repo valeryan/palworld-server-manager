@@ -144,7 +144,8 @@ with the original manager.
 - [x] Desktop setting for close-to-tray behavior
 - [x] Desktop setting for launch-at-login behavior
 - [x] Validated login-launch checkboxes and custom Electron/Chromium flags with isolated autostart-file generation
-- [ ] LAN binding and manager-port configuration
+- [x] Validated manager-port configuration with restart-required feedback and packaged restart verification
+- [ ] LAN binding — **Blocked behind authenticated remote administration so the manager is never exposed without access control**
 
 ## Migration and safety — Complete
 

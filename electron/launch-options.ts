@@ -6,6 +6,15 @@ export type LaunchAtLoginOptions = {
 };
 
 export const defaultLaunchAtLoginOptions: LaunchAtLoginOptions = { startHidden: true, disableGpu: false, forceX11: false, customFlags: "" };
+export const defaultManagerPort = 4318;
+
+export function validateManagerPort(value: unknown): number {
+  const port = typeof value === "number" ? value : Number(value);
+  if (!Number.isInteger(port) || port < 1_024 || port > 65_535) throw new Error("Manager port must be a whole number between 1024 and 65535.");
+  return port;
+}
+
+export function normalizeManagerPort(value: unknown): number { try { return validateManagerPort(value); } catch { return defaultManagerPort; } }
 
 const reserved = new Set(["hidden", "user-data-dir", "disable-gpu", "ozone-platform", "disable-dev-shm-usage", "no-sandbox", "no-zygote", "remote-debugging-address", "remote-debugging-port"]);
 

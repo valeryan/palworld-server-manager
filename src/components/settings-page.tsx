@@ -10,10 +10,10 @@ const initialLaunchOptions: LaunchAtLoginOptions = { startHidden: true, disableG
 
 export function SettingsPage() {
   const query = useQuery({ queryKey: ["app-settings"], queryFn: async () => { const response = await fetch("/api/settings"); const body = await response.json(); if (!response.ok) throw new Error(body.error); return body.settings as Paths; } });
-  const [closeToTray, setCloseToTray] = useState(true); const [launchAtLogin, setLaunchAtLogin] = useState(false); const [launchOptions, setLaunchOptions] = useState(initialLaunchOptions); const [desktopReady, setDesktopReady] = useState(false); const [savingLaunchOptions, setSavingLaunchOptions] = useState(false); const [notice, setNotice] = useState<string | null>(null);
+  const [closeToTray, setCloseToTray] = useState(true); const [launchAtLogin, setLaunchAtLogin] = useState(false); const [launchOptions, setLaunchOptions] = useState(initialLaunchOptions); const [managerPort, setManagerPort] = useState("4318"); const [activeManagerPort, setActiveManagerPort] = useState(4318); const [desktopReady, setDesktopReady] = useState(false); const [savingLaunchOptions, setSavingLaunchOptions] = useState(false); const [savingPort, setSavingPort] = useState(false); const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => {
     const desktop = window.psmDesktop; if (!desktop) return;
-    void Promise.all([desktop.getCloseToTray(), desktop.getLaunchAtLogin(), desktop.getLaunchAtLoginOptions()]).then(([close, launch, options]) => { setCloseToTray(close); setLaunchAtLogin(launch); setLaunchOptions(options); setDesktopReady(true); });
+    void Promise.all([desktop.getCloseToTray(), desktop.getLaunchAtLogin(), desktop.getLaunchAtLoginOptions(), desktop.getManagerPort()]).then(([close, launch, options, manager]) => { setCloseToTray(close); setLaunchAtLogin(launch); setLaunchOptions(options); setManagerPort(String(manager.configured)); setActiveManagerPort(manager.active); setDesktopReady(true); });
   }, []);
   async function toggleClose() { const desktop = window.psmDesktop; if (!desktop) return; const value = await desktop.setCloseToTray(!closeToTray); setCloseToTray(value); setNotice(value ? "Closing the window will keep the manager in the tray." : "Closing the window will exit the manager."); }
   async function toggleLaunch() {
@@ -31,6 +31,12 @@ export function SettingsPage() {
     catch (error) { setNotice(error instanceof Error ? error.message : String(error)); }
     finally { setSavingLaunchOptions(false); }
   }
+  async function saveManagerPort() {
+    const desktop = window.psmDesktop; if (!desktop) return; setSavingPort(true);
+    try { const result = await desktop.setManagerPort(Number(managerPort)); setManagerPort(String(result.configured)); setActiveManagerPort(result.active); setNotice(result.restartRequired ? `Manager port ${result.configured} saved. Restart the manager to apply it.` : `Manager port ${result.configured} is active.`); }
+    catch (error) { setNotice(error instanceof Error ? error.message : String(error)); }
+    finally { setSavingPort(false); }
+  }
   const setLaunchOption = <Key extends keyof LaunchAtLoginOptions>(key: Key, value: LaunchAtLoginOptions[Key]) => setLaunchOptions((current) => ({ ...current, [key]: value }));
   return <AppShell active="settings">
     <header className="topbar"><div><p className="eyebrow">APPLICATION</p><h1>Settings</h1><p className="page-subtitle">Desktop behavior and manager-owned storage.</p></div></header>
@@ -47,6 +53,7 @@ export function SettingsPage() {
         <label className="custom-launch-flags"><span><strong>Additional login launch flags</strong><small>Advanced Electron/Chromium flags, separated by spaces. Quotes are supported. Manager-controlled and remote-debugging flags are rejected.</small></span><input value={launchOptions.customFlags} onChange={(event) => setLaunchOption("customFlags", event.target.value)} placeholder="e.g. --enable-logging=stderr --v=1" spellCheck={false} /></label>
         <div className="launch-options-footer"><p>Linux AppImage shared-memory and sandbox compatibility flags remain automatic. These options affect login launches only; manual launches are unchanged.</p><button className="button primary" disabled={!desktopReady || savingLaunchOptions} onClick={() => void saveLaunchOptions()}>{savingLaunchOptions ? "Saving…" : "Save launch options"}</button></div>
       </section>
+      <section className="settings-network"><div><h2>Manager web port</h2><p>The local desktop interface currently listens only on <code>127.0.0.1</code>. LAN binding stays locked until authenticated remote administration is available.</p></div><div className="manager-port-control"><label>Port<input type="number" min={1024} max={65535} step={1} value={managerPort} onChange={(event) => setManagerPort(event.target.value)} /></label><button className="button primary" disabled={!desktopReady || savingPort} onClick={() => void saveManagerPort()}>{savingPort ? "Saving…" : "Save port"}</button><small>Active port: {activeManagerPort}{Number(managerPort) !== activeManagerPort ? " · restart required" : ""}</small></div></section>
       <section className="settings-paths"><div><h2>Manager data</h2><p>The rewrite keeps its database, SteamCMD, logs, and backups separate from the legacy manager.</p></div>{query.data && <dl><div><dt>Data directory</dt><dd>{query.data.dataDirectory}</dd></div><div><dt>Database</dt><dd>{query.data.database}</dd></div><div><dt>SteamCMD</dt><dd>{query.data.steamCmd}</dd></div><div><dt>Logs</dt><dd>{query.data.logs}</dd></div></dl>}<button className="button ghost" disabled={!desktopReady || !query.data} onClick={() => void window.psmDesktop?.openPath(query.data!.dataDirectory)}>Open data folder</button></section>
     </div>
   </AppShell>;

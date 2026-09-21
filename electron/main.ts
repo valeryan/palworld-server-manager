@@ -5,7 +5,7 @@ import { request } from "node:http";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { isSupersededNavigation } from "./navigation";
-import { defaultLaunchAtLoginOptions, launchAtLoginArguments, normalizeLaunchAtLoginOptions, parseCustomLaunchFlags, type LaunchAtLoginOptions } from "./launch-options";
+import { defaultLaunchAtLoginOptions, defaultManagerPort, launchAtLoginArguments, normalizeLaunchAtLoginOptions, normalizeManagerPort, parseCustomLaunchFlags, validateManagerPort, type LaunchAtLoginOptions } from "./launch-options";
 
 app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
@@ -20,15 +20,16 @@ function sandboxNeedsCompatibility(): boolean {
 }
 if (sandboxNeedsCompatibility()) { app.commandLine.appendSwitch("no-sandbox"); app.commandLine.appendSwitch("no-zygote"); }
 
-const isDev = Boolean(process.env.ELECTRON_START_URL); const port = Number(process.env.PSM_PORT || 4318); const token = randomBytes(32).toString("hex");
+const isDev = Boolean(process.env.ELECTRON_START_URL); const token = randomBytes(32).toString("hex");
 const startHidden = process.argv.includes("--hidden");
-let window: BrowserWindow | null = null; let tray: Tray | null = null; let server: ChildProcess | null = null; let quitting = false;
+let window: BrowserWindow | null = null; let tray: Tray | null = null; let server: ChildProcess | null = null; let serverFailure: string | null = null; let quitting = false;
 if (process.env.PORTABLE_EXECUTABLE_DIR) { const portable = path.join(process.env.PORTABLE_EXECUTABLE_DIR, "PSM-Data"); mkdirSync(portable, { recursive: true }); app.setPath("userData", portable); }
 const dataDir = () => app.getPath("userData"); const log = (message: string) => { try { appendFileSync(path.join(dataDir(), "launcher-v3.log"), `[${new Date().toISOString()}] ${message}\n`); } catch {} };
 const preferencePath = () => path.join(dataDir(), "desktop-preferences.json");
-type DesktopPreferences = { closeToTray: boolean; launchAtLogin: boolean; launchOptions: LaunchAtLoginOptions };
-function preferences(): DesktopPreferences { try { const saved = JSON.parse(readFileSync(preferencePath(), "utf8")); return { closeToTray: saved.closeToTray !== false, launchAtLogin: saved.launchAtLogin === true, launchOptions: normalizeLaunchAtLoginOptions(saved.launchOptions) }; } catch { return { closeToTray: true, launchAtLogin: false, launchOptions: defaultLaunchAtLoginOptions }; } }
+type DesktopPreferences = { closeToTray: boolean; launchAtLogin: boolean; launchOptions: LaunchAtLoginOptions; managerPort: number };
+function preferences(): DesktopPreferences { try { const saved = JSON.parse(readFileSync(preferencePath(), "utf8")); return { closeToTray: saved.closeToTray !== false, launchAtLogin: saved.launchAtLogin === true, launchOptions: normalizeLaunchAtLoginOptions(saved.launchOptions), managerPort: normalizeManagerPort(saved.managerPort) }; } catch { return { closeToTray: true, launchAtLogin: false, launchOptions: defaultLaunchAtLoginOptions, managerPort: defaultManagerPort }; } }
 function writePreferences(patch: Partial<DesktopPreferences>) { mkdirSync(dataDir(), { recursive: true }); writeFileSync(preferencePath(), JSON.stringify({ ...preferences(), ...patch }, null, 2)); }
+const port = process.env.PSM_PORT ? validateManagerPort(process.env.PSM_PORT) : preferences().managerPort;
 function linuxAutostartPath() { return path.join(app.getPath("home"), ".config", "autostart", "com.palworld.servermanager.next.desktop"); }
 function persistentDataArguments() { return process.argv.slice(1).filter((argument) => argument.startsWith("--user-data-dir=")); }
 function desktopQuote(value: string) { return `"${value.replace(/([\\`"$])/g, "\\$1")}"`; }
@@ -48,6 +49,7 @@ function setLaunchAtLogin(enabled: boolean): boolean {
 
 function startServer() {
   if (isDev) { log(`Using development renderer: ${process.env.ELECTRON_START_URL}`); return; }
+  serverFailure = null;
   const root = path.join(process.resourcesPath, "app"); const entry = path.join(root, "server.js");
   log(`Starting bundled web server from ${entry}`);
   if (!existsSync(entry)) throw new Error(`Bundled Next server is missing: ${entry}`);
@@ -56,11 +58,11 @@ function startServer() {
   server = spawn(process.execPath, [entry], { cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", NODE_ENV: "production", NODE_PATH: nodePath, HOSTNAME: "127.0.0.1", PORT: String(port), PSM_ADMIN_TOKEN: token, PALWORLD_MANAGER_DATA_DIR: dataDir() } });
   log(`Bundled web server process created (pid ${server.pid ?? "unknown"})`);
   server.stdout?.on("data", (data) => log(`[web] ${String(data).trim()}`)); server.stderr?.on("data", (data) => log(`[web:error] ${String(data).trim()}`));
-  server.on("error", (error) => log(`Web server error: ${error.message}`)); server.on("exit", (code) => log(`Web server exited: ${code}`));
+  server.on("error", (error) => { serverFailure = error.message; log(`Web server error: ${error.message}`); }); server.on("exit", (code) => { if (!quitting) serverFailure = `The bundled web server exited during startup (${code ?? "unknown status"}). The manager port ${port} may already be in use.`; log(`Web server exited: ${code}`); });
 }
 
 function ping(): Promise<boolean> { return new Promise((resolve) => { const req = request({ hostname: "127.0.0.1", port, path: "/", method: "HEAD", timeout: 1_000 }, (response) => { response.destroy(); resolve(true); }); req.on("error", () => resolve(false)); req.on("timeout", () => { req.destroy(); resolve(false); }); req.end(); }); }
-async function waitForServer() { const deadline = Date.now() + 60_000; while (Date.now() < deadline) { if (await ping()) return; await new Promise((resolve) => setTimeout(resolve, 350)); } throw new Error("The bundled web server did not answer within 60 seconds."); }
+async function waitForServer() { const deadline = Date.now() + 60_000; while (Date.now() < deadline) { if (serverFailure) throw new Error(serverFailure); if (await ping()) return; await new Promise((resolve) => setTimeout(resolve, 350)); } throw new Error(`The bundled web server did not answer on port ${port} within 60 seconds.`); }
 function iconPath() { return isDev ? path.join(__dirname, "..", "public", "icon.png") : path.join(process.resourcesPath, "app", "public", "icon.png"); }
 
 async function createWindow(show = true) {
@@ -100,6 +102,8 @@ ipcMain.handle("set-launch-at-login-options", (_event, value: unknown) => {
   if (preferences().launchAtLogin) setLaunchAtLogin(true);
   return launchOptions;
 });
+ipcMain.handle("get-manager-port", () => ({ configured: preferences().managerPort, active: port }));
+ipcMain.handle("set-manager-port", (_event, value: unknown) => { const managerPort = validateManagerPort(value); writePreferences({ managerPort }); return { configured: managerPort, active: port, restartRequired: managerPort !== port }; });
 
 const ownsInstanceLock = app.requestSingleInstanceLock();
 if (!ownsInstanceLock) app.quit(); else {
