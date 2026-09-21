@@ -115,7 +115,7 @@ with the original manager.
 - [x] Last-run and next-run visibility with persistent operation history
 - [x] Restart-safe next-run calculation, including overdue jobs and local-time changes
 
-## Operations and observability — Incomplete
+## Operations and observability — Complete
 
 - [x] Persistent asynchronous job records
 - [x] Consolidated SSE world/job event stream
@@ -127,7 +127,7 @@ with the original manager.
 - [x] Server metrics display
 - [x] Persisted death-history screen and imported-record rendering
 - [x] Announce, save, ban, and unban controls through Palworld's local REST API
-- [ ] Kick a connected player — **Partial: the packaged control reaches Palworld and correctly rejects a nonexistent test ID; a successful kick requires a connected test player**
+- [x] Kick a connected player — **The packaged control successfully kicked a live player and the REST player list reflected the disconnect within one second**
 - [x] Legacy RCON console for explicitly enabled worlds, including a successful packaged `Info` command against copied world 2
 
 ## Desktop and packaging — Incomplete
