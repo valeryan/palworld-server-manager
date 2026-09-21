@@ -21,11 +21,19 @@ export async function worldActivity(worldId: string) {
 export async function worldLogs(worldId: string, selected?: string) {
   if (!await getWorld(worldId)) throw new Error("World not found.");
   const directory = paths.worldLogs(worldId);
-  const names = (await readdir(directory)).filter((name) => name.endsWith(".log")).sort().reverse();
+  const names = (await readdir(directory).catch(() => [] as string[])).filter((name) => name.endsWith(".log")).sort().reverse();
   const name = selected && names.includes(selected) ? selected : names[0];
   if (!name) return { files: [], selected: null, content: "" };
   const filePath = path.join(directory, name); const info = await stat(filePath); const content = await readFile(filePath, "utf8");
   return { files: names, selected: name, sizeBytes: info.size, content: content.slice(-250_000) };
+}
+
+export async function worldLogFile(worldId: string, selected: string) {
+  if (!await getWorld(worldId)) throw new Error("World not found.");
+  const names = (await readdir(paths.worldLogs(worldId)).catch(() => [] as string[])).filter((name) => name.endsWith(".log"));
+  if (!names.includes(selected)) throw new Error("Server log not found.");
+  const filePath = path.join(paths.worldLogs(worldId), selected);
+  return { filePath, fileName: selected, info: await stat(filePath) };
 }
 
 export async function liveWorldStatus(worldId: string) {

@@ -18,7 +18,11 @@ export const palworldRest = {
   info: (world: WorldView) => request(world, "GET", "info"),
   players: (world: WorldView) => request(world, "GET", "players"),
   metrics: (world: WorldView) => request(world, "GET", "metrics"),
+  settings: (world: WorldView) => request(world, "GET", "settings"),
   save: (world: WorldView) => request(world, "POST", "save"),
   announce: (world: WorldView, message: string) => request(world, "POST", "announce", { message }),
+  kick: (world: WorldView, userId: string, message = "You have been kicked by an administrator.") => request(world, "POST", "kick", { userid: userId, message }),
+  ban: (world: WorldView, userId: string, message = "You have been banned by an administrator.") => request(world, "POST", "ban", { userid: userId, message }),
+  unban: (world: WorldView, userId: string) => request(world, "POST", "unban", { userid: userId }),
   shutdown: (world: WorldView, waitSeconds = 15, message = "Server shutting down.") => request(world, "POST", "shutdown", { waittime: waitSeconds, message }),
 };

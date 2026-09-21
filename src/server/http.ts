@@ -5,7 +5,7 @@ import type { WorldView } from "@/contracts/world";
 export function errorResponse(error: unknown): Response {
   if (error instanceof ZodError) return Response.json({ ok: false, error: "Invalid request", issues: error.issues }, { status: 400 });
   const message = error instanceof Error ? error.message : String(error);
-  const status = /not found/i.test(message) ? 404 : /already|overlap|port|stop the|invalid|missing|cannot|must|unknown structured|select between|only queued/i.test(message) ? 409 : 500;
+  const status = /not found/i.test(message) ? 404 : /already|overlap|port|stop the|start the|enable the|disabled for|invalid|missing|cannot|must|unknown structured|select between|only queued/i.test(message) ? 409 : 500;
   return Response.json({ ok: false, error: message }, { status });
 }
 

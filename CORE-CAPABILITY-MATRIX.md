@@ -120,14 +120,15 @@ with the original manager.
 - [x] Persistent asynchronous job records
 - [x] Consolidated SSE world/job event stream
 - [x] Persistent command output per job
-- [ ] Live server log viewer with pause/search/download — **Partial: live tail and refresh are packaged**
+- [x] Live server log viewer with pause, search, file selection, and authenticated full-log download
 - [x] Persistent event-history screen
 - [x] REST server information and health
 - [x] Live player list and session history
 - [x] Server metrics display
-- [ ] Death history
-- [ ] Announce, save, kick, ban, and unban controls
-- [ ] Legacy RCON console for explicitly enabled worlds
+- [x] Persisted death-history screen and imported-record rendering
+- [x] Announce, save, ban, and unban controls through Palworld's local REST API
+- [ ] Kick a connected player — **Partial: the packaged control reaches Palworld and correctly rejects a nonexistent test ID; a successful kick requires a connected test player**
+- [x] Legacy RCON console for explicitly enabled worlds, including a successful packaged `Info` command against copied world 2
 
 ## Desktop and packaging — Incomplete
 
@@ -211,6 +212,7 @@ These do not block the core release and must not be presented as available.
 **Mods and operational extensions**
 
 - [x] Preserve legacy mod records during migration for later implementation
+- [ ] PSM Death Relay installation and live death-file capture
 - [ ] Scan and display installed mods
 - [ ] Enable/disable mods safely
 - [ ] Install/update/remove supported mods

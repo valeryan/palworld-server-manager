@@ -75,7 +75,9 @@ export async function startWorld(worldId: string): Promise<void> {
   child.on("exit", async (code, signal) => {
     children().delete(worldId); stream.end(`\n[manager] exited code=${code ?? "null"} signal=${signal ?? "none"}\n`);
     const latest = await getWorld(worldId); const expected = latest?.status === "stopping";
-    await setRuntimeState(worldId, expected || code === 0 ? "stopped" : "crashed", null);
+    // stopWorld still has to restore the manager-owned configuration after the
+    // process exits. Keep the visible state transitional until that work is done.
+    if (!expected) await setRuntimeState(worldId, code === 0 ? "stopped" : "crashed", null);
     if (!expected && code !== 0 && latest?.crashGuard) {
       await database().update(worlds).set({ crashCount: sql`${worlds.crashCount} + 1` }).where(eq(worlds.id, worldId));
       setTimeout(() => void import("./jobs").then(({ startJob }) => startJob(worldId, "crash-recovery", async () => startWorld(worldId))).catch(() => undefined), 5_000);

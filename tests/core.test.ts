@@ -15,6 +15,7 @@ import { backupSettingsSchema } from "@/contracts/backup";
 import { retentionCandidates } from "@/server/services/backups";
 import { warningMessage } from "@/server/services/maintenance";
 import { jobDisplayMessage, jobKindLabel, jobStartingMessage, jobSuccessMessage } from "@/lib/job-presentation";
+import { rconCommandSchema, restAdminActionSchema } from "@/contracts/admin";
 
 describe("operation language", () => {
   it("describes lifecycle actions without calling every operation starting", () => {
@@ -26,6 +27,20 @@ describe("operation language", () => {
   it("presents legacy generic job messages with action-specific language", () => {
     expect(jobDisplayMessage({ kind: "stop", state: "running", message: "Starting" })).toBe("Stopping server");
     expect(jobDisplayMessage({ kind: "stop", state: "succeeded", message: "Complete" })).toBe("Server stopped successfully");
+  });
+});
+
+describe("live administration contracts", () => {
+  it("validates REST administration actions and trims identifiers", () => {
+    expect(restAdminActionSchema.parse({ action: "kick", userId: " player-1 " })).toMatchObject({ action: "kick", userId: "player-1" });
+    expect(restAdminActionSchema.parse({ action: "announce", message: " Maintenance soon " })).toMatchObject({ message: "Maintenance soon" });
+    expect(() => restAdminActionSchema.parse({ action: "announce", message: "" })).toThrow();
+    expect(() => restAdminActionSchema.parse({ action: "shutdown" })).toThrow();
+  });
+  it("rejects blank and unbounded legacy RCON commands", () => {
+    expect(rconCommandSchema.parse({ command: "  Info  " }).command).toBe("Info");
+    expect(() => rconCommandSchema.parse({ command: "" })).toThrow();
+    expect(() => rconCommandSchema.parse({ command: "x".repeat(1_001) })).toThrow();
   });
 });
 

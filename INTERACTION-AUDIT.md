@@ -1,8 +1,8 @@
 # Interaction and language audit
 
-This audit temporarily takes priority over capability-matrix progression. It
-checks whether an administrator can understand what the manager is doing,
-what completed, what failed, and what action is safe to take next.
+This completed audit checks whether an administrator can understand what the
+manager is doing, what completed, what failed, and what action is safe to take
+next. Capability-matrix progression resumed after the focused corrections.
 
 All lifecycle tests in this audit use the copied worlds under
 `/data/Projects/psm-next-sandbox`. They do not target the original server
@@ -53,7 +53,7 @@ download.
 These fit the existing capability milestones and should be addressed when the
 related screen is developed rather than blocking this focused correction.
 
-- [ ] Add pause, search, and download controls to the live server log viewer
+- [x] Add pause, search, and download controls to the live server log viewer
 - [ ] Add explicit enabled/disabled badges to schedule records
 - [ ] Distinguish error notifications visually and keep them visible longer than success notices
 - [ ] Add inline explanations or tooltips to disabled actions where the reason is not already shown
