@@ -5,6 +5,7 @@ import type { JobView } from "@/contracts/job";
 import { database, sqliteClient } from "@/server/db";
 import { jobLogs, jobs } from "@/server/db/schema";
 import { eventBus } from "./events";
+import { jobStartingMessage, jobSuccessMessage } from "@/lib/job-presentation";
 
 export interface JobContext {
   signal: AbortSignal;
@@ -25,6 +26,11 @@ export async function listJobs(limit = 100): Promise<JobView[]> {
   return await database().select().from(jobs).orderBy(desc(jobs.createdAt)).limit(Math.min(limit, 500));
 }
 
+export async function getJob(id: string): Promise<JobView | undefined> {
+  const [job] = await database().select().from(jobs).where(eq(jobs.id, id)).limit(1);
+  return job;
+}
+
 export async function startJob(worldId: string | null, kind: string, task: (context: JobContext) => Promise<void>): Promise<string> {
   if (worldId && locks().has(worldId)) throw new Error("Another operation is already running for this world.");
   const id = randomUUID();
@@ -34,7 +40,7 @@ export async function startJob(worldId: string | null, kind: string, task: (cont
   if (worldId) locks().add(worldId);
   void (async () => {
     try {
-      await database().update(jobs).set({ state: "running", startedAt: Date.now(), message: "Starting" }).where(eq(jobs.id, id));
+      await database().update(jobs).set({ state: "running", startedAt: Date.now(), message: jobStartingMessage(kind) }).where(eq(jobs.id, id));
       await publish(id);
       await task({
         signal: controller.signal,
@@ -48,7 +54,7 @@ export async function startJob(worldId: string | null, kind: string, task: (cont
         },
       });
       controller.signal.throwIfAborted();
-      await database().update(jobs).set({ state: "succeeded", progress: 100, message: "Complete", finishedAt: Date.now() }).where(eq(jobs.id, id));
+      await database().update(jobs).set({ state: "succeeded", progress: 100, message: jobSuccessMessage(kind), finishedAt: Date.now() }).where(eq(jobs.id, id));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await database().update(jobs).set(controller.signal.aborted ? { state: "cancelled", message: "Cancelled", error: null, finishedAt: Date.now() } : { state: "failed", message: "Failed", error: message, finishedAt: Date.now() }).where(eq(jobs.id, id));

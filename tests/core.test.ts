@@ -14,6 +14,20 @@ import { cancelJob, listJobs, startJob } from "@/server/services/jobs";
 import { backupSettingsSchema } from "@/contracts/backup";
 import { retentionCandidates } from "@/server/services/backups";
 import { warningMessage } from "@/server/services/maintenance";
+import { jobDisplayMessage, jobKindLabel, jobStartingMessage, jobSuccessMessage } from "@/lib/job-presentation";
+
+describe("operation language", () => {
+  it("describes lifecycle actions without calling every operation starting", () => {
+    expect(jobKindLabel("stop")).toBe("Stop server");
+    expect(jobStartingMessage("stop")).toBe("Stopping server");
+    expect(jobStartingMessage("backup")).toBe("Creating backup");
+    expect(jobSuccessMessage("restart")).toBe("Server restarted successfully");
+  });
+  it("presents legacy generic job messages with action-specific language", () => {
+    expect(jobDisplayMessage({ kind: "stop", state: "running", message: "Starting" })).toBe("Stopping server");
+    expect(jobDisplayMessage({ kind: "stop", state: "succeeded", message: "Complete" })).toBe("Server stopped successfully");
+  });
+});
 
 describe("world isolation", () => {
   it("detects equal and nested paths", () => {
