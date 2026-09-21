@@ -77,7 +77,14 @@ gate** is checked.
 - [x] Show a clear restart-required state after changes and clear it after restart
 - [x] Portable configuration ZIP import/export with byte-for-byte round-trip verification
 
-## Backups and restores — Incomplete
+## Backups, restores, and scheduling — Incomplete
+
+The Backups and Schedule tabs are tracked together because scheduled backups,
+maintenance windows, safety backups, and restore readiness share the same
+persistent runtime. The current Schedule tab is intentionally partial compared
+with the original manager.
+
+**Backups and restores**
 
 - [x] Import and validate all four copied legacy backup archives
 - [x] Create a ZIP from a copied world's `Saved` directory
@@ -89,6 +96,24 @@ gate** is checked.
 - [ ] Backup retention rules
 - [ ] Custom backup destinations
 - [ ] Backup deletion/download controls in the UI
+
+**Schedule tab and runtime**
+
+- [x] Import legacy schedule definitions in a disabled state
+- [x] Schedule editor and validation for backups and restarts
+- [x] Scheduled backups
+- [x] Skip-next-run control for supported schedules
+- [ ] Enable, disable, and delete controls verified end to end — **Partial: controls are implemented but not yet accepted as packaged workflows**
+- [ ] Scheduled graceful restarts with configurable player warnings and safety backups
+- [ ] Scheduled graceful stops with configurable player warnings and safety backups
+- [ ] Scheduled updates with warnings, backup, update, and prior-state restoration
+- [ ] Scheduled system messages and on-screen notices
+- [ ] Player-join message triggers with player filter, delay, and `{player}` substitution
+- [ ] Stop-when-empty schedules using REST player presence
+- [ ] Custom HTTP schedules with method, URL, headers, body, timeout, and protocol validation
+- [ ] Minute/hour intervals and daily local-time schedules matching the original controls
+- [ ] Last-run and next-run visibility with persistent operation history
+- [ ] Restart-safe next-run calculation, including overdue jobs and local-time changes
 
 ## Operations and observability — Incomplete
 
@@ -103,17 +128,6 @@ gate** is checked.
 - [ ] Death history
 - [ ] Announce, save, kick, ban, and unban controls
 - [ ] Legacy RCON console for explicitly enabled worlds
-
-## Scheduling — Incomplete
-
-- [x] Import legacy schedule definitions in a disabled state
-- [x] Schedule editor and validation for backups and restarts
-- [x] Scheduled backups
-- [ ] Scheduled restarts with warnings
-- [ ] Scheduled updates
-- [ ] Scheduled messages and join-triggered notices
-- [x] Skip-next-run control
-- [ ] Restart-safe next-run calculation
 
 ## Mods and operational components — Incomplete
 
