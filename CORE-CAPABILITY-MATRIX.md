@@ -145,7 +145,7 @@ with the original manager.
 - [x] Desktop setting for launch-at-login behavior
 - [ ] LAN binding and manager-port configuration
 
-## Migration and safety — Incomplete
+## Migration and safety — Complete
 
 - [x] Read the legacy database without modifying it
 - [x] Preserve a complete legacy snapshot for deferred integrations
@@ -156,7 +156,7 @@ with the original manager.
 - [x] Rewrite copied paths and reject source/destination overlap
 - [x] Keep the production legacy database untouched
 - [x] Automated source-tree no-write guard during integration tests — **Reads protected paths from the original database and compares path/type/size/mtime/ctime/link metadata before and after the command**
-- [ ] Repeatable final production import and rollback rehearsal
+- [x] Repeatable final production import and rollback rehearsal — **Imported both worlds from the untouched legacy database into a fresh candidate, validated it, activated it by same-filesystem rename, and restored the known-good database byte for byte**
 
 ## Remote administration and localization — Incomplete
 
@@ -186,7 +186,7 @@ with the original manager.
 - [ ] Remote administration and authentication pass
 - [x] Packaged AppImage renders reliably in the actual KDE/RDP session
 - [ ] No original server-directory writes occurred during development
-- [ ] Production import rehearsal and rollback rehearsal pass
+- [x] Production import rehearsal and rollback rehearsal pass
 - [ ] User approves replacing the known-good AppImage
 
 ## Post-core administrator guidance — Enhancement backlog

@@ -22,6 +22,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:guarded": "tsx scripts/guard-source-trees.ts",
+    "rehearse:import": "tsx scripts/rehearse-production-import.ts",
     "db:generate": "drizzle-kit generate",
     "clone:dev-data": "tsx scripts/clone-development-data.ts",
     "pack": "npm run build && npm run prepare:standalone && electron-builder --dir",
