@@ -126,7 +126,7 @@ with the original manager.
 - [x] Live player list and session history
 - [x] Server metrics display
 - [x] Persisted death-history screen and imported-record rendering
-- [x] Announce, save, ban, and unban controls through Palworld's local REST API
+- [x] Announce, save, ban, and unban controls through Palworld's local REST API — **A live ban disconnected the player and blocked reconnection; unban restored access and the player reconnected successfully**
 - [x] Kick a connected player — **The packaged control successfully kicked a live player and the REST player list reflected the disconnect within one second**
 - [x] Legacy RCON console for explicitly enabled worlds, including a successful packaged `Info` command against copied world 2
 
