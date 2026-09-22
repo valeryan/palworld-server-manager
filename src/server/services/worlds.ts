@@ -2,7 +2,7 @@ import "server-only";
 import path from "node:path";
 import { access, realpath } from "node:fs/promises";
 import { and, eq, ne } from "drizzle-orm";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import type { CreateWorldInput, WorldRegistration, WorldView } from "@/contracts/world";
 import { createWorldSchema, parseWorldUpdate, worldRegistrationSchema } from "@/contracts/world";
 import { database } from "@/server/db";
@@ -74,11 +74,12 @@ export async function getWorld(id: string): Promise<WorldView | null> {
 export async function createWorld(raw: unknown): Promise<WorldView> {
   const parsed = createWorldSchema.parse(raw);
   const input = await validateIsolation(parsed);
+  const adminPassword = input.restApiEnabled && !input.adminPassword ? randomBytes(18).toString("base64url") : input.adminPassword;
   const now = Date.now();
   const row: typeof worlds.$inferInsert = {
     id: randomUUID(), displayName: input.displayName, installDir: input.installDir, platform: input.platform,
     gamePort: input.gamePort, queryPort: input.queryPort, restApiPort: input.restApiPort, rconPort: input.rconPort,
-    adminPassword: input.adminPassword, serverPassword: input.serverPassword, restApiEnabled: input.restApiEnabled,
+    adminPassword, serverPassword: input.serverPassword, restApiEnabled: input.restApiEnabled,
     rconEnabled: input.rconEnabled, communityServer: input.communityServer, autostart: input.autostart,
     crashGuard: input.crashGuard, legacyPerfFlags: input.legacyPerfFlags, extraArgs: input.extraArgs,
     environment: input.env, wineBinary: input.wineBinary, winePrefix: input.winePrefix, wineLaunchFlags: input.wineLaunchFlags,

@@ -1,10 +1,10 @@
 import "server-only";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { and, desc, eq } from "drizzle-orm";
 import { database } from "@/server/db";
-import { configVersions, events } from "@/server/db/schema";
+import { configVersions, events, worlds } from "@/server/db/schema";
 import type { WorldView } from "@/contracts/world";
 import { getWorld } from "./worlds";
 import { pruneConfigurationVersions } from "./retention";
@@ -47,6 +47,10 @@ function splitOptions(body: string): string[] {
 export function parseConfigurationOptions(content: string): Record<string, string> {
   const body = content.match(/OptionSettings=\((.*)\)/s)?.[1]; if (body == null) return {};
   return Object.fromEntries(splitOptions(body).flatMap((part) => { const separator = part.indexOf("="); return separator > 0 ? [[part.slice(0, separator).trim(), part.slice(separator + 1).trim()]] : []; }));
+}
+
+export function serializeConfigurationOptions(options: Record<string, string>): string {
+  return `[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(${Object.entries(options).map(([key, value]) => `${key}=${value}`).join(",")})\n`;
 }
 
 export function applyConfigurationOptions(content: string, changes: Record<string, string>): string {
@@ -121,11 +125,37 @@ export function managedConfigurationChanges(world: WorldView): Record<string, st
 }
 
 export async function syncManagedConfiguration(worldId: string) {
-  const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
+  let world = await getWorld(worldId); if (!world) throw new Error("World not found.");
+  if (world.restApiEnabled && !world.adminPassword) {
+    const adminPassword = randomBytes(18).toString("base64url");
+    await database().update(worlds).set({ adminPassword, updatedAt: Date.now() }).where(eq(worlds.id, worldId));
+    await database().insert(events).values({ worldId, kind: "settings", message: "Generated the missing REST administrator credential", createdAt: Date.now() });
+    world = { ...world, adminPassword };
+  }
   const configuration = await readConfiguration(worldId);
-  if (!configuration.content) return { synchronized: false, reason: "PalWorldSettings.ini is not available yet." };
-  const result = await saveConfiguration(worldId, applyConfigurationOptions(configuration.content, managedConfigurationChanges(world)));
-  return { synchronized: true, ...result };
+  let source = configuration.content;
+  let initialized = !configuration.exists;
+  // Palworld creates an empty active file on first boot. Seed that file from
+  // the shipped template so a fresh world has a complete, editable baseline.
+  if (configuration.exists && !source.trim()) {
+    try { source = await readFile(defaultPath(world.installDir), "utf8"); initialized = true; }
+    catch { return { synchronized: false, initialized: false, reason: "The shipped default configuration is not available yet." }; }
+  }
+  if (!source) return { synchronized: false, initialized: false, reason: "PalWorldSettings.ini is not available yet." };
+  let content = applyConfigurationOptions(source, managedConfigurationChanges(world));
+  if (initialized) {
+    // Match the established PSM behavior: use the shipped template as data, not
+    // as the active file verbatim. This drops its instructional comments and
+    // writes the canonical two-line Palworld configuration.
+    content = serializeConfigurationOptions(parseConfigurationOptions(content));
+    validate(content);
+    await writeAtomic(configuration.path, content);
+    await snapshot(worldId, content, "initialized from shipped defaults");
+    await database().insert(events).values({ worldId, kind: "settings", message: "Initialized PalWorldSettings.ini from the shipped defaults", createdAt: Date.now() });
+    return { synchronized: true, initialized: true, path: configuration.path, running: configuration.running };
+  }
+  const result = await saveConfiguration(worldId, content);
+  return { synchronized: true, initialized: false, ...result };
 }
 
 export async function listConfigurationVersions(worldId: string) {

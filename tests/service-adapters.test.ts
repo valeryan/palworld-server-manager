@@ -90,6 +90,9 @@ mkdir -p "$install/steamapps"
 printf '#!/bin/sh\\nexit 0\\n' > "$install/PalServer.sh"
 chmod 700 "$install/PalServer.sh"
 printf '"AppState" { "buildid" "424242" }\\n' > "$install/steamapps/appmanifest_2394010.acf"
+printf '; This shipped template comment must not be copied into the active file.\\n[/Script/Pal.PalGameWorldSettings]\\nOptionSettings=(ServerName="Default Palworld Server",PublicPort=8211,RESTAPIEnabled=False,RESTAPIPort=8212,RCONEnabled=False,RCONPort=25575)\\n' > "$install/DefaultPalWorldSettings.ini"
+mkdir -p "$install/Pal/Saved/Config/LinuxServer"
+: > "$install/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini"
 echo "login $PSM_STEAM_USERNAME $PSM_STEAM_PASSWORD"
 echo "Success! App '2394010' fully installed."
 `);
@@ -102,10 +105,20 @@ echo "Success! App '2394010' fully installed."
     const output: string[] = []; const updates: string[] = [];
     const context: JobContext = { signal: new AbortController().signal, log: (line) => output.push(line), update: async (_progress, message) => { updates.push(message); } };
     await installOrUpdate(world, context);
-    expect(await getWorld(world.id)).toMatchObject({ buildId: "424242", latestBuildId: "424242" });
+    const installedWorld = await getWorld(world.id);
+    expect(installedWorld).toMatchObject({ buildId: "424242", latestBuildId: "424242" });
+    expect(installedWorld?.adminPassword).toHaveLength(24);
     expect(output.join("\n")).not.toContain("fake-user");
     expect(output.join("\n")).not.toContain("fake-password");
     expect(output.join("\n")).toContain("[redacted]");
+    expect(output.join("\n")).toContain("Initialized PalWorldSettings.ini from the shipped defaults.");
+    const activeConfiguration = await readFile(path.join(installDir, "Pal", "Saved", "Config", "LinuxServer", "PalWorldSettings.ini"), "utf8");
+    expect(activeConfiguration).toMatch(/^\[\/Script\/Pal\.PalGameWorldSettings\]\nOptionSettings=\([^\n]+\)\n$/);
+    expect(activeConfiguration).not.toContain("shipped template comment");
+    expect(activeConfiguration).toContain("ServerName=\"Default Palworld Server\"");
+    expect(activeConfiguration).toContain("PublicPort=39211");
+    expect(activeConfiguration).toContain("RESTAPIPort=39213");
+    expect(activeConfiguration).toContain(`AdminPassword="${installedWorld?.adminPassword}"`);
     expect(updates.at(-1)).toBe("Installed build 424242");
   });
 

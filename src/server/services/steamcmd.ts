@@ -10,6 +10,7 @@ import { paths } from "@/server/paths";
 import { database } from "@/server/db";
 import { worlds } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
+import { syncManagedConfiguration } from "./configuration";
 
 const APP_ID = "2394010";
 const DOWNLOAD_URL = process.platform === "win32"
@@ -113,5 +114,8 @@ export async function installOrUpdate(world: WorldView, context: JobContext): Pr
     throw new Error(redact(reason));
   }
   await database().update(worlds).set({ buildId, updatedAt: Date.now() }).where(eq(worlds.id, world.id));
+  const configuration = await syncManagedConfiguration(world.id);
+  if (!configuration.synchronized) throw new Error(configuration.reason ?? "PalWorldSettings.ini could not be initialized.");
+  context.log(configuration.initialized ? "Initialized PalWorldSettings.ini from the shipped defaults." : "Preserved and synchronized the existing PalWorldSettings.ini.");
   await context.update(100, `Installed build ${buildId}`);
 }
