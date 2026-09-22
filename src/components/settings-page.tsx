@@ -4,13 +4,15 @@ import { useEffect, useState } from "react";
 import type { LaunchAtLoginOptions } from "../../electron/launch-options";
 import { AppShell } from "./app-shell";
 import { Toast } from "./toast";
+import { defaultRetentionSettings, type RetentionSettings } from "@/contracts/retention";
 
-type Paths = { dataDirectory: string; database: string; steamCmd: string; logs: string };
+type Paths = { dataDirectory: string; database: string; steamCmd: string; logs: string; retention: RetentionSettings };
 const initialLaunchOptions: LaunchAtLoginOptions = { startHidden: true, disableGpu: false, forceX11: false, customFlags: "" };
 
 export function SettingsPage() {
   const query = useQuery({ queryKey: ["app-settings"], queryFn: async () => { const response = await fetch("/api/settings"); const body = await response.json(); if (!response.ok) throw new Error(body.error); return body.settings as Paths; } });
-  const [closeToTray, setCloseToTray] = useState(true); const [launchAtLogin, setLaunchAtLogin] = useState(false); const [launchOptions, setLaunchOptions] = useState(initialLaunchOptions); const [managerPort, setManagerPort] = useState("4318"); const [activeManagerPort, setActiveManagerPort] = useState(4318); const [desktopReady, setDesktopReady] = useState(false); const [savingLaunchOptions, setSavingLaunchOptions] = useState(false); const [savingPort, setSavingPort] = useState(false); const [notice, setNotice] = useState<string | null>(null);
+  const [closeToTray, setCloseToTray] = useState(true); const [launchAtLogin, setLaunchAtLogin] = useState(false); const [launchOptions, setLaunchOptions] = useState(initialLaunchOptions); const [managerPort, setManagerPort] = useState("4318"); const [activeManagerPort, setActiveManagerPort] = useState(4318); const [desktopReady, setDesktopReady] = useState(false); const [savingLaunchOptions, setSavingLaunchOptions] = useState(false); const [savingPort, setSavingPort] = useState(false); const [retentionDraft, setRetentionDraft] = useState<RetentionSettings | null>(null); const [savingRetention, setSavingRetention] = useState(false); const [notice, setNotice] = useState<string | null>(null);
+  const retention = retentionDraft ?? query.data?.retention ?? defaultRetentionSettings;
   useEffect(() => {
     const desktop = window.psmDesktop; if (!desktop) return;
     void Promise.all([desktop.getCloseToTray(), desktop.getLaunchAtLogin(), desktop.getLaunchAtLoginOptions(), desktop.getManagerPort()]).then(([close, launch, options, manager]) => { setCloseToTray(close); setLaunchAtLogin(launch); setLaunchOptions(options); setManagerPort(String(manager.configured)); setActiveManagerPort(manager.active); setDesktopReady(true); });
@@ -37,7 +39,18 @@ export function SettingsPage() {
     catch (error) { setNotice(error instanceof Error ? error.message : String(error)); }
     finally { setSavingPort(false); }
   }
+  async function saveRetention() {
+    setSavingRetention(true);
+    try {
+      const response = await fetch("/api/settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ retention }) }); const body = await response.json();
+      if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
+      setRetentionDraft(body.settings); const removed = Object.values(body.report as Record<string, number>).reduce((total, value) => total + value, 0);
+      setNotice(removed ? `Retention policy saved. Cleanup removed ${removed} expired record${removed === 1 ? "" : "s"} or log files.` : "Retention policy saved. Nothing currently needs cleanup.");
+    } catch (error) { setNotice(error instanceof Error ? error.message : String(error)); }
+    finally { setSavingRetention(false); }
+  }
   const setLaunchOption = <Key extends keyof LaunchAtLoginOptions>(key: Key, value: LaunchAtLoginOptions[Key]) => setLaunchOptions((current) => ({ ...current, [key]: value }));
+  const setRetentionOption = (key: keyof RetentionSettings, value: string) => setRetentionDraft((current) => ({ ...(current ?? query.data?.retention ?? defaultRetentionSettings), [key]: Number(value) }));
   return <AppShell active="settings">
     <header className="topbar"><div><p className="eyebrow">APPLICATION</p><h1>Settings</h1><p className="page-subtitle">Desktop behavior and manager-owned storage.</p></div></header>
     <Toast message={notice} onDismiss={() => setNotice(null)} />
@@ -54,6 +67,15 @@ export function SettingsPage() {
         <div className="launch-options-footer"><p>Linux AppImage shared-memory and sandbox compatibility flags remain automatic. These options affect login launches only; manual launches are unchanged.</p><button className="button primary" disabled={!desktopReady || savingLaunchOptions} onClick={() => void saveLaunchOptions()}>{savingLaunchOptions ? "Saving…" : "Save launch options"}</button></div>
       </section>
       <section className="settings-network"><div><h2>Manager web port</h2><p>The local desktop interface currently listens only on <code>127.0.0.1</code>. LAN binding stays locked until authenticated remote administration is available.</p></div><div className="manager-port-control"><label>Port<input type="number" min={1024} max={65535} step={1} value={managerPort} onChange={(event) => setManagerPort(event.target.value)} /></label><button className="button primary" disabled={!desktopReady || savingPort} onClick={() => void saveManagerPort()}>{savingPort ? "Saving…" : "Save port"}</button><small>Active port: {activeManagerPort}{Number(managerPort) !== activeManagerPort ? " · restart required" : ""}</small></div></section>
+      <section className="settings-retention"><div><h2>History and log retention</h2><p>Keep useful operational records without allowing the manager database and per-launch server logs to grow forever. The age and count limits are both enforced; whichever is reached first applies. Running operations are never removed.</p></div><div className="retention-grid">
+        <label>Operation history (days)<input type="number" min={7} max={3650} value={retention.operationDays} onChange={(event) => setRetentionOption("operationDays", event.target.value)} /></label>
+        <label>Completed operations<input type="number" min={50} max={10000} value={retention.operationCount} onChange={(event) => setRetentionOption("operationCount", event.target.value)} /></label>
+        <label>Output lines per operation<input type="number" min={100} max={20000} value={retention.operationLogLines} onChange={(event) => setRetentionOption("operationLogLines", event.target.value)} /></label>
+        <label>World activity (days)<input type="number" min={30} max={3650} value={retention.activityDays} onChange={(event) => setRetentionOption("activityDays", event.target.value)} /></label>
+        <label>Records per world/category<input type="number" min={100} max={50000} value={retention.activityCountPerWorld} onChange={(event) => setRetentionOption("activityCountPerWorld", event.target.value)} /></label>
+        <label>Server log files per world<input type="number" min={5} max={500} value={retention.serverLogFilesPerWorld} onChange={(event) => setRetentionOption("serverLogFilesPerWorld", event.target.value)} /></label>
+        <label>Configuration snapshots per world<input type="number" min={10} max={1000} value={retention.configurationVersionsPerWorld} onChange={(event) => setRetentionOption("configurationVersionsPerWorld", event.target.value)} /></label>
+      </div><div className="retention-footer"><small>Saving applies cleanup immediately. Future cleanup runs automatically every six hours.</small><button className="button primary" disabled={savingRetention || query.isLoading} onClick={() => void saveRetention()}>{savingRetention ? "Cleaning up…" : "Save and clean up"}</button></div></section>
       <section className="settings-paths"><div><h2>Manager data</h2><p>The rewrite keeps its database, SteamCMD, logs, and backups separate from the legacy manager.</p></div>{query.data && <dl><div><dt>Data directory</dt><dd>{query.data.dataDirectory}</dd></div><div><dt>Database</dt><dd>{query.data.database}</dd></div><div><dt>SteamCMD</dt><dd>{query.data.steamCmd}</dd></div><div><dt>Logs</dt><dd>{query.data.logs}</dd></div></dl>}<button className="button ghost" disabled={!desktopReady || !query.data} onClick={() => void window.psmDesktop?.openPath(query.data!.dataDirectory)}>Open data folder</button></section>
     </div>
   </AppShell>;

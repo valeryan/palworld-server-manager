@@ -9,21 +9,22 @@ import { getWorld } from "./worlds";
 import { palworldRest } from "./rest";
 import { legacyModerationEvent, moderationEventMessage } from "@/lib/moderation-presentation";
 
-export async function worldActivity(worldId: string) {
+export async function worldActivity(worldId: string, requestedLimit = 25) {
   if (!await getWorld(worldId)) throw new Error("World not found.");
+  const limit = Math.min(Math.max(Math.trunc(requestedLimit) || 25, 5), 500);
   const [eventRows, sessionRows, deathRows] = await Promise.all([
-    database().select().from(events).where(eq(events.worldId, worldId)).orderBy(desc(events.createdAt)).limit(200),
-    database().select().from(sessions).where(eq(sessions.worldId, worldId)).orderBy(desc(sessions.createdAt)).limit(200),
-    database().select().from(deaths).where(eq(deaths.worldId, worldId)).orderBy(desc(deaths.createdAt)).limit(200),
+    database().select().from(events).where(eq(events.worldId, worldId)).orderBy(desc(events.createdAt)).limit(limit + 1),
+    database().select().from(sessions).where(eq(sessions.worldId, worldId)).orderBy(desc(sessions.createdAt)).limit(limit + 1),
+    database().select().from(deaths).where(eq(deaths.worldId, worldId)).orderBy(desc(deaths.createdAt)).limit(limit + 1),
   ]);
-  const presentedEvents = eventRows.map((event) => {
+  const presentedEvents = eventRows.slice(0, limit).map((event) => {
     const legacy = event.kind === "administrator" ? legacyModerationEvent(event.message) : null;
     if (!legacy) return event;
     const matchingSessions = sessionRows.filter((session) => session.userId === legacy.userId);
     const nearest = matchingSessions.find((session) => session.createdAt <= event.createdAt) ?? matchingSessions[0];
     return { ...event, message: moderationEventMessage(legacy.action, legacy.userId, nearest?.playerName) };
   });
-  return { events: presentedEvents, sessions: sessionRows, deaths: deathRows };
+  return { events: presentedEvents, sessions: sessionRows.slice(0, limit), deaths: deathRows.slice(0, limit), hasMore: { events: eventRows.length > limit, sessions: sessionRows.length > limit, deaths: deathRows.length > limit } };
 }
 
 export async function worldLogs(worldId: string, selected?: string) {

@@ -10,6 +10,7 @@ import { installOrUpdate } from "./steamcmd";
 import { nextRun, parseCustomHttp } from "./schedules";
 import { palworldRest } from "./rest";
 import { warnBeforeShutdown } from "./maintenance";
+import { applyRetentionPolicy } from "./retention";
 
 type ScheduleRow = typeof schedules.$inferSelect;
 type Player = { key: string; name: string; userId: string | null };
@@ -18,6 +19,7 @@ declare global {
   var __psmSchedulerTimer: NodeJS.Timeout | undefined;
   var __psmRuntimeTicking: boolean | undefined;
   var __psmPresence: Map<string, Map<string, Player>> | undefined;
+  var __psmLastRetentionAt: number | undefined;
 }
 const presence = () => (globalThis.__psmPresence ??= new Map<string, Map<string, Player>>());
 
@@ -165,7 +167,12 @@ async function presenceTick(): Promise<void> {
 export async function runtimeTick(now = Date.now()): Promise<void> {
   if (globalThis.__psmRuntimeTicking) return;
   globalThis.__psmRuntimeTicking = true;
-  try { await presenceTick(); await handleIdleSchedules(now); await handleTimedSchedules(now); }
+  try {
+    await presenceTick(); await handleIdleSchedules(now); await handleTimedSchedules(now);
+    if (!globalThis.__psmLastRetentionAt || now - globalThis.__psmLastRetentionAt >= 6 * 60 * 60 * 1_000) {
+      await applyRetentionPolicy(undefined, now); globalThis.__psmLastRetentionAt = now;
+    }
+  }
   finally { globalThis.__psmRuntimeTicking = false; }
 }
 

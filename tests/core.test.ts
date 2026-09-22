@@ -18,6 +18,18 @@ import { jobDisplayMessage, jobKindLabel, jobStartingMessage, jobSuccessMessage 
 import { rconCommandSchema, restAdminActionSchema } from "@/contracts/admin";
 import { buildState, buildStatusText } from "@/lib/build-presentation";
 import { legacyModerationEvent, moderationEventMessage } from "@/lib/moderation-presentation";
+import { defaultRetentionSettings, retentionSettingsSchema } from "@/contracts/retention";
+
+describe("history retention settings", () => {
+  it("accepts conservative defaults and coerces settings form values", () => {
+    expect(retentionSettingsSchema.parse(defaultRetentionSettings)).toEqual(defaultRetentionSettings);
+    expect(retentionSettingsSchema.parse({ ...defaultRetentionSettings, operationDays: "90" })).toMatchObject({ operationDays: 90 });
+  });
+  it("rejects limits that could erase nearly all useful history", () => {
+    expect(() => retentionSettingsSchema.parse({ ...defaultRetentionSettings, operationCount: 1 })).toThrow();
+    expect(() => retentionSettingsSchema.parse({ ...defaultRetentionSettings, serverLogFilesPerWorld: 0 })).toThrow();
+  });
+});
 
 describe("moderation activity presentation", () => {
   it("shows a readable player name without losing the immutable user ID", () => {

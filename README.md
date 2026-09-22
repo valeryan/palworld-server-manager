@@ -27,6 +27,7 @@ Development uses port `4318` and `.data-next`, intentionally separate from the c
 - A registered world may not share or nest its installation directory with another world.
 - Ports must be unique within and across worlds.
 - Operations are serialized per world and represented as persistent jobs.
+- Persistent operation, activity, server-log, and configuration history has configurable age/count retention in Application Settings; active operations are never removed.
 - Backups are verified before use, restores require a stopped server, and restores create a pre-restore backup.
 - API responses never include server passwords, admin passwords, or process environment variables.
 

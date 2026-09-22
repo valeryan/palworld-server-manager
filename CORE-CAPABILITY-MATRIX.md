@@ -120,6 +120,7 @@ with the original manager.
 - [x] Persistent asynchronous job records
 - [x] Consolidated SSE world/job event stream
 - [x] Persistent command output per job
+- [x] Configurable lifecycle retention for completed jobs, command output, world activity, sessions, deaths, server logs, and configuration snapshots
 - [x] Live server log viewer with pause, search, file selection, and authenticated full-log download
 - [x] Persistent event-history screen
 - [x] REST server information and health

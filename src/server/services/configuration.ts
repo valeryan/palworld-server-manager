@@ -7,6 +7,7 @@ import { database } from "@/server/db";
 import { configVersions, events } from "@/server/db/schema";
 import type { WorldView } from "@/contracts/world";
 import { getWorld } from "./worlds";
+import { pruneConfigurationVersions } from "./retention";
 
 function configPath(installDir: string, platform: "linux" | "windows") {
   return path.join(installDir, "Pal", "Saved", "Config", platform === "windows" ? "WindowsServer" : "LinuxServer", "PalWorldSettings.ini");
@@ -62,6 +63,7 @@ export function applyConfigurationOptions(content: string, changes: Record<strin
 }
 async function snapshot(worldId: string, content: string, note: string) {
   await database().insert(configVersions).values({ id: randomUUID(), worldId, fileName: "PalWorldSettings.ini", content, note, createdAt: Date.now() });
+  await pruneConfigurationVersions(worldId);
 }
 async function writeAtomic(filePath: string, content: string) {
   await mkdir(path.dirname(filePath), { recursive: true });

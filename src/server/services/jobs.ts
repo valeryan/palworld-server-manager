@@ -6,6 +6,7 @@ import { database, sqliteClient } from "@/server/db";
 import { jobLogs, jobs } from "@/server/db/schema";
 import { eventBus } from "./events";
 import { jobStartingMessage, jobSuccessMessage } from "@/lib/job-presentation";
+import { applyOperationRetention } from "./retention";
 
 export interface JobContext {
   signal: AbortSignal;
@@ -23,7 +24,13 @@ async function publish(id: string): Promise<void> {
 }
 
 export async function listJobs(limit = 100): Promise<JobView[]> {
-  return await database().select().from(jobs).orderBy(desc(jobs.createdAt)).limit(Math.min(limit, 500));
+  return await database().select().from(jobs).orderBy(desc(jobs.createdAt)).limit(Math.min(Math.max(Math.trunc(limit) || 100, 1), 10_000));
+}
+
+export function jobHistoryCounts(): { total: number; active: number; failed: number } {
+  return sqliteClient().prepare(`SELECT count(*) AS total,
+    coalesce(sum(CASE WHEN state IN ('queued','running') THEN 1 ELSE 0 END),0) AS active,
+    coalesce(sum(CASE WHEN state='failed' THEN 1 ELSE 0 END),0) AS failed FROM jobs`).get() as { total: number; active: number; failed: number };
 }
 
 export async function getJob(id: string): Promise<JobView | undefined> {
@@ -62,6 +69,7 @@ export async function startJob(worldId: string | null, kind: string, task: (cont
       controllers().delete(id);
       if (worldId) locks().delete(worldId);
       await publish(id);
+      await applyOperationRetention().catch(() => undefined);
     }
   })();
   return id;
