@@ -16,6 +16,18 @@ import { retentionCandidates } from "@/server/services/backups";
 import { warningMessage } from "@/server/services/maintenance";
 import { jobDisplayMessage, jobKindLabel, jobStartingMessage, jobSuccessMessage } from "@/lib/job-presentation";
 import { rconCommandSchema, restAdminActionSchema } from "@/contracts/admin";
+import { buildState, buildStatusText } from "@/lib/build-presentation";
+
+describe("build presentation", () => {
+  it("distinguishes current, outdated, and unchecked builds", () => {
+    expect(buildState("100", "100")).toBe("current");
+    expect(buildState("100", "101")).toBe("update-available");
+    expect(buildState("100", null)).toBe("unknown");
+  });
+  it("keeps both build IDs in the accessible update description", () => {
+    expect(buildStatusText("100", "101")).toContain("installed build 100; latest public build 101");
+  });
+});
 
 describe("operation language", () => {
   it("describes lifecycle actions without calling every operation starting", () => {

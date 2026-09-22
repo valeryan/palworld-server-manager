@@ -9,6 +9,7 @@ import { JobLogDialog } from "./job-log-dialog";
 import { AppShell } from "./app-shell";
 import { Toast } from "./toast";
 import { jobDisplayMessage, jobKindLabel, jobStartingMessage, jobStateLabel } from "@/lib/job-presentation";
+import { BuildStatus } from "./build-status";
 
 type SafeWorld = Omit<WorldView, "adminPassword" | "serverPassword" | "env">;
 async function json<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
@@ -41,7 +42,7 @@ export function Dashboard() {
       <div className="section-title"><div><p className="eyebrow">WORLDS</p><h2>Managed servers</h2></div><div className="fleet-tools"><button className="button ghost" onClick={() => void bulk("start", worlds.filter((world) => world.status === "stopped" || world.status === "crashed"))}>Start eligible</button><button className="button ghost" onClick={() => void bulk("restart", worlds.filter((world) => world.status === "running"))}>Restart running</button><button className="button danger" onClick={() => void bulk("stop", worlds.filter((world) => world.status === "running"))}>Stop running</button><button className="icon-button" onClick={() => worldsQuery.refetch()} aria-label="Refresh">↻</button></div></div>
       {worldsQuery.isLoading ? <div className="empty">Loading registry…</div> : worldsQuery.error ? <div className="empty error">{worldsQuery.error.message}</div> : worlds.length === 0 ? <div className="empty"><div><strong>No servers registered</strong><p>Add an existing Palworld install or provision a new one.</p></div></div> : <div className="world-grid">{worlds.map((world) => <article className="world-card" key={world.id}>
         <div className="world-head"><div className="world-icon">{world.displayName.slice(0, 1).toUpperCase()}</div><div><h3>{world.displayName}</h3><Status value={world.status} /></div><span className="platform">{world.platform}</span></div>
-        <dl><div><dt>Game</dt><dd>{world.gamePort}</dd></div><div><dt>Query</dt><dd>{world.queryPort}</dd></div><div><dt>REST</dt><dd>{world.restApiPort}</dd></div><div><dt>Build</dt><dd>{world.buildId ?? "—"}{world.latestBuildId && world.buildId !== world.latestBuildId ? " ↑" : ""}</dd></div></dl>
+        <dl><div><dt>Game</dt><dd>{world.gamePort}</dd></div><div><dt>Query</dt><dd>{world.queryPort}</dd></div><div><dt>REST</dt><dd>{world.restApiPort}</dd></div><div><dt>Build</dt><dd><BuildStatus installed={world.buildId} latest={world.latestBuildId} /></dd></div></dl>
         <p className="path" title={world.installDir}>{world.installDir}</p><div className="world-actions fleet-actions">{world.status === "running" ? <><button onClick={() => run(world, "restart")}>Restart</button><button className="danger" onClick={() => run(world, "stop")}>Stop</button></> : world.status === "starting" || world.status === "stopping" ? <button disabled>{world.status === "starting" ? "Starting…" : "Stopping…"}</button> : <button className="start" onClick={() => run(world, "start")}>Start</button>}<Link className="manage-link" href={`/worlds/${world.id}`}>Manage</Link></div>
       </article>)}</div>}
     </section>

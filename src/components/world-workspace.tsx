@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { WorldView } from "@/contracts/world";
 import { WorldAdminPanel } from "./world-edit-dialog";
 import { WorldSchedulesPanel } from "./world-schedules-dialog";
@@ -10,6 +10,7 @@ import { AppShell } from "./app-shell";
 import { StructuredSettings } from "./structured-settings";
 import { Toast } from "./toast";
 import { humanizeIdentifier, jobStartingMessage } from "@/lib/job-presentation";
+import { BuildStatus } from "./build-status";
 
 type SafeWorld = Omit<WorldView, "adminPassword" | "serverPassword" | "env">;
 type Tab = "overview" | "players" | "deaths" | "console" | "settings" | "backups" | "schedule" | "admin";
@@ -43,7 +44,7 @@ export function WorldWorkspace({ worldId }: { worldId: string }) {
     <Link className="back-link" href="/">← All worlds</Link>
     <Toast message={notice} onDismiss={() => setNotice(null)} />
     <section className="world-banner"><div className="world-banner-head"><div className="world-icon large">{world.displayName.slice(0, 1).toUpperCase()}</div><div className="world-title"><div><h1>{world.displayName}</h1><Status value={world.status} /></div><p>{String(live?.info?.servername ?? world.installDir)}</p></div><div className="world-primary-actions">{world.status === "running" ? <><button className="button ghost" onClick={() => run("restart")}>Restart</button><button className="button danger" onClick={() => run("stop")}>Stop</button></> : world.status === "starting" || world.status === "stopping" ? <button className="button" disabled>{world.status === "starting" ? "Starting…" : "Stopping…"}</button> : <button className="button primary" onClick={() => run("start")}>Start</button>}<button className="button ghost" disabled={world.status === "starting" || world.status === "stopping"} onClick={() => run("check-update")}>Check build</button><button className="button ghost" disabled={world.status === "running" || world.status === "starting" || world.status === "stopping"} onClick={() => run(world.buildId ? "update" : "install")}>{world.latestBuildId && world.buildId !== world.latestBuildId ? "Update available" : "Update"}</button></div></div>
-      <div className="quick-stats"><Quick label="Players" value={live?.reachable ? `${players.length}/${String(metrics.maxplayernum ?? "—")}` : "—"} /><Quick label="Uptime" value={formatUptime(Number(metrics.uptime ?? 0), live?.reachable)} /><Quick label="In-game day" value={live?.reachable ? String(metrics.days ?? "—") : "—"} /><Quick label="Server FPS" value={live?.reachable ? String(metrics.serverfps ?? "—") : "—"} /><Quick label="Installed / latest build" value={`${world.buildId ?? "—"} / ${world.latestBuildId ?? "not checked"}`} /><Quick label="Game port" value={String(world.gamePort)} /></div>
+      <div className="quick-stats"><Quick label="Players" value={live?.reachable ? `${players.length}/${String(metrics.maxplayernum ?? "—")}` : "—"} /><Quick label="Uptime" value={formatUptime(Number(metrics.uptime ?? 0), live?.reachable)} /><Quick label="In-game day" value={live?.reachable ? String(metrics.days ?? "—") : "—"} /><Quick label="Server FPS" value={live?.reachable ? String(metrics.serverfps ?? "—") : "—"} /><Quick label="Installed build" value={<BuildStatus installed={world.buildId} latest={world.latestBuildId} />} /><Quick label="Game port" value={String(world.gamePort)} /></div>
       <div className="connection-row"><span>Connect from this PC</span><code>127.0.0.1:{world.gamePort}</code><button onClick={() => void navigator.clipboard.writeText(`127.0.0.1:${world.gamePort}`)}>Copy</button></div>
     </section>
     <div className="world-tabs">{tabs.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)}>{item.label}</button>)}</div>
@@ -60,7 +61,7 @@ export function WorldWorkspace({ worldId }: { worldId: string }) {
   </AppShell>;
 }
 function Status({ value }: { value: SafeWorld["status"] }) { return <span className={`status status-${value}`}><i />{value}</span>; }
-function Quick({ label, value }: { label: string; value: string }) { return <article><strong>{value}</strong><span>{label}</span></article>; }
+function Quick({ label, value }: { label: string; value: ReactNode }) { return <article><strong>{value}</strong><span>{label}</span></article>; }
 function formatUptime(seconds: number, reachable?: boolean) { if (!reachable) return "—"; const hours = Math.floor(seconds / 3600); const minutes = Math.floor((seconds % 3600) / 60); return `${hours}h ${minutes}m`; }
 function Overview({ activity, live }: { activity?: Activity; live?: Live }) { return <div className="overview-columns"><section><h2>Recent activity</h2>{(activity?.events ?? []).length ? activity!.events.map((item) => <div className="history-row" key={item.id}><strong>{humanizeIdentifier(item.kind)}</strong><span>{item.message}</span><time>{stamp(item.createdAt)}</time></div>) : <p className="muted">No recorded events.</p>}</section><section><h2>Join/leave history</h2>{(activity?.sessions ?? []).length ? activity!.sessions.map((item) => <div className="history-row" key={item.id}><strong>{humanizeIdentifier(item.event)}</strong><span>{item.playerName ?? "Unknown player"}</span><time>{stamp(item.createdAt)}</time></div>) : <p className="muted">No player sessions recorded.</p>}<h2 className="health-heading">Server health</h2><p className={live?.reachable ? "green" : "muted"}>{live?.reachable ? "REST API reachable" : live?.error ?? "Server offline"}</p></section></div>; }
 function Players({ worldId, players, reachable, onRefresh, onNotice }: { worldId: string; players: Array<Record<string, unknown>>; reachable: boolean; onRefresh(): void; onNotice(message: string): void }) {
