@@ -8,8 +8,8 @@ import { commandFor, parseArguments } from "@/server/services/processes";
 import { createWorldSchema, parseWorldUpdate, worldRegistrationSchema } from "@/contracts/world";
 import { createScheduleSchema } from "@/contracts/schedule";
 import { nextRun } from "@/server/services/schedules";
-import { applyConfigurationOptions, managedConfigurationChanges, needsManagedConfigurationSync, parseConfigurationOptions } from "@/server/services/configuration";
-import { PALWORLD_SETTING_FIELDS, validateAndEncodeSettingChanges } from "@/contracts/palworld-settings";
+import { applyConfigurationOptions, managedConfigurationChanges, managedWorldChangesFromConfiguration, needsManagedConfigurationSync, parseConfigurationOptions } from "@/server/services/configuration";
+import { PALWORLD_SETTING_FIELDS, PALWORLD_SETTING_GROUPS, validateAndEncodeSettingChanges } from "@/contracts/palworld-settings";
 import { cancelJob, listJobs, startJob } from "@/server/services/jobs";
 import { backupSettingsSchema } from "@/contracts/backup";
 import { retentionCandidates } from "@/server/services/backups";
@@ -186,7 +186,18 @@ describe("PalWorldSettings transformations", () => {
     expect(needsManagedConfigurationSync({ displayName: "Local label" })).toBe(false);
     expect(needsManagedConfigurationSync({ autostart: true, extraArgs: "-useperfthreads" })).toBe(false);
     expect(needsManagedConfigurationSync({ adminPassword: "new", restApiPort: 8213 })).toBe(true);
-    expect(needsManagedConfigurationSync({ gamePort: 8211 })).toBe(true);
+    expect(needsManagedConfigurationSync({ gamePort: 8211 })).toBe(false);
+  });
+  it("reconciles manager-integrated values from raw INI without touching presentation properties", () => {
+    const world = { ...createWorldSchema.parse({ displayName: "Local label", installDir: "/tmp/test", adminPassword: "old", restApiPort: 8212 }), id: "world", status: "stopped" as const, processId: null, buildId: null, latestBuildId: null, lastStartedAt: null, createdAt: 1, updatedAt: 1 };
+    const content = '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(AdminPassword="new",ServerPassword="players",RESTAPIEnabled=False,RESTAPIPort=9012,RCONEnabled=True,RCONPort=25580)\n';
+    expect(managedWorldChangesFromConfiguration(content, world)).toEqual({ adminPassword: "new", serverPassword: "players", restApiEnabled: false, restApiPort: 9012, rconEnabled: true, rconPort: 25580 });
+  });
+  it("places each guided field exactly once and collects server access settings under Admin", () => {
+    const keys = PALWORLD_SETTING_GROUPS.flatMap((group) => group.fields.map((field) => field.key));
+    expect(new Set(keys).size).toBe(keys.length);
+    const admin = PALWORLD_SETTING_GROUPS.find((group) => group.title === "Admin");
+    expect(admin?.fields.map((field) => field.key)).toEqual(expect.arrayContaining(["ServerName", "BanListURL", "CoopPlayerMaxNum", "ServerPlayerMaxNum", "CrossplayPlatforms", "bAllowClientMod"]));
   });
   it("exposes and validates the complete original structured field inventory", () => {
     expect(PALWORLD_SETTING_FIELDS).toHaveLength(116);

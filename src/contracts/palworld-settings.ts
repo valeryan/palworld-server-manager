@@ -551,18 +551,6 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
         "default": false
       },
       {
-        "key": "CoopPlayerMaxNum",
-        "label": "Co-op max players",
-        "type": "int",
-        "default": 4
-      },
-      {
-        "key": "ServerPlayerMaxNum",
-        "label": "Server max players",
-        "type": "int",
-        "default": 32
-      },
-      {
         "key": "bEnableNonLoginPenalty",
         "label": "Non-login penalty",
         "type": "bool",
@@ -656,12 +644,6 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
     "title": "Palbox & Crossplay",
     "fields": [
       {
-        "key": "CrossplayPlatforms",
-        "label": "Crossplay platforms",
-        "type": "tuple",
-        "default": "(Steam,Xbox,PS5,Mac)"
-      },
-      {
         "key": "bAllowGlobalPalboxExport",
         "label": "Global Palbox export",
         "type": "bool",
@@ -672,15 +654,9 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
         "label": "Global Palbox import",
         "type": "bool",
         "default": false
-      },
-      {
-        "key": "bAllowClientMod",
-        "label": "Allow client mods",
-        "type": "bool",
-        "default": true
       }
     ],
-    "description": "Cross-platform access, Global Palbox, and client-mod policy."
+    "description": "Global Palbox export and import policy."
   },
   {
     "title": "Aim Assist & Backups",
@@ -707,7 +683,7 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
     "description": "Input assistance and Palworld rolling-save backups."
   },
   {
-    "title": "Server Listing & Access",
+    "title": "Admin",
     "fields": [
       {
         "key": "ServerName",
@@ -740,13 +716,31 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
         "label": "Region",
         "type": "text",
         "default": ""
-      }
-    ],
-    "description": "Palworld public-browser identity and the external address advertised when Community server is enabled."
-  },
-  {
-    "title": "Server Rules & Logging",
-    "fields": [
+      },
+      {
+        "key": "CoopPlayerMaxNum",
+        "label": "Co-op max players",
+        "type": "int",
+        "default": 4
+      },
+      {
+        "key": "ServerPlayerMaxNum",
+        "label": "Server max players",
+        "type": "int",
+        "default": 32
+      },
+      {
+        "key": "CrossplayPlatforms",
+        "label": "Crossplay platforms",
+        "type": "tuple",
+        "default": "(Steam,Xbox,PS5,Mac)"
+      },
+      {
+        "key": "bAllowClientMod",
+        "label": "Allow client mods",
+        "type": "bool",
+        "default": true
+      },
       {
         "key": "bUseAuth",
         "label": "Require auth",
@@ -788,7 +782,7 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
         ]
       }
     ],
-    "description": "Platform authentication, ban-list source, player-list visibility, chat notices, rate limits, and log format."
+    "description": "Server identity, advertised network address, credentials, interfaces, access policy, capacity, and logging."
   },
   {
     "title": "Performance & Synchronization",

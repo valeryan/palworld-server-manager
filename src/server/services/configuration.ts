@@ -5,8 +5,8 @@ import path from "node:path";
 import { and, desc, eq } from "drizzle-orm";
 import { database } from "@/server/db";
 import { configVersions, events, worlds } from "@/server/db/schema";
-import type { WorldView } from "@/contracts/world";
-import { getWorld } from "./worlds";
+import type { UpdateWorldInput, WorldView } from "@/contracts/world";
+import { getWorld, updateWorld } from "./worlds";
 import { pruneConfigurationVersions } from "./retention";
 
 function configPath(installDir: string, platform: "linux" | "windows") {
@@ -65,6 +65,43 @@ export function applyConfigurationOptions(content: string, changes: Record<strin
   const start = match.index + "OptionSettings=(".length; const end = start + (match[1]?.length ?? 0);
   const result = `${content.slice(0, start)}${tokens.join(",")}${content.slice(end)}`; validate(result); return result;
 }
+
+function decodeConfigurationString(value: string, key: string): string {
+  try {
+    const decoded: unknown = JSON.parse(value);
+    if (typeof decoded === "string") return decoded;
+  } catch { /* handled below */ }
+  throw new Error(`${key} must be a quoted string.`);
+}
+
+export function managedWorldChangesFromConfiguration(content: string, world: WorldView): UpdateWorldInput {
+  const options = parseConfigurationOptions(content);
+  const patch: UpdateWorldInput = {};
+  const assign = <K extends keyof UpdateWorldInput>(key: K, value: UpdateWorldInput[K]) => {
+    if (JSON.stringify(world[key as keyof WorldView]) !== JSON.stringify(value)) patch[key] = value;
+  };
+  if (Object.hasOwn(options, "AdminPassword")) assign("adminPassword", decodeConfigurationString(options.AdminPassword!, "AdminPassword"));
+  if (Object.hasOwn(options, "ServerPassword")) assign("serverPassword", decodeConfigurationString(options.ServerPassword!, "ServerPassword"));
+  for (const [optionKey, worldKey] of [["RESTAPIEnabled", "restApiEnabled"], ["RCONEnabled", "rconEnabled"]] as const) {
+    if (!Object.hasOwn(options, optionKey)) continue;
+    const value = options[optionKey]!.toLowerCase();
+    if (value !== "true" && value !== "false") throw new Error(`${optionKey} must be True or False.`);
+    assign(worldKey, value === "true");
+  }
+  for (const [optionKey, worldKey] of [["RESTAPIPort", "restApiPort"], ["RCONPort", "rconPort"]] as const) {
+    if (!Object.hasOwn(options, optionKey)) continue;
+    const value = Number(options[optionKey]);
+    if (!Number.isInteger(value) || value < 1 || value > 65535) throw new Error(`${optionKey} must be a port from 1 to 65535.`);
+    assign(worldKey, value);
+  }
+  return patch;
+}
+
+async function reconcileManagedWorldConfiguration(worldId: string, content: string) {
+  const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
+  const patch = managedWorldChangesFromConfiguration(content, world);
+  if (Object.keys(patch).length) await updateWorld(worldId, patch);
+}
 async function snapshot(worldId: string, content: string, note: string) {
   await database().insert(configVersions).values({ id: randomUUID(), worldId, fileName: "PalWorldSettings.ini", content, note, createdAt: Date.now() });
   await pruneConfigurationVersions(worldId);
@@ -88,6 +125,7 @@ export async function readConfiguration(worldId: string) {
 
 export async function saveConfiguration(worldId: string, content: string) {
   validate(content);
+  await reconcileManagedWorldConfiguration(worldId, content);
   const current = await readConfiguration(worldId);
   if (current.exists && current.content) await snapshot(worldId, current.content, "before edit");
   await writeAtomic(current.path, content);
@@ -110,7 +148,7 @@ export async function saveConfigurationOptions(worldId: string, changes: Record<
 }
 
 type ManagedConfigurationOptions = { syncPublicPort?: boolean };
-const managedConfigurationWorldFields = new Set(["adminPassword", "serverPassword", "restApiEnabled", "restApiPort", "rconEnabled", "rconPort", "gamePort"]);
+const managedConfigurationWorldFields = new Set(["adminPassword", "serverPassword", "restApiEnabled", "restApiPort", "rconEnabled", "rconPort"]);
 
 export function needsManagedConfigurationSync(input: unknown): boolean {
   return Boolean(input && typeof input === "object" && !Array.isArray(input) && Object.keys(input).some((key) => managedConfigurationWorldFields.has(key)));
@@ -178,7 +216,7 @@ export async function restoreConfiguration(worldId: string, versionId: string) {
   if (!version) throw new Error("Configuration version not found.");
   const current = await readConfiguration(worldId);
   if (current.exists && current.content) await snapshot(worldId, current.content, "before restore");
-  validate(version.content); await writeAtomic(current.path, version.content); await snapshot(worldId, version.content, `restored from ${versionId}`);
+  validate(version.content); await reconcileManagedWorldConfiguration(worldId, version.content); await writeAtomic(current.path, version.content); await snapshot(worldId, version.content, `restored from ${versionId}`);
   await database().insert(events).values({ worldId, kind: "settings", message: `Restored PalWorldSettings.ini from ${versionId}`, createdAt: Date.now() });
   return { content: version.content, path: current.path, running: current.running };
 }

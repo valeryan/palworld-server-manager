@@ -14,7 +14,7 @@ export async function GET(_request: Request, context: Context) {
 export async function PATCH(request: Request, context: Context) {
   const denied = requireAdmin(request); if (denied) return denied;
   try { const { id } = await context.params; const previous = await getWorld(id); if (!previous) throw new Error("World not found."); const input: unknown = await request.json(); const world = await updateWorld(id, input); let configuration;
-    try { configuration = needsManagedConfigurationSync(input) ? await syncManagedConfiguration(id, { syncPublicPort: previous.gamePort !== world.gamePort }) : { synchronized: false, skipped: true, reason: "No PalWorldSettings.ini-backed values changed." }; }
+    try { configuration = needsManagedConfigurationSync(input) ? await syncManagedConfiguration(id) : { synchronized: false, skipped: true, reason: "No PalWorldSettings.ini-backed values changed." }; }
     catch (error) { configuration = { synchronized: false, reason: error instanceof Error ? error.message : String(error) }; }
     return Response.json({ ok: true, world: publicWorld(world), configuration }); }
   catch (error) { return errorResponse(error); }

@@ -34,7 +34,7 @@ test("adopts and manages an isolated world through critical browser workflows", 
 
   await page.getByRole("link", { name: "Manage", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Automated World", level: 1 })).toBeVisible();
-  for (const tab of ["Overview", "Players", "Deaths", "Console", "Server config", "Backups", "Schedule", "PSM properties"]) {
+  for (const tab of ["Overview", "Players", "Deaths", "Console", "Server config", "Backups", "Schedule", "Properties"]) {
     await expect(page.getByRole("button", { name: tab, exact: true })).toBeVisible();
   }
 
@@ -47,7 +47,7 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await expect(page.getByText("Configuration saved; restart to apply changes")).toBeVisible();
   await expect(page.getByText("saved", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Guided configuration", exact: true }).click();
-  await page.getByRole("button", { name: "Server Listing & Access", exact: true }).click();
+  await page.getByRole("button", { name: "Admin", exact: true }).click();
   await page.getByLabel("Public port (advertised)").fill("49611");
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page.getByText("Saved 1 setting; restart to apply changes")).toBeVisible();
@@ -75,15 +75,49 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await expect(page.getByRole("button", { name: "Enable" })).toBeVisible();
 
   await page.getByRole("button", { name: "Server config", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Runtime and access" })).toBeVisible();
-  await page.getByLabel("REST API", { exact: true }).uncheck();
-  await page.getByRole("button", { name: "Save server setup" }).click();
-  await page.getByRole("button", { name: "PSM properties", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "PSM properties" })).toBeVisible();
+  await page.getByRole("button", { name: "Admin", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Admin" })).toBeVisible();
+  const managedAdmin = page.locator(".admin-managed-settings");
+  await managedAdmin.locator('input[type="password"]').nth(0).fill("temporary-admin-password");
+  await managedAdmin.locator('input[type="password"]').nth(1).fill("temporary-server-password");
+  await page.getByText("REST API", { exact: true }).locator("..").getByRole("button").click();
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/worlds/${new URL(page.url()).pathname.split("/").at(-1)}/configuration/admin`);
+    const payload = await response.json() as { admin: { adminPasswordSet: boolean; serverPasswordSet: boolean } };
+    return `${payload.admin.adminPasswordSet}:${payload.admin.serverPasswordSet}`;
+  }).toBe("true:true");
+  await page.getByRole("button", { name: "Admin", exact: true }).click();
+  await page.getByLabel("Clear stored admin password").check();
+  await page.getByLabel("Clear stored server password").check();
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/worlds/${new URL(page.url()).pathname.split("/").at(-1)}/configuration/admin`);
+    const payload = await response.json() as { admin: { adminPasswordSet: boolean; serverPasswordSet: boolean } };
+    return `${payload.admin.adminPasswordSet}:${payload.admin.serverPasswordSet}`;
+  }).toBe("false:false");
+  await page.getByRole("button", { name: "Raw INI & history", exact: true }).click();
+  const reconciledEditor = page.locator(".settings-editor");
+  const beforeRawReconcile = await reconciledEditor.inputValue();
+  const oldRestPort = beforeRawReconcile.match(/RESTAPIPort=(\d+)/)?.[1];
+  expect(oldRestPort).toBeTruthy();
+  await reconciledEditor.fill(beforeRawReconcile.replace(`RESTAPIPort=${oldRestPort}`, "RESTAPIPort=39615"));
+  await page.getByRole("button", { name: "Save raw settings" }).click();
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/worlds/${new URL(page.url()).pathname.split("/").at(-1)}`);
+    return ((await response.json()) as { world: { restApiPort: number } }).world.restApiPort;
+  }).toBe(39615);
+  await page.getByRole("button", { name: "Restore", exact: true }).nth(1).click();
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/worlds/${new URL(page.url()).pathname.split("/").at(-1)}`);
+    return ((await response.json()) as { world: { restApiPort: number } }).world.restApiPort;
+  }).toBe(Number(oldRestPort));
+  await page.getByRole("button", { name: "Properties", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Properties" })).toBeVisible();
   await expect(page.getByLabel("Install directory")).toHaveValue(worldDirectory);
   await expect(page.locator('select[name="platform"]')).toHaveValue("linux");
   await page.getByLabel("Display name in PSM").fill("Automated World Renamed");
-  await page.getByRole("button", { name: "Save PSM properties" }).click();
+  await page.getByRole("button", { name: "Save properties" }).click();
   await expect(page.getByRole("heading", { name: "Automated World Renamed", level: 1 })).toBeVisible();
   await expect.poll(async () => {
     const response = await page.request.get(`/api/worlds/${new URL(page.url()).pathname.split("/").at(-1)}/configuration/options`);
