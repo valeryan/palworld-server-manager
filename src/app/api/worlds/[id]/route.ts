@@ -13,8 +13,8 @@ export async function GET(_request: Request, context: Context) {
 
 export async function PATCH(request: Request, context: Context) {
   const denied = requireAdmin(request); if (denied) return denied;
-  try { const { id } = await context.params; const world = await updateWorld(id, await request.json()); let configuration;
-    try { configuration = await syncManagedConfiguration(id); }
+  try { const { id } = await context.params; const previous = await getWorld(id); if (!previous) throw new Error("World not found."); const world = await updateWorld(id, await request.json()); let configuration;
+    try { configuration = await syncManagedConfiguration(id, { syncPublicPort: previous.gamePort !== world.gamePort }); }
     catch (error) { configuration = { synchronized: false, reason: error instanceof Error ? error.message : String(error) }; }
     return Response.json({ ok: true, world: publicWorld(world), configuration }); }
   catch (error) { return errorResponse(error); }

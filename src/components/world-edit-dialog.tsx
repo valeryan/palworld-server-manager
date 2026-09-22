@@ -3,12 +3,27 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import type { WorldRegistration, WorldView } from "@/contracts/world";
+import { PALWORLD_ADMIN_SETTING_FIELDS } from "@/contracts/palworld-settings";
+import { settingFieldKey } from "@/lib/localization-resources";
 
 type SafeWorld = Omit<WorldView, "adminPassword" | "serverPassword" | "env">;
 type RegistrationResponse = {
   registration: WorldRegistration;
   credentials: { adminPasswordSet: boolean; serverPasswordSet: boolean };
 };
+type ConfigurationResponse = { configuration: { content: string; options: Record<string, string> } };
+type AdminSettingValue = string | number;
+
+const defaultAdminSettings = Object.fromEntries(PALWORLD_ADMIN_SETTING_FIELDS.map((field) => [field.key, field.default])) as Record<string, AdminSettingValue>;
+function decodeAdminSettings(options: Record<string, string>): Record<string, AdminSettingValue> {
+  return Object.fromEntries(PALWORLD_ADMIN_SETTING_FIELDS.map((field) => {
+    const raw = options[field.key];
+    if (raw == null || raw === "") return [field.key, field.default];
+    if (field.type === "int" || field.type === "float") return [field.key, Number(raw)];
+    if (raw.startsWith('"') && raw.endsWith('"')) { try { return [field.key, JSON.parse(raw)]; } catch { return [field.key, raw.slice(1, -1)]; } }
+    return [field.key, raw];
+  }));
+}
 
 async function request<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const response = await fetch(input, { ...init, headers: { "Content-Type": "application/json", ...init?.headers } });
@@ -36,14 +51,21 @@ export function WorldAdminPanel({ world, onSaved, onNotice }: { world: SafeWorld
   const [installDir, setInstallDir] = useState(world.installDir);
   const [environment, setEnvironment] = useState("{}");
   const [credentials, setCredentials] = useState({ adminPasswordSet: false, serverPasswordSet: false });
+  const [adminSettings, setAdminSettings] = useState<Record<string, AdminSettingValue>>(defaultAdminSettings);
+  const [configurationReady, setConfigurationReady] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
     let active = true;
-    void request<RegistrationResponse>(`/api/worlds/${world.id}/registration`).then((result) => {
+    void Promise.all([
+      request<RegistrationResponse>(`/api/worlds/${world.id}/registration`),
+      request<ConfigurationResponse>(`/api/worlds/${world.id}/configuration/options`),
+    ]).then(([result, configuration]) => {
       if (!active) return;
       setEnvironment(JSON.stringify(result.registration.world.env, null, 2));
       setCredentials(result.credentials);
+      setAdminSettings(decodeAdminSettings(configuration.configuration.options));
+      setConfigurationReady(Boolean(configuration.configuration.content));
       setDetailsReady(true);
     }).catch((error) => onNotice(error instanceof Error ? error.message : String(error)));
     return () => { active = false; };
@@ -73,6 +95,7 @@ export function WorldAdminPanel({ world, onSaved, onNotice }: { world: SafeWorld
         autostart: data.get("autostart") === "on", crashGuard: data.get("crashGuard") === "on", legacyPerfFlags: data.get("legacyPerfFlags") === "on",
         extraArgs: data.get("extraArgs"), env: parsedEnvironment, wineBinary: data.get("wineBinary"), winePrefix: String(data.get("winePrefix") || "") || null, wineLaunchFlags: data.get("wineLaunchFlags"), ...credentialChanges,
       }) });
+      if (configurationReady) await request(`/api/worlds/${world.id}/configuration/options`, { method: "PUT", body: JSON.stringify({ changes: adminSettings }) });
       setCredentials({ adminPasswordSet: adminPassword ? true : data.get("clearAdminPassword") === "on" ? false : credentials.adminPasswordSet, serverPasswordSet: serverPassword ? true : data.get("clearServerPassword") === "on" ? false : credentials.serverPasswordSet });
       onNotice(result.configuration?.synchronized ? t("properties.savedSynchronized") : t("properties.savedUnsynchronized", { reason: result.configuration?.reason ?? t("properties.notSynchronized") }));
       event.currentTarget.reset(); onSaved();
@@ -104,6 +127,9 @@ export function WorldAdminPanel({ world, onSaved, onNotice }: { world: SafeWorld
     <label>{t("properties.adminPassword")} <small>{t(credentials.adminPasswordSet ? "properties.passwordStored" : "properties.passwordMissing")}</small><input name="adminPassword" type="password" autoComplete="new-password" placeholder={t("properties.keepPassword")} /></label><label>{t("properties.serverPassword")} <small>{t(credentials.serverPasswordSet ? "properties.passwordStored" : "properties.passwordMissing")}</small><input name="serverPassword" type="password" autoComplete="new-password" placeholder={t("properties.keepPassword")} /></label>
     <fieldset className="wide checkbox-grid credential-actions"><label><input name="clearAdminPassword" type="checkbox" /> {t("properties.clearAdmin")}</label><label><input name="clearServerPassword" type="checkbox" /> {t("properties.clearServer")}</label></fieldset>
     <fieldset className="wide checkbox-grid"><label><input name="restApiEnabled" type="checkbox" defaultChecked={world.restApiEnabled} /> {t("properties.restApi")}</label><label><input name="rconEnabled" type="checkbox" defaultChecked={world.rconEnabled} /> {t("properties.rcon")}</label><label><input name="communityServer" type="checkbox" defaultChecked={world.communityServer} /> {t("properties.community")}</label><label><input name="autostart" type="checkbox" defaultChecked={world.autostart} /> {t("properties.autostart")}</label><label><input name="crashGuard" type="checkbox" defaultChecked={world.crashGuard} /> {t("properties.crashRecovery")}</label><label><input name="legacyPerfFlags" type="checkbox" defaultChecked={world.legacyPerfFlags} /> {t("properties.performance")}</label></fieldset>
+    <fieldset className="wide server-listing" disabled={!configurationReady}><legend>{t("properties.listingTitle")}</legend><p>{t(configurationReady ? "properties.listingDescription" : "properties.listingUnavailable")}</p><div className="server-listing-grid">
+      {PALWORLD_ADMIN_SETTING_FIELDS.map((field) => <label key={field.key}>{t(settingFieldKey(field.key, "label"))}<input type={field.type === "int" ? "number" : "text"} value={String(adminSettings[field.key] ?? field.default)} min={field.min} max={field.max} onChange={(event) => setAdminSettings((current) => ({ ...current, [field.key]: field.type === "int" ? Number(event.target.value) : event.target.value }))} /></label>)}
+    </div></fieldset>
     <label className="wide">{t("properties.extraArgs")}<input name="extraArgs" defaultValue={world.extraArgs} /></label><label>{t("properties.wineBinary")}<input name="wineBinary" defaultValue={world.wineBinary} /></label><label>{t("properties.winePrefix")}<input name="winePrefix" defaultValue={world.winePrefix ?? ""} /></label><label className="wide">{t("properties.wineFlags")}<input name="wineLaunchFlags" defaultValue={world.wineLaunchFlags} /></label>
     <label className="wide">{t("properties.environment")}<textarea className="environment-editor" value={environment} onChange={(event) => setEnvironment(event.target.value)} spellCheck={false} /></label>
     {world.status !== "stopped" && <p className="wide form-warning">{t("properties.stopToEdit")}</p>}

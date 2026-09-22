@@ -34,7 +34,7 @@ test("adopts and manages an isolated world through critical browser workflows", 
 
   await page.getByRole("link", { name: "Manage", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Automated World", level: 1 })).toBeVisible();
-  for (const tab of ["Overview", "Players", "Deaths", "Console", "Server config", "Backups", "Schedule", "World properties"]) {
+  for (const tab of ["Overview", "Players", "Deaths", "Console", "Server config", "Backups", "Schedule", "Server admin"]) {
     await expect(page.getByRole("button", { name: tab, exact: true })).toBeVisible();
   }
 
@@ -69,11 +69,18 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await page.getByRole("button", { name: "Disable" }).click();
   await expect(page.getByRole("button", { name: "Enable" })).toBeVisible();
 
-  await page.getByRole("button", { name: "World properties", exact: true }).click();
-  await page.getByLabel("Name").fill("Automated World Renamed");
+  await page.getByRole("button", { name: "Server admin", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Server administration" })).toBeVisible();
+  await expect(page.getByText("Community listing and identity", { exact: true })).toBeVisible();
+  await page.getByLabel("Name", { exact: true }).fill("Automated World Renamed");
+  await page.getByLabel("Public port (advertised)").fill("49611");
   await page.getByLabel("REST API", { exact: true }).uncheck();
   await page.getByRole("button", { name: "Save world" }).click();
   await expect(page.getByRole("heading", { name: "Automated World Renamed", level: 1 })).toBeVisible();
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/worlds/${new URL(page.url()).pathname.split("/").at(-1)}/configuration/options`);
+    return ((await response.json()) as { configuration: { options: Record<string, string> } }).configuration.options.PublicPort;
+  }).toBe("49611");
 
   await page.getByRole("button", { name: "Start", exact: true }).click();
   await waitForLatestJob(page, "start");

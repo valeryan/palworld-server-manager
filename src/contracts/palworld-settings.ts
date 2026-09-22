@@ -1,6 +1,6 @@
 export type PalworldSettingType = "bool" | "int" | "float" | "text" | "select" | "tuple";
 export type PalworldSettingField = { key: string; label: string; type: PalworldSettingType; default: string | number | boolean; options?: readonly string[]; min?: number; max?: number; hint?: string };
-export type PalworldSettingGroup = { title: string; description: string; fields: readonly PalworldSettingField[] };
+export type PalworldSettingGroup = { title: string; description: string; fields: readonly PalworldSettingField[]; surface?: "guided" | "admin" };
 
 export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
   {
@@ -22,7 +22,7 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
         "key": "DeathPenalty",
         "label": "Death penalty",
         "type": "select",
-        "default": "All",
+        "default": "Item",
         "options": [
           "None",
           "Item",
@@ -139,7 +139,7 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
       },
       {
         "key": "PalDamageRateDefense",
-        "label": "Pal defense",
+        "label": "Pal damage received",
         "type": "float",
         "default": 1
       },
@@ -171,7 +171,7 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
         "key": "PalEggDefaultHatchingTime",
         "label": "Egg hatching time (h)",
         "type": "float",
-        "default": 72
+        "default": 1
       },
       {
         "key": "EnablePredatorBossPal",
@@ -193,7 +193,7 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
       },
       {
         "key": "PlayerDamageRateDefense",
-        "label": "Player defense",
+        "label": "Player damage received",
         "type": "float",
         "default": 1
       },
@@ -301,7 +301,7 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
       },
       {
         "key": "CollectionObjectRespawnSpeedRate",
-        "label": "Gatherable respawn",
+        "label": "Gatherable respawn interval",
         "type": "float",
         "default": 1
       },
@@ -318,6 +318,13 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
         "default": 3000
       },
       {
+        "key": "PhysicsActiveDropItemMaxNum",
+        "label": "Max physics-simulated drops",
+        "type": "int",
+        "default": -1,
+        "hint": "Maximum dropped items using full physics. -1 means unlimited; a lower cap can reduce server load."
+      },
+      {
         "key": "DropItemMaxNum_UNKO",
         "label": "Max dropped (UNKO)",
         "type": "int",
@@ -331,7 +338,7 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
       },
       {
         "key": "SupplyDropSpan",
-        "label": "Meteor/Supply drop interval (s)",
+        "label": "Meteor/Supply drop interval (min)",
         "type": "int",
         "default": 180
       },
@@ -358,6 +365,22 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
         "label": "Item corruption rate",
         "type": "float",
         "default": 1
+      },
+      {
+        "key": "FishingDifficultyRate",
+        "label": "Fishing difficulty",
+        "type": "float",
+        "default": 1,
+        "min": 0.1,
+        "max": 1,
+        "hint": "Fishing difficulty multiplier. Lower values make fishing easier; 1 is the most difficult supported value."
+      },
+      {
+        "key": "bAllowEnemyCampSpawnNearBaseCamp",
+        "label": "Enemy camps near player bases",
+        "type": "bool",
+        "default": false,
+        "hint": "Allow enemy camps to spawn close to player base camps."
       },
       {
         "key": "DenyTechnologyList",
@@ -407,11 +430,19 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
         "key": "BaseCampMaxNumInGuild",
         "label": "Max bases/guild",
         "type": "int",
-        "default": 4
+        "default": 4,
+        "max": 10,
+        "hint": "Maximum bases per guild. Higher values increase server load."
       },
       {
         "key": "MaxBuildingLimitNum",
-        "label": "Max buildings (0=off)",
+        "label": "Max buildings server-wide (0=unlimited)",
+        "type": "int",
+        "default": 0
+      },
+      {
+        "key": "MaxBuildingLimitNumPerPlayer",
+        "label": "Max buildings/player (0=unlimited)",
         "type": "int",
         "default": 0
       },
@@ -474,6 +505,20 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
         "label": "Guild rejoin cooldown (m)",
         "type": "int",
         "default": 0
+      },
+      {
+        "key": "AutoTransferMasterCheckIntervalSeconds",
+        "label": "Guild master transfer check (s)",
+        "type": "float",
+        "default": 3600,
+        "hint": "How often the server checks whether an inactive guild master should be transferred."
+      },
+      {
+        "key": "AutoTransferMasterThresholdDays",
+        "label": "Guild master inactivity threshold (days)",
+        "type": "int",
+        "default": 14,
+        "hint": "Days a guild master may remain inactive before automatic transfer is eligible."
       }
     ],
     "description": "Guild membership, reset behavior, defense, looting, and cooldowns."
@@ -539,7 +584,7 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
         "key": "bIsStartLocationSelectByMap",
         "label": "Choose start on map",
         "type": "bool",
-        "default": true
+        "default": false
       },
       {
         "key": "bExistPlayerAfterLogout",
@@ -594,14 +639,14 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
         "key": "VoiceChatMaxVolumeDistance",
         "label": "Full-volume distance",
         "type": "int",
-        "default": 800,
+        "default": 3000,
         "hint": "Distance (cm) within which voice plays at full volume before it starts to fade."
       },
       {
         "key": "VoiceChatZeroVolumeDistance",
         "label": "Silence distance",
         "type": "int",
-        "default": 2000,
+        "default": 15000,
         "hint": "Distance (cm) beyond which voice can no longer be heard."
       }
     ],
@@ -662,7 +707,8 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
     "description": "Input assistance and Palworld rolling-save backups."
   },
   {
-    "title": "Server Identity",
+    "title": "Server Listing & Access",
+    "surface": "admin",
     "fields": [
       {
         "key": "ServerName",
@@ -695,7 +741,13 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
         "label": "Region",
         "type": "text",
         "default": ""
-      },
+      }
+    ],
+    "description": "Palworld public-browser identity and the external address advertised when Community server is enabled."
+  },
+  {
+    "title": "Server Rules & Logging",
+    "fields": [
       {
         "key": "bUseAuth",
         "label": "Require auth",
@@ -735,24 +787,57 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
           "Text",
           "Json"
         ]
-      },
+      }
+    ],
+    "description": "Platform authentication, ban-list source, player-list visibility, chat notices, rate limits, and log format."
+  },
+  {
+    "title": "Performance & Synchronization",
+    "fields": [
       {
         "key": "ServerReplicatePawnCullDistance",
-        "label": "Pawn cull distance",
+        "label": "Pal synchronization distance (cm)",
         "type": "float",
-        "default": 15000
+        "default": 15000,
+        "min": 5000,
+        "max": 15000,
+        "hint": "Distance from players at which Pals are synchronized. Lower values reduce load but make distant Pals appear later."
       },
       {
         "key": "ItemContainerForceMarkDirtyInterval",
-        "label": "Container sync interval",
+        "label": "Open-container resync interval (s)",
         "type": "float",
-        "default": 1
+        "default": 1,
+        "hint": "How often an open container is forcibly re-synchronized. Higher values reduce checks but can make contents feel delayed."
+      },
+      {
+        "key": "PlayerDataPalStorageUpdateCheckTickInterval",
+        "label": "Pal storage check interval (s)",
+        "type": "float",
+        "default": 1,
+        "hint": "How often the server rechecks player Pal storage."
+      },
+      {
+        "key": "MaxGuildsPerFrame",
+        "label": "Guilds processed per frame",
+        "type": "int",
+        "default": 10,
+        "hint": "Maximum guilds processed during one server frame."
+      },
+      {
+        "key": "BuildingNameDisplayCacheTTLSeconds",
+        "label": "Builder-name cache lifetime (s)",
+        "type": "int",
+        "default": 60,
+        "hint": "How long the server caches builder-name lookups shown on structures."
       }
     ],
-    "description": "Public listing, identity, authentication, chat, logging, and replication."
+    "description": "Advanced server processing, replication, and synchronization intervals."
   }
 ];
 export const PALWORLD_SETTING_FIELDS: readonly PalworldSettingField[] = PALWORLD_SETTING_GROUPS.flatMap((group) => group.fields);
+export const PALWORLD_GUIDED_SETTING_GROUPS: readonly PalworldSettingGroup[] = PALWORLD_SETTING_GROUPS.filter((group) => group.surface !== "admin");
+export const PALWORLD_ADMIN_SETTING_FIELDS: readonly PalworldSettingField[] = PALWORLD_SETTING_GROUPS.filter((group) => group.surface === "admin").flatMap((group) => group.fields);
 const fieldMap = new Map(PALWORLD_SETTING_FIELDS.map((field) => [field.key, field]));
 
 export function validateAndEncodeSettingChanges(raw: unknown): Record<string, string> {

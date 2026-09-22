@@ -9,7 +9,7 @@ import { createWorldSchema, parseWorldUpdate, worldRegistrationSchema } from "@/
 import { createScheduleSchema } from "@/contracts/schedule";
 import { nextRun } from "@/server/services/schedules";
 import { applyConfigurationOptions, managedConfigurationChanges, parseConfigurationOptions } from "@/server/services/configuration";
-import { PALWORLD_SETTING_FIELDS, validateAndEncodeSettingChanges } from "@/contracts/palworld-settings";
+import { PALWORLD_ADMIN_SETTING_FIELDS, PALWORLD_GUIDED_SETTING_GROUPS, PALWORLD_SETTING_FIELDS, validateAndEncodeSettingChanges } from "@/contracts/palworld-settings";
 import { cancelJob, listJobs, startJob } from "@/server/services/jobs";
 import { backupSettingsSchema } from "@/contracts/backup";
 import { retentionCandidates } from "@/server/services/backups";
@@ -169,19 +169,43 @@ describe("PalWorldSettings transformations", () => {
   });
   it("maps manager-owned network and credential values", () => {
     const world = { ...createWorldSchema.parse({ displayName: "Test", installDir: "/tmp/test", gamePort: 8211, restApiPort: 8213, rconPort: 25575, adminPassword: "a\"b", serverPassword: "secret", restApiEnabled: true, rconEnabled: false }), id: "world", status: "stopped" as const, processId: null, buildId: null, latestBuildId: null, lastStartedAt: null, createdAt: 1, updatedAt: 1 };
-    expect(managedConfigurationChanges(world)).toMatchObject({ PublicPort: "8211", AdminPassword: '"a\\\"b"', ServerPassword: '"secret"', RESTAPIEnabled: "True", RESTAPIPort: "8213", RCONEnabled: "False", RCONPort: "25575" });
+    expect(managedConfigurationChanges(world, { syncPublicPort: true })).toMatchObject({ PublicPort: "8211", AdminPassword: '"a\\\"b"', ServerPassword: '"secret"', RESTAPIEnabled: "True", RESTAPIPort: "8213", RCONEnabled: "False", RCONPort: "25575" });
+    expect(managedConfigurationChanges(world)).not.toHaveProperty("PublicPort");
   });
   it("never erases game credentials when registry credentials are absent", () => {
     const world = { ...createWorldSchema.parse({ displayName: "Test", installDir: "/tmp/test", adminPassword: "", serverPassword: "" }), id: "world", status: "stopped" as const, processId: null, buildId: null, latestBuildId: null, lastStartedAt: null, createdAt: 1, updatedAt: 1 };
     expect(managedConfigurationChanges(world)).not.toHaveProperty("AdminPassword");
     expect(managedConfigurationChanges(world)).not.toHaveProperty("ServerPassword");
   });
+  it("preserves an explicitly advertised public port during routine synchronization", () => {
+    const world = { ...createWorldSchema.parse({ displayName: "Test", installDir: "/tmp/test", gamePort: 8211 }), id: "world", status: "stopped" as const, processId: null, buildId: null, latestBuildId: null, lastStartedAt: null, createdAt: 1, updatedAt: 1 };
+    const content = applyConfigurationOptions("[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(PublicPort=49000)\n", managedConfigurationChanges(world));
+    expect(parseConfigurationOptions(content).PublicPort).toBe("49000");
+  });
   it("exposes and validates the complete original structured field inventory", () => {
-    expect(PALWORLD_SETTING_FIELDS).toHaveLength(107);
+    expect(PALWORLD_SETTING_FIELDS).toHaveLength(116);
+    expect(PALWORLD_GUIDED_SETTING_GROUPS.flatMap((group) => group.fields)).toHaveLength(111);
+    expect(PALWORLD_ADMIN_SETTING_FIELDS.map((field) => field.key)).toEqual(["ServerName", "ServerDescription", "PublicIP", "PublicPort", "Region"]);
     expect(validateAndEncodeSettingChanges({ BaseCampWorkerMaxNum: 50, DeathPenalty: "Item", bEnableFastTravel: false })).toEqual({ BaseCampWorkerMaxNum: "50", DeathPenalty: '"Item"', bEnableFastTravel: "False" });
     expect(() => validateAndEncodeSettingChanges({ BaseCampWorkerMaxNum: 51 })).toThrow("cannot be higher than 50");
     expect(() => validateAndEncodeSettingChanges({ DeathPenalty: "Everything" })).toThrow("must be one of");
     expect(() => validateAndEncodeSettingChanges({ UnknownSetting: true })).toThrow("Unknown structured setting");
+  });
+  it("accounts for every setting in the tested Palworld 1.0.5 template", async () => {
+    const template = await readFile(path.join(process.cwd(), "tests/fixtures/DefaultPalWorldSettings-1.0.5.ini"), "utf8");
+    const templateKeys = Object.keys(parseConfigurationOptions(template)).sort();
+    const managerOwned = ["AdminPassword", "RCONEnabled", "RCONPort", "RESTAPIEnabled", "RESTAPIPort", "ServerPassword"];
+    const representedKeys = [...PALWORLD_SETTING_FIELDS.map((field) => field.key), ...managerOwned].sort();
+    expect(templateKeys).toHaveLength(122);
+    expect(representedKeys).toEqual(templateKeys);
+    const options = parseConfigurationOptions(template);
+    for (const field of PALWORLD_SETTING_FIELDS) {
+      const raw = options[field.key];
+      if (field.type === "bool") expect(raw, field.key).toBe(field.default ? "True" : "False");
+      else if (field.type === "int" || field.type === "float") expect(Number(raw), field.key).toBe(field.default);
+      else if (field.type === "tuple") expect(raw, field.key).toBe(field.default);
+      else expect(raw?.replace(/^"|"$/g, ""), field.key).toBe(field.default);
+    }
   });
 });
 

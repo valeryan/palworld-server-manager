@@ -114,7 +114,7 @@ export async function installOrUpdate(world: WorldView, context: JobContext): Pr
     throw new Error(redact(reason));
   }
   await database().update(worlds).set({ buildId, updatedAt: Date.now() }).where(eq(worlds.id, world.id));
-  const configuration = await syncManagedConfiguration(world.id);
+  const configuration = await syncManagedConfiguration(world.id, { syncPublicPort: before == null });
   if (!configuration.synchronized) throw new Error(configuration.reason ?? "PalWorldSettings.ini could not be initialized.");
   context.log(configuration.initialized ? "Initialized PalWorldSettings.ini from the shipped defaults." : "Preserved and synchronized the existing PalWorldSettings.ini.");
   await context.update(100, `Installed build ${buildId}`);

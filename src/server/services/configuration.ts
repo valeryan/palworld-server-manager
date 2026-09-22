@@ -109,14 +109,19 @@ export async function saveConfigurationOptions(worldId: string, changes: Record<
   return saveConfiguration(worldId, applyConfigurationOptions(configuration.content, changes));
 }
 
-export function managedConfigurationChanges(world: WorldView): Record<string, string> {
+type ManagedConfigurationOptions = { syncPublicPort?: boolean };
+
+export function managedConfigurationChanges(world: WorldView, options: ManagedConfigurationOptions = {}): Record<string, string> {
   const changes: Record<string, string> = {
-    PublicPort: String(world.gamePort),
     RESTAPIEnabled: world.restApiEnabled ? "True" : "False",
     RESTAPIPort: String(world.restApiPort),
     RCONEnabled: world.rconEnabled ? "True" : "False",
     RCONPort: String(world.rconPort),
   };
+  // PublicPort advertises an external/community-server port; it does not set
+  // the local game listener. Seed it for new installs and update it only when
+  // the manager-owned game port itself changes, preserving tunnel/NAT values.
+  if (options.syncPublicPort) changes.PublicPort = String(world.gamePort);
   // An empty registry credential commonly means “not imported”, not “erase the
   // working game credential”. Explicit credential clearing belongs in its own UI.
   if (world.adminPassword) changes.AdminPassword = JSON.stringify(world.adminPassword);
@@ -124,7 +129,7 @@ export function managedConfigurationChanges(world: WorldView): Record<string, st
   return changes;
 }
 
-export async function syncManagedConfiguration(worldId: string) {
+export async function syncManagedConfiguration(worldId: string, options: ManagedConfigurationOptions = {}) {
   let world = await getWorld(worldId); if (!world) throw new Error("World not found.");
   if (world.restApiEnabled && !world.adminPassword) {
     const adminPassword = randomBytes(18).toString("base64url");
@@ -142,7 +147,7 @@ export async function syncManagedConfiguration(worldId: string) {
     catch { return { synchronized: false, initialized: false, reason: "The shipped default configuration is not available yet." }; }
   }
   if (!source) return { synchronized: false, initialized: false, reason: "PalWorldSettings.ini is not available yet." };
-  let content = applyConfigurationOptions(source, managedConfigurationChanges(world));
+  let content = applyConfigurationOptions(source, managedConfigurationChanges(world, { syncPublicPort: initialized || options.syncPublicPort }));
   if (initialized) {
     // Match the established PSM behavior: use the shipped template as data, not
     // as the active file verbatim. This drops its instructional comments and
