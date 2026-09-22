@@ -8,8 +8,8 @@ import { commandFor, parseArguments } from "@/server/services/processes";
 import { createWorldSchema, parseWorldUpdate, worldRegistrationSchema } from "@/contracts/world";
 import { createScheduleSchema } from "@/contracts/schedule";
 import { nextRun } from "@/server/services/schedules";
-import { applyConfigurationOptions, managedConfigurationChanges, parseConfigurationOptions } from "@/server/services/configuration";
-import { PALWORLD_ADMIN_SETTING_FIELDS, PALWORLD_GUIDED_SETTING_GROUPS, PALWORLD_SETTING_FIELDS, validateAndEncodeSettingChanges } from "@/contracts/palworld-settings";
+import { applyConfigurationOptions, managedConfigurationChanges, needsManagedConfigurationSync, parseConfigurationOptions } from "@/server/services/configuration";
+import { PALWORLD_SETTING_FIELDS, validateAndEncodeSettingChanges } from "@/contracts/palworld-settings";
 import { cancelJob, listJobs, startJob } from "@/server/services/jobs";
 import { backupSettingsSchema } from "@/contracts/backup";
 import { retentionCandidates } from "@/server/services/backups";
@@ -182,10 +182,14 @@ describe("PalWorldSettings transformations", () => {
     const content = applyConfigurationOptions("[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(PublicPort=49000)\n", managedConfigurationChanges(world));
     expect(parseConfigurationOptions(content).PublicPort).toBe("49000");
   });
+  it("does not rewrite the INI for PSM-only presentation changes", () => {
+    expect(needsManagedConfigurationSync({ displayName: "Local label" })).toBe(false);
+    expect(needsManagedConfigurationSync({ autostart: true, extraArgs: "-useperfthreads" })).toBe(false);
+    expect(needsManagedConfigurationSync({ adminPassword: "new", restApiPort: 8213 })).toBe(true);
+    expect(needsManagedConfigurationSync({ gamePort: 8211 })).toBe(true);
+  });
   it("exposes and validates the complete original structured field inventory", () => {
     expect(PALWORLD_SETTING_FIELDS).toHaveLength(116);
-    expect(PALWORLD_GUIDED_SETTING_GROUPS.flatMap((group) => group.fields)).toHaveLength(111);
-    expect(PALWORLD_ADMIN_SETTING_FIELDS.map((field) => field.key)).toEqual(["ServerName", "ServerDescription", "PublicIP", "PublicPort", "Region"]);
     expect(validateAndEncodeSettingChanges({ BaseCampWorkerMaxNum: 50, DeathPenalty: "Item", bEnableFastTravel: false })).toEqual({ BaseCampWorkerMaxNum: "50", DeathPenalty: '"Item"', bEnableFastTravel: "False" });
     expect(() => validateAndEncodeSettingChanges({ BaseCampWorkerMaxNum: 51 })).toThrow("cannot be higher than 50");
     expect(() => validateAndEncodeSettingChanges({ DeathPenalty: "Everything" })).toThrow("must be one of");

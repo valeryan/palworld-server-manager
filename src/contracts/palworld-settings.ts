@@ -1,6 +1,6 @@
 export type PalworldSettingType = "bool" | "int" | "float" | "text" | "select" | "tuple";
 export type PalworldSettingField = { key: string; label: string; type: PalworldSettingType; default: string | number | boolean; options?: readonly string[]; min?: number; max?: number; hint?: string };
-export type PalworldSettingGroup = { title: string; description: string; fields: readonly PalworldSettingField[]; surface?: "guided" | "admin" };
+export type PalworldSettingGroup = { title: string; description: string; fields: readonly PalworldSettingField[] };
 
 export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
   {
@@ -708,7 +708,6 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
   },
   {
     "title": "Server Listing & Access",
-    "surface": "admin",
     "fields": [
       {
         "key": "ServerName",
@@ -836,8 +835,6 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
   }
 ];
 export const PALWORLD_SETTING_FIELDS: readonly PalworldSettingField[] = PALWORLD_SETTING_GROUPS.flatMap((group) => group.fields);
-export const PALWORLD_GUIDED_SETTING_GROUPS: readonly PalworldSettingGroup[] = PALWORLD_SETTING_GROUPS.filter((group) => group.surface !== "admin");
-export const PALWORLD_ADMIN_SETTING_FIELDS: readonly PalworldSettingField[] = PALWORLD_SETTING_GROUPS.filter((group) => group.surface === "admin").flatMap((group) => group.fields);
 const fieldMap = new Map(PALWORLD_SETTING_FIELDS.map((field) => [field.key, field]));
 
 export function validateAndEncodeSettingChanges(raw: unknown): Record<string, string> {

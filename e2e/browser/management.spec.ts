@@ -34,7 +34,7 @@ test("adopts and manages an isolated world through critical browser workflows", 
 
   await page.getByRole("link", { name: "Manage", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Automated World", level: 1 })).toBeVisible();
-  for (const tab of ["Overview", "Players", "Deaths", "Console", "Server config", "Backups", "Schedule", "Server admin"]) {
+  for (const tab of ["Overview", "Players", "Deaths", "Console", "Server config", "Backups", "Schedule", "PSM properties"]) {
     await expect(page.getByRole("button", { name: tab, exact: true })).toBeVisible();
   }
 
@@ -46,6 +46,11 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await page.getByRole("button", { name: "Save raw settings" }).click();
   await expect(page.getByText("Configuration saved; restart to apply changes")).toBeVisible();
   await expect(page.getByText("saved", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Palworld settings", exact: true }).click();
+  await page.getByRole("button", { name: "Server Listing & Access", exact: true }).click();
+  await page.getByLabel("Public port (advertised)").fill("49611");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(page.getByText("Saved 1 setting; restart to apply changes")).toBeVisible();
 
   await page.getByRole("button", { name: "Backups", exact: true }).click();
   await page.getByLabel("Keep newest backups").fill("3");
@@ -69,13 +74,15 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await page.getByRole("button", { name: "Disable" }).click();
   await expect(page.getByRole("button", { name: "Enable" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Server admin", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Server administration" })).toBeVisible();
-  await expect(page.getByText("Community listing and identity", { exact: true })).toBeVisible();
-  await page.getByLabel("Name", { exact: true }).fill("Automated World Renamed");
-  await page.getByLabel("Public port (advertised)").fill("49611");
+  await page.getByRole("button", { name: "Server config", exact: true }).click();
+  await page.getByRole("button", { name: "Server setup", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Server setup" })).toBeVisible();
   await page.getByLabel("REST API", { exact: true }).uncheck();
-  await page.getByRole("button", { name: "Save world" }).click();
+  await page.getByRole("button", { name: "Save server setup" }).click();
+  await page.getByRole("button", { name: "PSM properties", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "PSM properties" })).toBeVisible();
+  await page.getByLabel("Display name in PSM").fill("Automated World Renamed");
+  await page.getByRole("button", { name: "Save PSM properties" }).click();
   await expect(page.getByRole("heading", { name: "Automated World Renamed", level: 1 })).toBeVisible();
   await expect.poll(async () => {
     const response = await page.request.get(`/api/worlds/${new URL(page.url()).pathname.split("/").at(-1)}/configuration/options`);
