@@ -11,4 +11,4 @@ export function proxy(request: NextRequest) {
   return NextResponse.redirect(new URL("/remote", request.url));
 }
 
-export const config = { matcher: ["/", "/settings/:path*", "/operations/:path*", "/worlds/:path*", "/api/((?!remote(?:/|$)).*)"] };
+export const config = { matcher: ["/", "/settings/:path*", "/operations/:path*", "/worlds/:path*", "/api/((?!(?:remote|i18n/current)(?:/|$)).*)"] };

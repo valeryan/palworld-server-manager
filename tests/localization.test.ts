@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { languagePackSchema } from "@/contracts/localization";
+import { englishGuidedSettingTranslations } from "@/lib/localization-resources";
 
 function sourceFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -12,10 +13,11 @@ function sourceFiles(directory: string): string[] {
 
 describe("language packs", () => {
   const english = languagePackSchema.parse(JSON.parse(readFileSync(path.join(process.cwd(), "public/locales/en.json"), "utf8")));
+  const translations = { ...english.translations, ...englishGuidedSettingTranslations() };
 
   it("ships a valid, protected English fallback", () => {
     expect(english.meta).toMatchObject({ code: "en", direction: "ltr", version: 1 });
-    expect(Object.keys(english.translations).length).toBeGreaterThan(50);
+    expect(Object.keys(translations).length).toBeGreaterThan(300);
   });
 
   it("contains every literal translation key used by the application", () => {
@@ -23,10 +25,21 @@ describe("language packs", () => {
     for (const file of sourceFiles(path.join(process.cwd(), "src"))) {
       const source = readFileSync(file, "utf8");
       for (const match of source.matchAll(/\bt\(\s*["']([^"']+)["']/g)) {
-        const key = match[1]; if (key && !(key in english.translations)) missing.add(key);
+        const key = match[1];
+        if (key && !(key in translations) && !(`${key}_one` in translations && `${key}_other` in translations)) missing.add(key);
       }
     }
     expect([...missing].sort()).toEqual([]);
+  });
+
+  it("covers every dynamic UI key family", () => {
+    const keys = [
+      ...["stopped", "starting", "running", "stopping", "crashed", "unknown"].map((value) => `status.${value}`),
+      ...["overview", "players", "deaths", "console", "settings", "backups", "schedule", "admin"].map((value) => `world.tab.${value}`),
+      ...["view", "lifecycle", "players", "messages"].map((value) => `remoteSettings.permission.${value}`),
+      ...["start", "stop", "restart", "autostart", "crash-recovery", "install", "update", "check-update", "backup", "restore", "scheduled-backup", "scheduled-restart", "scheduled-stop", "scheduled-update", "scheduled-system-message", "scheduled-onscreen-notice", "scheduled-custom-http", "scheduled-idle-stop"].flatMap((value) => [`jobs.kind.${value}`, `jobs.starting.${value}`, `jobs.success.${value}`]),
+    ];
+    expect(keys.filter((key) => !(key in translations))).toEqual([]);
   });
 
   it("rejects unsafe keys and invalid language identifiers", () => {

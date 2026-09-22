@@ -1,8 +1,10 @@
 "use client";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import type { JobView } from "@/contracts/job";
-import { jobDisplayMessage, jobKindLabel, jobStateLabel } from "@/lib/job-presentation";
+import { useJobPresentation } from "@/lib/use-job-presentation";
+import { useLocaleDateTime } from "@/lib/use-locale-format";
 
 async function responseJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const response = await fetch(input, init);
@@ -11,9 +13,11 @@ async function responseJson<T>(input: RequestInfo, init?: RequestInit): Promise<
   return body;
 }
 
-const time = (value: number | null) => value ? new Date(value).toLocaleString() : "—";
-
 export function JobLogDialog({ job: initialJob, onClose }: { job: JobView; onClose(): void }) {
+  const { t } = useTranslation();
+  const jobs = useJobPresentation();
+  const dateTime = useLocaleDateTime();
+  const time = (value: number | null) => value ? dateTime(value) : "—";
   const client = useQueryClient();
   const details = useQuery({
     queryKey: ["job", initialJob.id],
@@ -33,12 +37,12 @@ export function JobLogDialog({ job: initialJob, onClose }: { job: JobView; onClo
   function refresh() { void details.refetch(); void logs.refetch(); }
 
   return <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><Dialog.Content className="dialog job-dialog">
-    <Dialog.Title>{jobKindLabel(job.kind)}</Dialog.Title>
-    <Dialog.Description className="job-summary"><span className={`job-state-label ${job.state}`}>{jobStateLabel(job.state)}</span><span>{job.progress}%</span><span>{jobDisplayMessage(job)}</span></Dialog.Description>
+    <Dialog.Title>{jobs.kindLabel(job.kind)}</Dialog.Title>
+    <Dialog.Description className="job-summary"><span className={`job-state-label ${job.state}`}>{jobs.stateLabel(job.state)}</span><span>{job.progress}%</span><span>{jobs.displayMessage(job)}</span></Dialog.Description>
     {job.error && <p className="job-error">{job.error}</p>}
-    <dl className="job-times"><div><dt>Requested</dt><dd>{time(job.createdAt)}</dd></div><div><dt>Started</dt><dd>{time(job.startedAt)}</dd></div><div><dt>Finished</dt><dd>{time(job.finishedAt)}</dd></div></dl>
-    {logs.isLoading ? <div className="job-empty">Loading operation details…</div> : output ? <pre className="console-output job-output">{output}</pre> : <div className="job-empty"><strong>No command output</strong><span>This operation reports its result through the status above.</span></div>}
+    <dl className="job-times"><div><dt>{t("jobs.dialog.requested")}</dt><dd>{time(job.createdAt)}</dd></div><div><dt>{t("jobs.dialog.started")}</dt><dd>{time(job.startedAt)}</dd></div><div><dt>{t("jobs.dialog.finished")}</dt><dd>{time(job.finishedAt)}</dd></div></dl>
+    {logs.isLoading ? <div className="job-empty">{t("jobs.dialog.loading")}</div> : output ? <pre className="console-output job-output">{output}</pre> : <div className="job-empty"><strong>{t("jobs.dialog.noOutput")}</strong><span>{t("jobs.dialog.noOutputHelp")}</span></div>}
     {cancel.error && <p className="error-text">{cancel.error.message}</p>}
-    <div className="dialog-actions"><button className="button ghost" onClick={refresh}>Refresh details</button>{active && <button className="button danger" disabled={cancel.isPending} onClick={() => { if (window.confirm(`Cancel ${jobKindLabel(job.kind).toLowerCase()}?`)) cancel.mutate(); }}>{cancel.isPending ? "Canceling…" : "Cancel operation"}</button>}<button className="button" onClick={onClose}>Close</button></div>
+    <div className="dialog-actions"><button className="button ghost" onClick={refresh}>{t("jobs.dialog.refresh")}</button>{active && <button className="button danger" disabled={cancel.isPending} onClick={() => { if (window.confirm(t("jobs.dialog.cancelConfirm", { kind: jobs.kindLabel(job.kind).toLocaleLowerCase() }))) cancel.mutate(); }}>{t(cancel.isPending ? "jobs.dialog.cancelling" : "jobs.dialog.cancel")}</button>}<button className="button" onClick={onClose}>{t("common.close")}</button></div>
   </Dialog.Content></Dialog.Portal></Dialog.Root>;
 }

@@ -4,6 +4,7 @@ import { createInstance, type i18n } from "i18next";
 import { I18nextProvider, initReactI18next } from "react-i18next";
 import { useEffect, useState, type ReactNode } from "react";
 import english from "../../public/locales/en.json";
+import { englishGuidedSettingTranslations } from "@/lib/localization-resources";
 
 function LiveUpdates() {
   const client = useQueryClient();
@@ -19,19 +20,15 @@ function LiveUpdates() {
 function LanguageLoader({ instance }: { instance: i18n }) {
   useEffect(() => {
     let cancelled = false;
-    void fetch("/api/i18n/languages").then(async (response) => {
+    void fetch("/api/i18n/current").then(async (response) => {
       const body = await response.json();
       if (!response.ok) throw new Error(body.error);
-      const code = body.catalog.active as string;
+      const code = body.pack.meta.code as string;
       if (code === "en" || cancelled) return;
-      const packResponse = await fetch(`/api/i18n/languages/${encodeURIComponent(code)}`);
-      const packBody = await packResponse.json();
-      if (!packResponse.ok) throw new Error(packBody.error);
-      if (cancelled) return;
-      instance.addResourceBundle(code, "translation", packBody.pack.translations, true, true);
+      instance.addResourceBundle(code, "translation", body.pack.translations, true, true);
       await instance.changeLanguage(code);
       document.documentElement.lang = code;
-      document.documentElement.dir = packBody.pack.meta.direction;
+      document.documentElement.dir = body.pack.meta.direction;
     }).catch((error) => console.warn("Could not load the configured language pack", error));
     return () => { cancelled = true; };
   }, [instance]);
@@ -42,7 +39,7 @@ export function Providers({ children }: { children: ReactNode }) {
   const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { staleTime: 2_000, refetchInterval: 10_000, retry: 1 } } }));
   const [localization] = useState(() => {
     const instance = createInstance();
-    void instance.use(initReactI18next).init({ lng: "en", fallbackLng: "en", resources: { en: { translation: english.translations } }, keySeparator: false, nsSeparator: false, interpolation: { escapeValue: false }, react: { useSuspense: false }, initAsync: false });
+    void instance.use(initReactI18next).init({ lng: "en", fallbackLng: "en", resources: { en: { translation: { ...english.translations, ...englishGuidedSettingTranslations() } } }, keySeparator: false, nsSeparator: false, interpolation: { escapeValue: false }, react: { useSuspense: false }, initAsync: false });
     return instance;
   });
   return <I18nextProvider i18n={localization}><QueryClientProvider client={client}><LanguageLoader instance={localization} /><LiveUpdates />{children}</QueryClientProvider></I18nextProvider>;

@@ -6,6 +6,7 @@ import { languageCodePattern, languagePackSchema, type LanguageCatalog, type Lan
 import { database } from "@/server/db";
 import { appSettings } from "@/server/db/schema";
 import { paths } from "@/server/paths";
+import { englishGuidedSettingTranslations } from "@/lib/localization-resources";
 
 const settingKey = "localization-v1";
 const maxPackBytes = 512 * 1024;
@@ -39,6 +40,7 @@ function discoveredPacks() {
   const bundled = packsIn(builtInDirectory(), true);
   const english = bundled.get("en");
   if (!english) throw new Error("The bundled English language pack is missing or invalid.");
+  english.pack = { ...english.pack, translations: { ...english.pack.translations, ...englishGuidedSettingTranslations() } };
   const combined = new Map(bundled);
   for (const [code, item] of packsIn(paths.languagePacks(), false)) if (code !== "en") combined.set(code, item);
   return { english: english.pack, combined };

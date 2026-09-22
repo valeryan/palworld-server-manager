@@ -10,6 +10,7 @@ describe("desktop authentication proxy", () => {
     expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url: "/api/worlds" })).toBe(true);
     expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url: "/remote" })).toBe(false);
     expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url: "/api/remote/login" })).toBe(false);
+    expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url: "/api/i18n/current" })).toBe(false);
   });
   it("rejects a remote cookie on desktop APIs and accepts only the launch token", () => {
     vi.stubEnv("PSM_ADMIN_TOKEN", "desktop-secret");

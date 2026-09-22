@@ -168,10 +168,10 @@ with the original manager.
 - [x] Configurable LAN bind address and port
 - [x] Remote-session revocation — **Codes can be disabled/deleted and all sessions for a code can be signed out immediately**
 
-## Localization — Incomplete
+## Localization — Complete
 
 - [x] English-first language-pack discovery, strict validation, fallback, live switching, and application-data imports
-- [ ] UI localization — **Partial: the app shell and Application Settings use the new canonical English pack; remaining world-management surfaces still need key conversion before this section is complete**
+- [x] UI localization — **All React management and remote surfaces use the 729-key canonical English catalog, including generated labels/descriptions for all guided Palworld settings, locale-aware timestamps, plural forms, RTL direction, and English fallback. Raw server output and persisted historical messages remain verbatim operational data.**
 
 ## Automated verification — Incomplete
 
