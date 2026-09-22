@@ -131,7 +131,7 @@ with the original manager.
 - [x] Kick a connected player — **The packaged control successfully kicked a live player and the REST player list reflected the disconnect within one second**
 - [x] Legacy RCON console for explicitly enabled worlds, including a successful packaged `Info` command against copied world 2
 
-## Desktop and packaging — Incomplete
+## Desktop and packaging — Complete
 
 - [x] Typed Electron main/preload build
 - [x] Linux `--disable-dev-shm-usage` compatibility
@@ -146,7 +146,7 @@ with the original manager.
 - [x] Desktop setting for launch-at-login behavior
 - [x] Validated login-launch checkboxes and custom Electron/Chromium flags with isolated autostart-file generation
 - [x] Validated manager-port configuration with restart-required feedback and packaged restart verification
-- [ ] LAN binding — **Blocked behind authenticated remote administration so the manager is never exposed without access control**
+- [x] LAN binding — **The packaged manager binds to `0.0.0.0` only while authenticated remote access is enabled; disabling it restores the loopback-only startup guard**
 
 ## Migration and safety — Complete
 
@@ -161,12 +161,15 @@ with the original manager.
 - [x] Automated source-tree no-write guard during integration tests — **Reads protected paths from the original database and compares path/type/size/mtime/ctime/link metadata before and after the command**
 - [x] Repeatable final production import and rollback rehearsal — **Imported both worlds from the untouched legacy database into a fresh candidate, validated it, activated it by same-filesystem rename, and restored the known-good database byte for byte**
 
-## Remote administration and localization — Incomplete
+## Remote administration — Complete
 
-- [ ] Authenticated remote administration
-- [ ] Scoped remote permissions and audit history
-- [ ] Configurable LAN bind address and port
-- [ ] Remote-session revocation
+- [x] Authenticated remote administration — **Packaged LAN login and scoped start/stop of copied world 2 passed**
+- [x] Scoped remote permissions and audit history — **World/view/lifecycle/player/message permissions, world scope, denied-action auditing, and credential redaction are enforced server-side**
+- [x] Configurable LAN bind address and port
+- [x] Remote-session revocation — **Codes can be disabled/deleted and all sessions for a code can be signed out immediately**
+
+## Localization — Incomplete
+
 - [ ] Existing language-pack discovery
 - [ ] UI localization
 
@@ -186,7 +189,7 @@ with the original manager.
 - [ ] Both copies independently pass update, configure, start, monitor, stop, restart, backup, and restore
 - [x] Both copies operate simultaneously and port-conflict handling is demonstrated
 - [ ] Scheduling, recovery, autostart, tray, and restart reconciliation pass
-- [ ] Remote administration and authentication pass
+- [x] Remote administration and authentication pass
 - [x] Packaged AppImage renders reliably in the actual KDE/RDP session
 - [ ] No original server-directory writes occurred during development
 - [x] Production import rehearsal and rollback rehearsal pass

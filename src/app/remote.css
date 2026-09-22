@@ -1,0 +1,15 @@
+.remote-worlds article { align-items: flex-start; }
+.remote-world-summary { flex: 1; min-width: 0; }
+.remote-players { display: grid; gap: 5px; margin-top: 13px; }
+.remote-players > strong { color: var(--muted); font-size: 10px; }
+.remote-players > span { display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: 7px; border-top: 1px solid var(--line); padding-top: 6px; font-size: 11px; }
+.remote-players small { color: var(--muted); }
+.remote-players button, .remote-message button { border: 1px solid var(--line); border-radius: 6px; background: #1b2130; color: var(--text); padding: 5px 8px; }
+.remote-players .danger { color: #ff9aa5; }
+.remote-message { display: flex; gap: 7px; margin-top: 12px; }
+.remote-message input { flex: 1; min-width: 0; border: 1px solid #343e51; border-radius: 7px; background: #0c1017; color: var(--text); padding: 8px; }
+
+@media (max-width: 800px) {
+  .remote-actions { order: -1; }
+  .remote-message { flex-direction: column; }
+}

@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, po
 import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
+import { networkInterfaces } from "node:os";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { isSupersededNavigation } from "./navigation";
@@ -26,10 +27,14 @@ let window: BrowserWindow | null = null; let tray: Tray | null = null; let serve
 if (process.env.PORTABLE_EXECUTABLE_DIR) { const portable = path.join(process.env.PORTABLE_EXECUTABLE_DIR, "PSM-Data"); mkdirSync(portable, { recursive: true }); app.setPath("userData", portable); }
 const dataDir = () => app.getPath("userData"); const log = (message: string) => { try { appendFileSync(path.join(dataDir(), "launcher-v3.log"), `[${new Date().toISOString()}] ${message}\n`); } catch {} };
 const preferencePath = () => path.join(dataDir(), "desktop-preferences.json");
-type DesktopPreferences = { closeToTray: boolean; launchAtLogin: boolean; launchOptions: LaunchAtLoginOptions; managerPort: number };
-function preferences(): DesktopPreferences { try { const saved = JSON.parse(readFileSync(preferencePath(), "utf8")); return { closeToTray: saved.closeToTray !== false, launchAtLogin: saved.launchAtLogin === true, launchOptions: normalizeLaunchAtLoginOptions(saved.launchOptions), managerPort: normalizeManagerPort(saved.managerPort) }; } catch { return { closeToTray: true, launchAtLogin: false, launchOptions: defaultLaunchAtLoginOptions, managerPort: defaultManagerPort }; } }
+type ManagerHost = "127.0.0.1" | "0.0.0.0";
+type DesktopPreferences = { closeToTray: boolean; launchAtLogin: boolean; launchOptions: LaunchAtLoginOptions; managerPort: number; managerHost: ManagerHost };
+function normalizeManagerHost(value: unknown): ManagerHost { return value === "0.0.0.0" ? value : "127.0.0.1"; }
+function preferences(): DesktopPreferences { try { const saved = JSON.parse(readFileSync(preferencePath(), "utf8")); return { closeToTray: saved.closeToTray !== false, launchAtLogin: saved.launchAtLogin === true, launchOptions: normalizeLaunchAtLoginOptions(saved.launchOptions), managerPort: normalizeManagerPort(saved.managerPort), managerHost: normalizeManagerHost(saved.managerHost) }; } catch { return { closeToTray: true, launchAtLogin: false, launchOptions: defaultLaunchAtLoginOptions, managerPort: defaultManagerPort, managerHost: "127.0.0.1" }; } }
 function writePreferences(patch: Partial<DesktopPreferences>) { mkdirSync(dataDir(), { recursive: true }); writeFileSync(preferencePath(), JSON.stringify({ ...preferences(), ...patch }, null, 2)); }
 const port = process.env.PSM_PORT ? validateManagerPort(process.env.PSM_PORT) : preferences().managerPort;
+function remoteAccessEnabled(): boolean { try { return JSON.parse(readFileSync(path.join(dataDir(), "remote-access.json"), "utf8")).enabled === true; } catch { return false; } }
+const host: ManagerHost = process.env.PSM_HOST === "0.0.0.0" ? "0.0.0.0" : remoteAccessEnabled() ? preferences().managerHost : "127.0.0.1";
 function linuxAutostartPath() { return path.join(app.getPath("home"), ".config", "autostart", "com.palworld.servermanager.next.desktop"); }
 function persistentDataArguments() { return process.argv.slice(1).filter((argument) => argument.startsWith("--user-data-dir=")); }
 function desktopQuote(value: string) { return `"${value.replace(/([\\`"$])/g, "\\$1")}"`; }
@@ -55,7 +60,7 @@ function startServer() {
   if (!existsSync(entry)) throw new Error(`Bundled Next server is missing: ${entry}`);
   const serverModules = path.join(root, "server-node_modules");
   const nodePath = [serverModules, process.env.NODE_PATH].filter(Boolean).join(path.delimiter);
-  server = spawn(process.execPath, [entry], { cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", NODE_ENV: "production", NODE_PATH: nodePath, HOSTNAME: "127.0.0.1", PORT: String(port), PSM_ADMIN_TOKEN: token, PALWORLD_MANAGER_DATA_DIR: dataDir() } });
+  server = spawn(process.execPath, [entry], { cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", NODE_ENV: "production", NODE_PATH: nodePath, HOSTNAME: host, PORT: String(port), PSM_ADMIN_TOKEN: token, PALWORLD_MANAGER_DATA_DIR: dataDir() } });
   log(`Bundled web server process created (pid ${server.pid ?? "unknown"})`);
   server.stdout?.on("data", (data) => log(`[web] ${String(data).trim()}`)); server.stderr?.on("data", (data) => log(`[web:error] ${String(data).trim()}`));
   server.on("error", (error) => { serverFailure = error.message; log(`Web server error: ${error.message}`); }); server.on("exit", (code) => { if (!quitting) serverFailure = `The bundled web server exited during startup (${code ?? "unknown status"}). The manager port ${port} may already be in use.`; log(`Web server exited: ${code}`); });
@@ -104,11 +109,13 @@ ipcMain.handle("set-launch-at-login-options", (_event, value: unknown) => {
 });
 ipcMain.handle("get-manager-port", () => ({ configured: preferences().managerPort, active: port }));
 ipcMain.handle("set-manager-port", (_event, value: unknown) => { const managerPort = validateManagerPort(value); writePreferences({ managerPort }); return { configured: managerPort, active: port, restartRequired: managerPort !== port }; });
+ipcMain.handle("get-manager-network", () => ({ configuredHost: preferences().managerHost, activeHost: host, port, addresses: Object.values(networkInterfaces()).flat().filter((entry) => entry?.family === "IPv4" && !entry.internal).map((entry) => entry!.address) }));
+ipcMain.handle("set-manager-host", (_event, value: unknown) => { const managerHost = normalizeManagerHost(value); if (managerHost === "0.0.0.0" && !remoteAccessEnabled()) throw new Error("Enable authenticated remote access before allowing LAN connections."); writePreferences({ managerHost }); return { configuredHost: managerHost, activeHost: host, restartRequired: managerHost !== host }; });
 
 const ownsInstanceLock = app.requestSingleInstanceLock();
 if (!ownsInstanceLock) app.quit(); else {
   app.on("second-instance", () => void createWindow());
-  app.whenReady().then(async () => { try { mkdirSync(dataDir(), { recursive: true }); log(`Desktop ready (data ${dataDir()}, port ${port}, AppImage ${Boolean(process.env.APPIMAGE)}, hidden ${startHidden})`); powerSaveBlocker.start("prevent-app-suspension"); startServer(); await waitForServer(); log("Bundled web server is ready"); createTray(); await createWindow(!startHidden); log(startHidden ? "Main window loaded hidden" : "Main window loaded"); } catch (error) { showStartupError(error); } });
+  app.whenReady().then(async () => { try { mkdirSync(dataDir(), { recursive: true }); log(`Desktop ready (data ${dataDir()}, bind ${host}:${port}, AppImage ${Boolean(process.env.APPIMAGE)}, hidden ${startHidden})`); powerSaveBlocker.start("prevent-app-suspension"); startServer(); await waitForServer(); log("Bundled web server is ready"); createTray(); await createWindow(!startHidden); log(startHidden ? "Main window loaded hidden" : "Main window loaded"); } catch (error) { showStartupError(error); } });
   app.on("before-quit", () => { quitting = true; tray?.destroy(); server?.kill(); });
   app.on("window-all-closed", () => { if (!preferences().closeToTray || !tray) app.quit(); });
 }

@@ -84,6 +84,43 @@ export const mods = sqliteTable("mods", {
 }, (table) => [index("mods_world_idx").on(table.worldId)]);
 
 export const appSettings = sqliteTable("app_settings", { key: text("key").primaryKey(), value: text("value", { mode: "json" }).$type<unknown>() });
+
+export const remoteAccessCodes = sqliteTable("remote_access_codes", {
+  id: text("id").primaryKey(),
+  codeHash: text("code_hash").notNull(),
+  codeHint: text("code_hint").notNull(),
+  label: text("label").notNull(),
+  scope: text("scope", { enum: ["all", "world"] }).notNull(),
+  worldId: text("world_id").references(() => worlds.id, { onDelete: "cascade" }),
+  permissions: text("permissions", { mode: "json" }).$type<string[]>().notNull(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at").notNull(),
+  lastUsedAt: integer("last_used_at"),
+}, (table) => [index("remote_codes_world_idx").on(table.worldId)]);
+
+export const remoteSessions = sqliteTable("remote_sessions", {
+  id: text("id").primaryKey(),
+  tokenHash: text("token_hash").notNull(),
+  codeId: text("code_id").notNull().references(() => remoteAccessCodes.id, { onDelete: "cascade" }),
+  createdAt: integer("created_at").notNull(),
+  lastSeenAt: integer("last_seen_at").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+  revokedAt: integer("revoked_at"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+}, (table) => [uniqueIndex("remote_sessions_token_unique").on(table.tokenHash), index("remote_sessions_code_idx").on(table.codeId)]);
+
+export const remoteAudit = sqliteTable("remote_audit", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  codeId: text("code_id").references(() => remoteAccessCodes.id, { onDelete: "set null" }),
+  principalLabel: text("principal_label").notNull(),
+  action: text("action").notNull(),
+  worldId: text("world_id").references(() => worlds.id, { onDelete: "set null" }),
+  detail: text("detail"),
+  ipAddress: text("ip_address"),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [index("remote_audit_created_idx").on(table.createdAt), index("remote_audit_code_idx").on(table.codeId)]);
+
 export const legacyImports = sqliteTable("legacy_imports", {
   id: text("id").primaryKey(), sourcePath: text("source_path").notNull(), sourceHash: text("source_hash").notNull(),
   snapshot: text("snapshot", { mode: "json" }).$type<Record<string, unknown>>().notNull(), report: text("report", { mode: "json" }).$type<Record<string, unknown>>().notNull(), createdAt: integer("created_at").notNull(),
