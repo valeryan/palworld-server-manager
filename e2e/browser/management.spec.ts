@@ -46,7 +46,7 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await page.getByRole("button", { name: "Save raw settings" }).click();
   await expect(page.getByText("Configuration saved; restart to apply changes")).toBeVisible();
   await expect(page.getByText("saved", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Palworld settings", exact: true }).click();
+  await page.getByRole("button", { name: "Guided configuration", exact: true }).click();
   await page.getByRole("button", { name: "Server Listing & Access", exact: true }).click();
   await page.getByLabel("Public port (advertised)").fill("49611");
   await page.getByRole("button", { name: "Save changes" }).click();
@@ -75,12 +75,13 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await expect(page.getByRole("button", { name: "Enable" })).toBeVisible();
 
   await page.getByRole("button", { name: "Server config", exact: true }).click();
-  await page.getByRole("button", { name: "Server setup", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Server setup" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Runtime and access" })).toBeVisible();
   await page.getByLabel("REST API", { exact: true }).uncheck();
   await page.getByRole("button", { name: "Save server setup" }).click();
   await page.getByRole("button", { name: "PSM properties", exact: true }).click();
   await expect(page.getByRole("heading", { name: "PSM properties" })).toBeVisible();
+  await expect(page.getByLabel("Install directory")).toHaveValue(worldDirectory);
+  await expect(page.locator('select[name="platform"]')).toHaveValue("linux");
   await page.getByLabel("Display name in PSM").fill("Automated World Renamed");
   await page.getByRole("button", { name: "Save PSM properties" }).click();
   await expect(page.getByRole("heading", { name: "Automated World Renamed", level: 1 })).toBeVisible();

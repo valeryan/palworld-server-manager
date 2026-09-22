@@ -33,7 +33,6 @@ export function WorldServerSetupPanel({ world, onSaved, onNotice }: { world: Saf
   const { t } = useTranslation();
   const [pending, setPending] = useState(false);
   const [detailsReady, setDetailsReady] = useState(false);
-  const [installDir, setInstallDir] = useState(world.installDir);
   const [environment, setEnvironment] = useState("{}");
   const [credentials, setCredentials] = useState({ adminPasswordSet: false, serverPasswordSet: false });
 
@@ -48,11 +47,6 @@ export function WorldServerSetupPanel({ world, onSaved, onNotice }: { world: Saf
     return () => { active = false; };
   }, [world.id, onNotice]);
 
-  async function chooseDirectory() {
-    const selected = await window.psmDesktop?.pickDirectory();
-    if (selected) setInstallDir(selected);
-  }
-
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setPending(true);
     const data = new FormData(event.currentTarget);
@@ -66,7 +60,6 @@ export function WorldServerSetupPanel({ world, onSaved, onNotice }: { world: Saf
         ...(serverPassword ? { serverPassword } : data.get("clearServerPassword") === "on" ? { serverPassword: "" } : {}),
       };
       const result = await request<{ configuration?: { synchronized?: boolean; reason?: string } }>(`/api/worlds/${world.id}`, { method: "PATCH", body: JSON.stringify({
-        installDir, platform: data.get("platform"),
         gamePort: Number(data.get("gamePort")), queryPort: Number(data.get("queryPort")), restApiPort: Number(data.get("restApiPort")), rconPort: Number(data.get("rconPort")),
         restApiEnabled: data.get("restApiEnabled") === "on", rconEnabled: data.get("rconEnabled") === "on", communityServer: data.get("communityServer") === "on",
         autostart: data.get("autostart") === "on", crashGuard: data.get("crashGuard") === "on", legacyPerfFlags: data.get("legacyPerfFlags") === "on",
@@ -78,9 +71,7 @@ export function WorldServerSetupPanel({ world, onSaved, onNotice }: { world: Saf
     } catch (error) { onNotice(error instanceof Error ? error.message : String(error)); } finally { setPending(false); }
   }
 
-  return <div className="admin-panel"><div className="panel-heading"><div><h2>{t("serverSetup.title")}</h2><p>{t("serverSetup.description")}</p></div></div><form className="form-grid" onSubmit={submit}>
-    <label>{t("properties.platform")}<select name="platform" defaultValue={world.platform}><option value="linux">{t("properties.linux")}</option><option value="windows">{t("properties.windows")}</option></select></label>
-    <label className="wide">{t("properties.installDirectory")}<span className="path-picker"><input required value={installDir} onChange={(event) => setInstallDir(event.target.value)} /><button type="button" onClick={() => void chooseDirectory()}>{t("properties.browse")}</button></span></label>
+  return <div className="admin-panel server-runtime-panel"><div className="panel-heading"><div><h2>{t("serverSetup.title")}</h2><p>{t("serverSetup.description")}</p></div></div><form className="form-grid" onSubmit={submit}>
     <label>{t("properties.gamePort")}<input name="gamePort" type="number" defaultValue={world.gamePort} /></label><label>{t("properties.queryPort")}<input name="queryPort" type="number" defaultValue={world.queryPort} /></label><label>{t("properties.restPort")}<input name="restApiPort" type="number" defaultValue={world.restApiPort} /></label><label>{t("properties.rconPort")}<input name="rconPort" type="number" defaultValue={world.rconPort} /></label>
     <label>{t("properties.adminPassword")} <small>{t(credentials.adminPasswordSet ? "properties.passwordStored" : "properties.passwordMissing")}</small><input name="adminPassword" type="password" autoComplete="new-password" placeholder={t("properties.keepPassword")} /></label><label>{t("properties.serverPassword")} <small>{t(credentials.serverPasswordSet ? "properties.passwordStored" : "properties.passwordMissing")}</small><input name="serverPassword" type="password" autoComplete="new-password" placeholder={t("properties.keepPassword")} /></label>
     <fieldset className="wide checkbox-grid credential-actions"><label><input name="clearAdminPassword" type="checkbox" /> {t("properties.clearAdmin")}</label><label><input name="clearServerPassword" type="checkbox" /> {t("properties.clearServer")}</label></fieldset>
@@ -96,12 +87,18 @@ export function WorldPropertiesPanel({ world, onSaved, onNotice }: { world: Safe
   const { t } = useTranslation();
   const router = useRouter();
   const [pending, setPending] = useState(false);
+  const [installDir, setInstallDir] = useState(world.installDir);
+
+  async function chooseDirectory() {
+    const selected = await window.psmDesktop?.pickDirectory();
+    if (selected) setInstallDir(selected);
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setPending(true);
     try {
       const data = new FormData(event.currentTarget);
-      await request(`/api/worlds/${world.id}`, { method: "PATCH", body: JSON.stringify({ displayName: data.get("displayName") }) });
+      await request(`/api/worlds/${world.id}`, { method: "PATCH", body: JSON.stringify({ displayName: data.get("displayName"), ...(world.status === "stopped" ? { installDir, platform: data.get("platform") } : {}) }) });
       onNotice(t("managerProperties.saved")); onSaved();
     } catch (error) { onNotice(error instanceof Error ? error.message : String(error)); } finally { setPending(false); }
   }
@@ -126,6 +123,9 @@ export function WorldPropertiesPanel({ world, onSaved, onNotice }: { world: Safe
 
   return <div className="admin-panel"><div className="panel-heading"><div><h2>{t("managerProperties.title")}</h2><p>{t("managerProperties.description")}</p></div><button type="button" className="button ghost" disabled={pending} onClick={() => void exportRegistration()}>{t("properties.export")}</button></div><p className="property-security-note">{t("properties.security")}</p><form className="form-grid" onSubmit={submit}>
     <label className="wide">{t("managerProperties.displayName")}<input name="displayName" required defaultValue={world.displayName} /></label>
+    <label>{t("properties.platform")}<select name="platform" defaultValue={world.platform} disabled={world.status !== "stopped"}><option value="linux">{t("properties.linux")}</option><option value="windows">{t("properties.windows")}</option></select></label>
+    <label className="wide">{t("properties.installDirectory")}<span className="path-picker"><input required value={installDir} disabled={world.status !== "stopped"} onChange={(event) => setInstallDir(event.target.value)} /><button type="button" disabled={world.status !== "stopped"} onClick={() => void chooseDirectory()}>{t("properties.browse")}</button></span><small>{t("managerProperties.locationHelp")}</small></label>
+    {world.status !== "stopped" && <p className="wide form-warning">{t("managerProperties.stopToRelocate")}</p>}
     <div className="dialog-actions spread"><button type="button" className="button danger" disabled={pending || world.status !== "stopped"} onClick={() => void unregister()}>{t("properties.unregister")}</button><span /><button className="button primary" disabled={pending}>{t(pending ? "common.saving" : "managerProperties.save")}</button></div>
   </form></div>;
 }
