@@ -173,16 +173,16 @@ with the original manager.
 - [x] English-first language-pack discovery, strict validation, fallback, live switching, and application-data imports
 - [x] UI localization — **All React management and remote surfaces use the 729-key canonical English catalog, including generated labels/descriptions for all guided Palworld settings, locale-aware timestamps, plural forms, RTL direction, and English fallback. Raw server output and persisted historical messages remain verbatim operational data.**
 
-## Automated verification — Incomplete
+## Automated verification — Complete
 
 - [x] Unit tests for path overlap, argument parsing, ports, and launch flags
 - [x] Legacy importer fixture test with source immutability
 - [x] TypeScript, ESLint, Vitest, Next production build, and Electron build
 - [x] Browser smoke test against both imported copied worlds
-- [ ] Unit tests for state machines, retention, schedules, and INI transformations — **Partial: schedules and quote/tuple-safe INI transformations are covered**
-- [ ] Fake SteamCMD/process/REST/RCON/filesystem adapter tests
-- [ ] Playwright workflows for all critical management operations
-- [ ] Packaged Electron workflow tests
+- [x] Unit tests for state machines, retention, schedules, and INI transformations — **Job success/failure/cancellation and per-world locking, bounded persistent retention, schedule timing/validation, and quote/tuple-safe INI transformations are covered**
+- [x] Fake SteamCMD/process/REST/RCON/filesystem adapter tests — **Disposable service boundaries verify process reconciliation, credential redaction and install completion, authenticated REST payloads, the RCON packet protocol, and backup/restore isolation**
+- [x] Playwright workflows for critical management operations — **The production browser workflow adopts an isolated server; edits and versions configuration; creates and restores a backup; creates and disables a schedule; edits world properties; and starts, restarts, and stops the disposable server**
+- [x] Packaged Electron workflow tests — **The packaged application boots its bundled Next server in a temporary user-data directory, authenticates and renders the manager, exposes typed preload IPC, reads desktop settings, navigates, and opens the new-world workflow**
 
 ## Production cutover gate — Blocked
 
