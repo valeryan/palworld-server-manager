@@ -1,7 +1,9 @@
 import "server-only";
+import { and, desc, eq } from "drizzle-orm";
 import { database } from "@/server/db";
-import { events } from "@/server/db/schema";
+import { events, sessions } from "@/server/db/schema";
 import type { RestAdminAction } from "@/contracts/admin";
+import { moderationEventMessage } from "@/lib/moderation-presentation";
 import { getWorld } from "./worlds";
 import { palworldRest } from "./rest";
 
@@ -16,7 +18,15 @@ export async function runRestAdminAction(worldId: string, action: RestAdminActio
   else if (action.action === "kick") result = await palworldRest.kick(world, action.userId, action.message);
   else if (action.action === "ban") result = await palworldRest.ban(world, action.userId, action.message);
   else result = await palworldRest.unban(world, action.userId);
-  const target = "userId" in action ? ` for ${action.userId}` : "";
-  await database().insert(events).values({ worldId, kind: "administrator", message: `${action.action === "announce" ? "Sent server announcement" : action.action === "save" ? "Saved the world" : `${action.action.charAt(0).toUpperCase()}${action.action.slice(1)} completed${target}`}`, createdAt: Date.now() });
+  let message: string;
+  let metadata: Record<string, unknown> | null = null;
+  if ("userId" in action) {
+    const providedName = action.playerName === action.userId ? undefined : action.playerName;
+    const recentSession = !providedName ? (await database().select({ playerName: sessions.playerName }).from(sessions).where(and(eq(sessions.worldId, worldId), eq(sessions.userId, action.userId))).orderBy(desc(sessions.createdAt)).limit(1))[0] : undefined;
+    const playerName = providedName ?? recentSession?.playerName ?? null;
+    message = moderationEventMessage(action.action, action.userId, playerName);
+    metadata = { action: action.action, userId: action.userId, playerName };
+  } else message = action.action === "announce" ? "Sent server announcement" : "Saved the world";
+  await database().insert(events).values({ worldId, kind: "administrator", message, metadata, createdAt: Date.now() });
   return result;
 }

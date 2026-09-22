@@ -7,6 +7,7 @@ import { deaths, events, sessions } from "@/server/db/schema";
 import { paths } from "@/server/paths";
 import { getWorld } from "./worlds";
 import { palworldRest } from "./rest";
+import { legacyModerationEvent, moderationEventMessage } from "@/lib/moderation-presentation";
 
 export async function worldActivity(worldId: string) {
   if (!await getWorld(worldId)) throw new Error("World not found.");
@@ -15,7 +16,14 @@ export async function worldActivity(worldId: string) {
     database().select().from(sessions).where(eq(sessions.worldId, worldId)).orderBy(desc(sessions.createdAt)).limit(200),
     database().select().from(deaths).where(eq(deaths.worldId, worldId)).orderBy(desc(deaths.createdAt)).limit(200),
   ]);
-  return { events: eventRows, sessions: sessionRows, deaths: deathRows };
+  const presentedEvents = eventRows.map((event) => {
+    const legacy = event.kind === "administrator" ? legacyModerationEvent(event.message) : null;
+    if (!legacy) return event;
+    const matchingSessions = sessionRows.filter((session) => session.userId === legacy.userId);
+    const nearest = matchingSessions.find((session) => session.createdAt <= event.createdAt) ?? matchingSessions[0];
+    return { ...event, message: moderationEventMessage(legacy.action, legacy.userId, nearest?.playerName) };
+  });
+  return { events: presentedEvents, sessions: sessionRows, deaths: deathRows };
 }
 
 export async function worldLogs(worldId: string, selected?: string) {

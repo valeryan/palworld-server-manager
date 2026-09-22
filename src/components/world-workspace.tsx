@@ -68,12 +68,12 @@ function Players({ worldId, players, reachable, onRefresh, onNotice }: { worldId
   const [manualUserId, setManualUserId] = useState("");
   const admin = useMutation({
     mutationFn: (payload: Record<string, unknown>) => json(`/api/worlds/${worldId}/admin`, { method: "POST", body: JSON.stringify(payload) }),
-    onSuccess: (_, payload) => { const action = String(payload.action); const name = String(payload.name ?? payload.userId ?? "player"); onNotice(action === "kick" ? `${name} was kicked.` : action === "ban" ? `${name} was banned.` : `${name} was unbanned.`); onRefresh(); },
+    onSuccess: (_, payload) => { const action = String(payload.action); const name = String(payload.playerName ?? payload.userId ?? "player"); onNotice(action === "kick" ? `${name} was kicked.` : action === "ban" ? `${name} was banned.` : `${name} was unbanned.`); onRefresh(); },
     onError: (error) => onNotice(error.message),
   });
   function act(action: "kick" | "ban" | "unban", userId: string, name: string) {
     if (action !== "unban" && !window.confirm(`${action === "kick" ? "Kick" : "Ban"} ${name}?`)) return;
-    admin.mutate({ action, userId, name });
+    admin.mutate({ action, userId, playerName: name });
   }
   if (!reachable) return <div className="tab-empty"><h2>Players</h2><p>Start the server with its REST API enabled to view and moderate players.</p></div>;
   return <div className="players-panel"><div className="panel-heading"><div><h2>Online players</h2><p>Kick and ban use the player&apos;s REST user ID, not their display name.</p></div><button className="button ghost" onClick={onRefresh}>Refresh</button></div>

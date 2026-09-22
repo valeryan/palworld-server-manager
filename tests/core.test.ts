@@ -17,6 +17,18 @@ import { warningMessage } from "@/server/services/maintenance";
 import { jobDisplayMessage, jobKindLabel, jobStartingMessage, jobSuccessMessage } from "@/lib/job-presentation";
 import { rconCommandSchema, restAdminActionSchema } from "@/contracts/admin";
 import { buildState, buildStatusText } from "@/lib/build-presentation";
+import { legacyModerationEvent, moderationEventMessage } from "@/lib/moderation-presentation";
+
+describe("moderation activity presentation", () => {
+  it("shows a readable player name without losing the immutable user ID", () => {
+    expect(moderationEventMessage("ban", "gdk_123", "Valeryan")).toBe("Banned Valeryan (gdk_123)");
+    expect(moderationEventMessage("unban", "gdk_123")).toBe("Unbanned gdk_123");
+  });
+  it("recognizes ID-only events written by earlier builds", () => {
+    expect(legacyModerationEvent("Kick completed for gdk_123")).toEqual({ action: "kick", userId: "gdk_123" });
+    expect(legacyModerationEvent("Saved the world")).toBeNull();
+  });
+});
 
 describe("build presentation", () => {
   it("distinguishes current, outdated, and unchecked builds", () => {
