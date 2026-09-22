@@ -58,8 +58,5 @@ npm run dist:linux
 
 ## Documentation
 
-- [Documentation index](./docs/README.md)
 - [Language-pack format](./docs/LANGUAGE-PACKS.md)
-- [Palworld setting reference](./docs/PALWORLD-SETTINGS-REFERENCE.md)
-- [UI workflow design](./docs/UI-WORKFLOW-MAP.md)
 - [Privacy policy](./PRIVACY.md)
