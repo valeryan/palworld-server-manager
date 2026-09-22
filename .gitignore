@@ -16,6 +16,7 @@
 /test-results/
 /.e2e-data/
 /.e2e-runtime/
+/.scratchpad/
 
 # next.js
 /.next/

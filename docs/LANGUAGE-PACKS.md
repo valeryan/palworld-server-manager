@@ -2,7 +2,7 @@
 
 PSM Next ships only English. English is the canonical, protected fallback and cannot be replaced or removed. Additional languages are optional JSON files stored in the manager data directory under `language-packs/`.
 
-Download the canonical template from **Settings → Language → Download English template**. It includes the generated labels and descriptions for every guided Palworld setting as well as the static strings in [`public/locales/en.json`](./public/locales/en.json). A pack may be incomplete while it is being developed; missing keys fall back to English, and Application Settings reports its coverage against the current English pack.
+Download the canonical template from **Settings → Language → Download English template**. It includes the generated labels and descriptions for every guided Palworld setting as well as the static strings in [`public/locales/en.json`](../public/locales/en.json). A pack may be incomplete while it is being developed; missing keys fall back to English, and Application Settings reports its coverage against the current English pack.
 
 ```json
 {
