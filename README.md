@@ -30,6 +30,7 @@ Development uses port `4318` and `.data-next`, intentionally separate from the c
 - Persistent operation, activity, server-log, and configuration history has configurable age/count retention in Application Settings; active operations are never removed.
 - Backups are verified before use, restores require a stopped server, and restores create a pre-restore backup.
 - API responses never include server passwords, admin passwords, or process environment variables.
+- English is the protected fallback language. Additional PSM Next JSON packs can be installed from Application Settings and are stored under the manager data directory; incomplete packs fall back to English. See [LANGUAGE-PACKS.md](./LANGUAGE-PACKS.md) for the pack format.
 
 Create a disposable development sandbox with explicit paths:
 

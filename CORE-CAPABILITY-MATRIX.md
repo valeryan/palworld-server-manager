@@ -170,8 +170,8 @@ with the original manager.
 
 ## Localization — Incomplete
 
-- [ ] Existing language-pack discovery
-- [ ] UI localization
+- [x] English-first language-pack discovery, strict validation, fallback, live switching, and application-data imports
+- [ ] UI localization — **Partial: the app shell and Application Settings use the new canonical English pack; remaining world-management surfaces still need key conversion before this section is complete**
 
 ## Automated verification — Incomplete
 

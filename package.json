@@ -37,9 +37,11 @@
     "@tanstack/react-query": "^5.103.1",
     "adm-zip": "^0.6.1",
     "drizzle-orm": "^1.0.0-rc.4",
+    "i18next": "^26.4.2",
     "next": "16.3.5",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "react-i18next": "^17.0.15",
     "server-only": "^0.0.1",
     "tree-kill": "^1.2.2",
     "zod": "^4.6.5"
@@ -90,13 +92,17 @@
       "output": "release"
     },
     "linux": {
-      "target": ["AppImage"],
+      "target": [
+        "AppImage"
+      ],
       "artifactName": "psm-next.AppImage",
       "icon": "public/icon.png",
       "category": "Game",
       "syncDesktopName": true
     },
     "compression": "maximum",
-    "electronLanguages": ["en-US"]
+    "electronLanguages": [
+      "en-US"
+    ]
   }
 }
