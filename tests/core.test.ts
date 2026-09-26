@@ -9,7 +9,7 @@ import { createWorldSchema, parseWorldUpdate, worldRegistrationSchema } from "@/
 import { createScheduleSchema } from "@/contracts/schedule";
 import { nextRun } from "@/server/services/schedules";
 import { applyConfigurationOptions, managedConfigurationChanges, managedWorldChangesFromConfiguration, needsManagedConfigurationSync, parseConfigurationOptions } from "@/server/services/configuration";
-import { PALWORLD_SETTING_FIELDS, PALWORLD_SETTING_GROUPS, validateAndEncodeSettingChanges } from "@/contracts/palworld-settings";
+import { decodeSettingValue, PALWORLD_SETTING_FIELDS, PALWORLD_SETTING_GROUPS, validateAndEncodeSettingChanges } from "@/contracts/palworld-settings";
 import { cancelJob, listJobs, startJob } from "@/server/services/jobs";
 import { backupSettingsSchema } from "@/contracts/backup";
 import { retentionCandidates } from "@/server/services/backups";
@@ -205,6 +205,12 @@ describe("PalWorldSettings transformations", () => {
     expect(() => validateAndEncodeSettingChanges({ BaseCampWorkerMaxNum: 51 })).toThrow("cannot be higher than 50");
     expect(() => validateAndEncodeSettingChanges({ DeathPenalty: "Everything" })).toThrow("must be one of");
     expect(() => validateAndEncodeSettingChanges({ UnknownSetting: true })).toThrow("Unknown structured setting");
+  });
+  it("falls back to documented defaults for invalid stored numeric values", () => {
+    const field = PALWORLD_SETTING_FIELDS.find((candidate) => candidate.key === "ServerReplicatePawnCullDistance")!;
+    expect(decodeSettingValue(field, "NaN")).toBe(15000);
+    expect(decodeSettingValue(field, "not-a-number")).toBe(15000);
+    expect(decodeSettingValue(field, "10000")).toBe(10000);
   });
   it("accounts for every setting in the tested Palworld 1.0.5 template", async () => {
     const template = await readFile(path.join(process.cwd(), "tests/fixtures/DefaultPalWorldSettings-1.0.5.ini"), "utf8");

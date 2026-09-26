@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { PALWORLD_SETTING_GROUPS, type PalworldSettingField } from "@/contracts/palworld-settings";
+import { decodeSettingValue, PALWORLD_SETTING_GROUPS, type PalworldSettingField } from "@/contracts/palworld-settings";
 import { settingFieldKey, settingGroupKey } from "@/lib/localization-resources";
 
 type Value = string | number | boolean;
@@ -17,8 +17,6 @@ const presets: Record<string, { labelKey: string; values: Record<string, Value> 
 };
 
 async function get(worldId: string): Promise<StructuredResponse> { const response = await fetch(`/api/worlds/${worldId}/configuration/admin`); const body = await response.json(); if (!response.ok) throw new Error(body.error); return body; }
-function decode(field: PalworldSettingField, raw: string | undefined): Value { if (raw == null || raw === "") return field.default; if (field.type === "bool") return raw.toLowerCase() === "true"; if (field.type === "int" || field.type === "float") return Number(raw); if ((field.type === "text" || field.type === "select") && raw.startsWith('"') && raw.endsWith('"')) { try { return JSON.parse(raw); } catch { return raw.slice(1, -1); } } return raw; }
-
 export function StructuredSettings({ worldId, onNotice }: { worldId: string; onNotice(message: string): void }) {
   const { t } = useTranslation();
   const query = useQuery({ queryKey: ["configuration-options", worldId], queryFn: () => get(worldId) });
@@ -31,7 +29,7 @@ function StructuredForm({ worldId, configuration, admin, onNotice }: { worldId: 
   const { t } = useTranslation();
   const client = useQueryClient();
   const importInput = useRef<HTMLInputElement>(null);
-  const initial = useMemo(() => Object.fromEntries(PALWORLD_SETTING_GROUPS.flatMap((group) => group.fields).map((field) => [field.key, decode(field, configuration.options[field.key])])), [configuration]);
+  const initial = useMemo(() => Object.fromEntries(PALWORLD_SETTING_GROUPS.flatMap((group) => group.fields).map((field) => [field.key, decodeSettingValue(field, configuration.options[field.key])])), [configuration]);
   const [draft, setDraft] = useState<Record<string, Value>>(initial);
   const [touched, setTouched] = useState<Set<string>>(new Set());
   const [activeGroup, setActiveGroup] = useState(0);

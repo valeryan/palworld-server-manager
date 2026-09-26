@@ -47,13 +47,27 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await page.getByRole("button", { name: "Raw INI & history" }).click();
   const editor = page.locator(".settings-editor");
   await expect(editor).toContainText("E2E World");
-  await editor.fill('[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(ServerName="Automated E2E",Difficulty=None,ExpRate=2.000000)\n');
+  await editor.fill('[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(ServerName="Automated E2E",Difficulty=None,ExpRate=2.000000,ServerReplicatePawnCullDistance=NaN)\n');
   await page.getByRole("button", { name: "Save raw settings" }).click();
   await expect(page.getByText("Configuration saved; restart to apply changes")).toBeVisible();
   await expect(page.getByText("saved", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Guided configuration", exact: true }).click();
+  await page.getByRole("button", { name: "Performance & Synchronization", exact: true }).click();
+  const synchronizationDistance = page.getByLabel("Pal synchronization distance (cm)", { exact: true });
+  await expect(synchronizationDistance).toHaveValue("15000");
+  await expect(synchronizationDistance.locator("..").getByRole("button", { name: /Revert to/ })).toHaveCount(0);
   await page.getByRole("button", { name: "Admin", exact: true }).click();
-  await page.getByLabel("Public port (advertised)", { exact: true }).fill("49611");
+  const publicPort = page.getByLabel("Public port (advertised)", { exact: true });
+  await publicPort.fill("49611");
+  const publicPortCard = publicPort.locator("..");
+  const publicPortRevert = publicPortCard.getByRole("button", { name: /Revert to/ });
+  await expect(publicPortRevert).toBeVisible();
+  const contained = await publicPortCard.evaluate((card) => {
+    const cardBox = card.getBoundingClientRect();
+    const revertBox = card.querySelector(".field-revert")!.getBoundingClientRect();
+    return revertBox.left >= cardBox.left && revertBox.right <= cardBox.right && revertBox.top >= cardBox.top && revertBox.bottom <= cardBox.bottom;
+  });
+  expect(contained).toBe(true);
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page.getByText("Saved 1 setting; restart to apply changes")).toBeVisible();
 

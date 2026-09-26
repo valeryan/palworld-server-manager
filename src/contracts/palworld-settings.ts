@@ -831,6 +831,19 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
 export const PALWORLD_SETTING_FIELDS: readonly PalworldSettingField[] = PALWORLD_SETTING_GROUPS.flatMap((group) => group.fields);
 const fieldMap = new Map(PALWORLD_SETTING_FIELDS.map((field) => [field.key, field]));
 
+export function decodeSettingValue(field: PalworldSettingField, raw: string | undefined): string | number | boolean {
+  if (raw == null || raw === "") return field.default;
+  if (field.type === "bool") return raw.toLowerCase() === "true";
+  if (field.type === "int" || field.type === "float") {
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : field.default;
+  }
+  if ((field.type === "text" || field.type === "select") && raw.startsWith('"') && raw.endsWith('"')) {
+    try { return JSON.parse(raw) as string; } catch { return raw.slice(1, -1); }
+  }
+  return raw;
+}
+
 export function validateAndEncodeSettingChanges(raw: unknown): Record<string, string> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Configuration changes must be an object.");
   const entries = Object.entries(raw as Record<string, unknown>);
