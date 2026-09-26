@@ -6,13 +6,14 @@ import { and, desc, eq } from "drizzle-orm";
 import { database } from "@/server/db";
 import { configVersions, events, worlds } from "@/server/db/schema";
 import type { UpdateWorldInput, WorldView } from "@/contracts/world";
+import { decodeDefaultSettingValue, PALWORLD_MANAGER_SETTING_KEYS, PALWORLD_SETTING_FIELD_MAP } from "@/contracts/palworld-settings";
 import { getWorld, updateWorld } from "./worlds";
 import { pruneConfigurationVersions } from "./retention";
 
 function configPath(installDir: string, platform: "linux" | "windows") {
   return path.join(installDir, "Pal", "Saved", "Config", platform === "windows" ? "WindowsServer" : "LinuxServer", "PalWorldSettings.ini");
 }
-function defaultPath(installDir: string) { return path.join(installDir, "DefaultPalWorldSettings.ini"); }
+export function defaultConfigurationPath(installDir: string) { return path.join(installDir, "DefaultPalWorldSettings.ini"); }
 function validate(content: string) {
   if (Buffer.byteLength(content) > 2_000_000) throw new Error("Configuration exceeds the 2 MB safety limit.");
   if (content.includes("\0")) throw new Error("Configuration contains a NUL byte.");
@@ -118,7 +119,7 @@ export async function readConfiguration(worldId: string) {
   const filePath = configPath(world.installDir, world.platform);
   try { return { path: filePath, exists: true, content: await readFile(filePath, "utf8"), running: world.status === "running" }; }
   catch {
-    try { return { path: filePath, exists: false, content: await readFile(defaultPath(world.installDir), "utf8"), running: world.status === "running" }; }
+    try { return { path: filePath, exists: false, content: await readFile(defaultConfigurationPath(world.installDir), "utf8"), running: world.status === "running" }; }
     catch { return { path: filePath, exists: false, content: "", running: world.status === "running" }; }
   }
 }
@@ -137,14 +138,58 @@ export async function saveConfiguration(worldId: string, content: string) {
 export async function readConfigurationOptions(worldId: string) {
   const configuration = await readConfiguration(worldId);
   const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
+  let shippedDefaults: { available: boolean; options: Record<string, string> } = { available: false, options: {} };
+  let templateOptions: Record<string, string> = {};
+  try {
+    const content = await readFile(defaultConfigurationPath(world.installDir), "utf8");
+    validate(content);
+    templateOptions = parseConfigurationOptions(content);
+    shippedDefaults = { available: true, options: Object.fromEntries(Object.entries(templateOptions).filter(([key]) => PALWORLD_SETTING_FIELD_MAP.has(key))) };
+  } catch { /* A missing or malformed template is reported without inventing defaults. */ }
+  const allActiveOptions = configuration.exists ? parseConfigurationOptions(configuration.content) : {};
+  const activeOptions = Object.fromEntries(Object.entries(allActiveOptions).filter(([key]) => PALWORLD_SETTING_FIELD_MAP.has(key)));
+  const knownKeys = new Set([...PALWORLD_SETTING_FIELD_MAP.keys(), ...PALWORLD_MANAGER_SETTING_KEYS]);
+  const unknownActiveKeys = Object.keys(allActiveOptions).filter((key) => !knownKeys.has(key)).sort();
+  const unknownDefaultKeys = Object.keys(templateOptions).filter((key) => !knownKeys.has(key)).sort();
+  const missingDefaultKeys = shippedDefaults.available
+    ? [...PALWORLD_SETTING_FIELD_MAP.keys()].filter((key) => !Object.hasOwn(shippedDefaults.options, key)).sort()
+    : [];
   const [latest] = await database().select({ createdAt: configVersions.createdAt }).from(configVersions).where(eq(configVersions.worldId, worldId)).orderBy(desc(configVersions.createdAt)).limit(1);
   const restartRequired = world.status === "running" && Boolean(latest && latest.createdAt > (world.lastStartedAt ?? 0));
-  return { ...configuration, options: parseConfigurationOptions(configuration.content), restartRequired };
+  return {
+    path: configuration.path,
+    exists: configuration.exists,
+    running: configuration.running,
+    options: activeOptions,
+    shippedDefaults,
+    schemaWarnings: { unknownActiveKeys, unknownDefaultKeys, missingDefaultKeys },
+    restartRequired,
+  };
 }
 
-export async function saveConfigurationOptions(worldId: string, changes: Record<string, string>) {
+export async function resolveShippedDefaultChanges(worldId: string, keys: readonly string[]): Promise<Record<string, string>> {
+  if (!keys.length) return {};
+  const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
+  let defaults: Record<string, string>;
+  try {
+    const content = await readFile(defaultConfigurationPath(world.installDir), "utf8");
+    validate(content);
+    defaults = parseConfigurationOptions(content);
+  } catch { throw new Error("The shipped default configuration is unavailable or malformed."); }
+  const managerKeys = new Set<string>(PALWORLD_MANAGER_SETTING_KEYS);
+  return Object.fromEntries(keys.map((key) => {
+    const field = PALWORLD_SETTING_FIELD_MAP.get(key);
+    if (!field || managerKeys.has(key)) throw new Error(`Setting cannot be reset from the shipped template: ${key}`);
+    if (!Object.hasOwn(defaults, key)) throw new Error(`The shipped template has no default for ${key}.`);
+    if (decodeDefaultSettingValue(field, defaults[key]).status !== "valid") throw new Error(`The shipped template contains an unsupported default for ${key}.`);
+    return [key, defaults[key]!];
+  }));
+}
+
+export async function saveConfigurationOptions(worldId: string, changes: Record<string, string>, resetToDefaults: readonly string[] = []) {
   const configuration = await readConfiguration(worldId);
-  return saveConfiguration(worldId, applyConfigurationOptions(configuration.content, changes));
+  const defaults = await resolveShippedDefaultChanges(worldId, resetToDefaults);
+  return saveConfiguration(worldId, applyConfigurationOptions(configuration.content, { ...changes, ...defaults }));
 }
 
 type ManagedConfigurationOptions = { syncPublicPort?: boolean };
@@ -186,7 +231,7 @@ export async function syncManagedConfiguration(worldId: string, options: Managed
   // Palworld creates an empty active file on first boot. Seed that file from
   // the shipped template so a fresh world has a complete, editable baseline.
   if (configuration.exists && !source.trim()) {
-    try { source = await readFile(defaultPath(world.installDir), "utf8"); initialized = true; }
+    try { source = await readFile(defaultConfigurationPath(world.installDir), "utf8"); initialized = true; }
     catch { return { synchronized: false, initialized: false, reason: "The shipped default configuration is not available yet." }; }
   }
   if (!source) return { synchronized: false, initialized: false, reason: "PalWorldSettings.ini is not available yet." };

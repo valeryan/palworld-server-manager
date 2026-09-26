@@ -19,19 +19,19 @@ describe("Electron navigation errors", () => {
 describe("Electron desktop icons", () => {
   it("uses the development artwork only for development launches", () => {
     expect(desktopIconPath({ isDevelopment: true, platform: "linux", developmentRoot: "/workspace", resourcesPath: "/resources" })).toBe(
-      "/workspace/public/spheres/pal-server-dev.png",
+      "/workspace/public/icons/app-dev.png",
     );
     expect(desktopIconPath({ isDevelopment: false, platform: "linux", developmentRoot: "/workspace", resourcesPath: "/resources" })).toBe(
-      "/resources/app/public/spheres/pal-server-normal.png",
+      "/resources/app/public/icons/app.png",
     );
   });
 
   it("selects ICO artwork for Windows", () => {
     expect(desktopIconPath({ isDevelopment: true, platform: "win32", developmentRoot: "C:\\workspace", resourcesPath: "C:\\resources" })).toMatch(
-      /pal-server-dev\.ico$/,
+      /app-dev\.ico$/,
     );
     expect(desktopIconPath({ isDevelopment: false, platform: "win32", developmentRoot: "C:\\workspace", resourcesPath: "C:\\resources" })).toMatch(
-      /pal-server-normal\.ico$/,
+      /app\.ico$/,
     );
   });
 });

@@ -47,8 +47,8 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await daySpeedHelp.hover();
   await expect(page.getByRole("tooltip")).toContainText("Higher makes daytime pass faster and become shorter");
   await page.getByRole("button", { name: "Casual PvE", exact: true }).click();
-  await expect(page.getByText("Reviewing 6 staged changes")).toBeVisible();
-  await expect(page.locator(".structured-field.changed")).toHaveCount(6);
+  await expect(page.getByText("Reviewing 4 staged changes")).toBeVisible();
+  await expect(page.locator(".structured-field.changed")).toHaveCount(4);
   await page.getByRole("button", { name: "Discard", exact: true }).click();
   await page.getByRole("button", { name: "Raw INI & history" }).click();
   const editor = page.locator(".settings-editor");
@@ -60,9 +60,10 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await page.getByRole("button", { name: "Guided configuration", exact: true }).click();
   await page.getByRole("tab", { name: "Server & Admin", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Performance & Synchronization" })).toBeVisible();
-  const synchronizationDistance = page.getByLabel("Pal synchronization distance (cm)", { exact: true });
-  await expect(synchronizationDistance).toHaveValue("15000");
-  await expect(synchronizationDistance.locator("..").getByRole("button", { name: /Revert to/ })).toHaveCount(0);
+  const synchronizationDistance = page.locator(".structured-field").filter({ hasText: "ServerReplicatePawnCullDistance" });
+  await expect(synchronizationDistance.getByText("NaN", { exact: true })).toBeVisible();
+  await expect(synchronizationDistance).toContainText("Expected a valid number");
+  await expect(synchronizationDistance.getByRole("button", { name: "Replace with shipped default" })).toBeVisible();
   const publicPort = page.getByLabel("Public port (advertised)", { exact: true });
   await publicPort.fill("49611");
   const publicPortCard = publicPort.locator("..");
@@ -78,6 +79,29 @@ test("adopts and manages an isolated world through critical browser workflows", 
   expect(contained).toBe(true);
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page.getByText("Saved 1 setting; restart to apply changes")).toBeVisible();
+  const worldId = new URL(page.url()).pathname.split("/").at(-1)!;
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/worlds/${worldId}/configuration/admin`);
+    return ((await response.json()) as { configuration: { options: Record<string, string> } }).configuration.options.ServerReplicatePawnCullDistance;
+  }).toBe("NaN");
+  await page.getByRole("tab", { name: "Server & Admin", exact: true }).click();
+  await page.locator(".structured-field").filter({ hasText: "ServerReplicatePawnCullDistance" }).getByRole("button", { name: "Replace with shipped default" }).click();
+  await expect(page.getByRole("button", { name: "Review changes (1)" })).toBeVisible();
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/worlds/${worldId}/configuration/admin`);
+    return ((await response.json()) as { configuration: { options: Record<string, string> } }).configuration.options.ServerReplicatePawnCullDistance;
+  }).toBe("15000.000000");
+  await page.reload();
+  await page.getByRole("button", { name: "Server config", exact: true }).click();
+  await page.getByPlaceholder("Search settings or keys…").fill("DenyTechnologyList");
+  const deniedTechnologies = page.getByLabel("Denied technologies", { exact: true });
+  await deniedTechnologies.fill('(TechnologyA,"Technology B")');
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/worlds/${worldId}/configuration/admin`);
+    return ((await response.json()) as { configuration: { options: Record<string, string> } }).configuration.options.DenyTechnologyList;
+  }).toBe('(TechnologyA,"Technology B")');
 
   await page.getByRole("button", { name: "Backups", exact: true }).click();
   await page.getByLabel("Keep newest backups").fill("3");

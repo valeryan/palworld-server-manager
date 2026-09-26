@@ -19,7 +19,7 @@ npm install
 npm run dev
 ```
 
-Development uses port `4318` and `.data-next`, intentionally separate from the current manager's database and port.
+Development uses port `4319` and the isolated `../psm-next-development/manager-data` directory. `npm run dev`, `npm run dev:web`, and `npm run dev:electron` resolve the same profile, so the web and Electron commands can also be launched in separate terminals. Override `PSM_PORT`, `ELECTRON_START_URL`, or `PALWORLD_MANAGER_DATA_DIR` explicitly when a different disposable profile is needed.
 
 ## Safety model
 
@@ -54,9 +54,12 @@ npm run test:e2e
 npm run build
 npm run prepare:standalone
 npm run dist:linux
+npm run audit:settings-fixture -- /path/to/PalServer/DefaultPalWorldSettings.ini
 ```
 
 `npm test` runs the deterministic service suite. `npm run test:e2e` builds a packaged Electron directory and runs the production-browser and packaged-desktop workflows against disposable data.
+
+The settings audit compares an installed server template with the reviewed fixture without printing complete INIs or credential values. It reports key additions/removals, changed defaults, codec mismatches, and manager-owned keys. Refresh both fixture files only after reviewing a server update; the provenance record includes the Palworld version, Steam build ID, capture date, and checksum.
 
 ## Documentation
 

@@ -9,7 +9,7 @@ import { createWorldSchema, parseWorldUpdate, worldRegistrationSchema } from "@/
 import { createScheduleSchema } from "@/contracts/schedule";
 import { nextRun } from "@/server/services/schedules";
 import { applyConfigurationOptions, managedConfigurationChanges, managedWorldChangesFromConfiguration, needsManagedConfigurationSync, parseConfigurationOptions } from "@/server/services/configuration";
-import { decodeSettingValue, PALWORLD_SETTING_FIELDS, PALWORLD_SETTING_GROUPS, PALWORLD_SETTING_TABS, validateAndEncodeSettingChanges } from "@/contracts/palworld-settings";
+import { decodeDefaultSettingValue, decodeSettingValue, PALWORLD_MANAGER_SETTING_KEYS, PALWORLD_SETTING_FIELDS, PALWORLD_SETTING_TABS, validateAndEncodeSettingChanges } from "@/contracts/palworld-settings";
 import { cancelJob, listJobs, startJob } from "@/server/services/jobs";
 import { backupSettingsSchema } from "@/contracts/backup";
 import { retentionCandidates } from "@/server/services/backups";
@@ -164,8 +164,9 @@ describe("PalWorldSettings transformations", () => {
     expect(parseConfigurationOptions(ini)).toMatchObject({ ServerName: '"Family, \\\"Friends\\\""', ExpRate: "1.000000", SomeTuple: "(X=1,Y=2)" });
   });
   it("updates only selected settings and preserves unknown values", () => {
-    const changed = applyConfigurationOptions(ini, { ExpRate: "2.5", bEnableFastTravel: "True" });
-    expect(parseConfigurationOptions(changed)).toMatchObject({ ServerName: '"Family, \\\"Friends\\\""', ExpRate: "2.5", SomeTuple: "(X=1,Y=2)", bEnableFastTravel: "True" });
+    const source = ini.replace("SomeTuple=(X=1,Y=2)", "SomeTuple=(X=1,Y=2),ServerReplicatePawnCullDistance=NaN");
+    const changed = applyConfigurationOptions(source, { ExpRate: "2.5", bEnableFastTravel: "True" });
+    expect(parseConfigurationOptions(changed)).toMatchObject({ ServerName: '"Family, \\\"Friends\\\""', ExpRate: "2.5", SomeTuple: "(X=1,Y=2)", ServerReplicatePawnCullDistance: "NaN", bEnableFastTravel: "True" });
   });
   it("maps manager-owned network and credential values", () => {
     const world = { ...createWorldSchema.parse({ displayName: "Test", installDir: "/tmp/test", gamePort: 8211, restApiPort: 8213, rconPort: 25575, adminPassword: "a\"b", serverPassword: "secret", restApiEnabled: true, rconEnabled: false }), id: "world", status: "stopped" as const, processId: null, buildId: null, latestBuildId: null, lastStartedAt: null, createdAt: 1, updatedAt: 1 };
@@ -193,11 +194,13 @@ describe("PalWorldSettings transformations", () => {
     const content = '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(AdminPassword="new",ServerPassword="players",RESTAPIEnabled=False,RESTAPIPort=9012,RCONEnabled=True,RCONPort=25580)\n';
     expect(managedWorldChangesFromConfiguration(content, world)).toEqual({ adminPassword: "new", serverPassword: "players", restApiEnabled: false, restApiPort: 9012, rconEnabled: true, rconPort: 25580 });
   });
-  it("places each guided field exactly once and collects server access settings under Admin", () => {
-    const keys = PALWORLD_SETTING_GROUPS.flatMap((group) => group.fields.map((field) => field.key));
+  it("places each guided field exactly once in the canonical tree", () => {
+    const sections = PALWORLD_SETTING_TABS.flatMap((tab) => tab.sections);
+    const keys = sections.flatMap((section) => section.fields.map((field) => field.key));
     expect(new Set(keys).size).toBe(keys.length);
-    const admin = PALWORLD_SETTING_GROUPS.find((group) => group.title === "Admin");
-    expect(admin?.fields.map((field) => field.key)).toEqual(expect.arrayContaining(["ServerName", "BanListURL", "CoopPlayerMaxNum", "ServerPlayerMaxNum", "CrossplayPlatforms", "bAllowClientMod"]));
+    expect(keys.filter((key) => (PALWORLD_MANAGER_SETTING_KEYS as readonly string[]).includes(key))).toEqual([]);
+    const admin = PALWORLD_SETTING_TABS.find((tab) => tab.id === "server-admin");
+    expect(admin?.sections.flatMap((section) => section.fields.map((field) => field.key))).toEqual(expect.arrayContaining(["ServerName", "BanListURL", "AutoSaveSpan", "ServerReplicatePawnCullDistance"]));
   });
   it("organizes every guided field exactly once across five presentation tabs", () => {
     const layoutKeys = PALWORLD_SETTING_TABS.flatMap((tab) => tab.sections.flatMap((section) => section.fields.map((field) => field.key)));
@@ -209,16 +212,24 @@ describe("PalWorldSettings transformations", () => {
   });
   it("exposes and validates the complete original structured field inventory", () => {
     expect(PALWORLD_SETTING_FIELDS).toHaveLength(116);
-    expect(validateAndEncodeSettingChanges({ BaseCampWorkerMaxNum: 50, DeathPenalty: "Item", bEnableFastTravel: false })).toEqual({ BaseCampWorkerMaxNum: "50", DeathPenalty: '"Item"', bEnableFastTravel: "False" });
+    expect(validateAndEncodeSettingChanges({ BaseCampWorkerMaxNum: 50, DeathPenalty: "Item", bEnableFastTravel: false })).toEqual({ BaseCampWorkerMaxNum: "50", DeathPenalty: "Item", bEnableFastTravel: "False" });
     expect(() => validateAndEncodeSettingChanges({ BaseCampWorkerMaxNum: 51 })).toThrow("cannot be higher than 50");
     expect(() => validateAndEncodeSettingChanges({ DeathPenalty: "Everything" })).toThrow("must be one of");
     expect(() => validateAndEncodeSettingChanges({ UnknownSetting: true })).toThrow("Unknown structured setting");
   });
-  it("falls back to documented defaults for invalid stored numeric values", () => {
+  it("preserves invalid numeric tokens and distinguishes unsupported defaults", () => {
     const field = PALWORLD_SETTING_FIELDS.find((candidate) => candidate.key === "ServerReplicatePawnCullDistance")!;
-    expect(decodeSettingValue(field, "NaN")).toBe(15000);
-    expect(decodeSettingValue(field, "not-a-number")).toBe(15000);
-    expect(decodeSettingValue(field, "10000")).toBe(10000);
+    expect(decodeSettingValue(field, "NaN")).toMatchObject({ status: "invalid", raw: "NaN" });
+    expect(decodeDefaultSettingValue(field, "NaN")).toMatchObject({ status: "unsupported-default", raw: "NaN" });
+    expect(decodeSettingValue(field, "10000")).toEqual({ status: "valid", value: 10000, raw: "10000" });
+  });
+  it("round-trips DenyTechnologyList as an empty token or balanced tuple", () => {
+    const field = PALWORLD_SETTING_FIELDS.find((candidate) => candidate.key === "DenyTechnologyList")!;
+    expect(validateAndEncodeSettingChanges({ DenyTechnologyList: "" })).toEqual({ DenyTechnologyList: "" });
+    const tuple = '("TechnologyA","TechnologyB")';
+    expect(validateAndEncodeSettingChanges({ DenyTechnologyList: tuple })).toEqual({ DenyTechnologyList: tuple });
+    expect(decodeSettingValue(field, tuple)).toEqual({ status: "valid", value: tuple, raw: tuple });
+    expect(() => validateAndEncodeSettingChanges({ DenyTechnologyList: '("TechnologyA"' })).toThrow("balanced tuple");
   });
   it("accounts for every setting in the tested Palworld 1.0.5 template", async () => {
     const template = await readFile(path.join(process.cwd(), "tests/fixtures/DefaultPalWorldSettings-1.0.5.ini"), "utf8");
@@ -228,13 +239,7 @@ describe("PalWorldSettings transformations", () => {
     expect(templateKeys).toHaveLength(122);
     expect(representedKeys).toEqual(templateKeys);
     const options = parseConfigurationOptions(template);
-    for (const field of PALWORLD_SETTING_FIELDS) {
-      const raw = options[field.key];
-      if (field.type === "bool") expect(raw, field.key).toBe(field.default ? "True" : "False");
-      else if (field.type === "int" || field.type === "float") expect(Number(raw), field.key).toBe(field.default);
-      else if (field.type === "tuple") expect(raw, field.key).toBe(field.default);
-      else expect(raw?.replace(/^"|"$/g, ""), field.key).toBe(field.default);
-    }
+    for (const field of PALWORLD_SETTING_FIELDS) expect(decodeDefaultSettingValue(field, options[field.key]), field.key).toMatchObject({ status: "valid" });
   });
 });
 
