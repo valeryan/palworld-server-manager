@@ -114,7 +114,7 @@ echo "Success! App '2394010' fully installed."
     await installOrUpdate(world, context);
     const installedWorld = await getWorld(world.id);
     expect(installedWorld).toMatchObject({ buildId: "424242", latestBuildId: "424242" });
-    expect(installedWorld?.adminPassword).toHaveLength(24);
+    expect(installedWorld?.adminPassword).toBe("");
     expect(output.join("\n")).not.toContain("fake-user");
     expect(output.join("\n")).not.toContain("fake-password");
     expect(output.join("\n")).toContain("[redacted]");
@@ -125,7 +125,8 @@ echo "Success! App '2394010' fully installed."
     expect(activeConfiguration).toContain("ServerName=\"Default Palworld Server\"");
     expect(activeConfiguration).toContain("PublicPort=39211");
     expect(activeConfiguration).toContain("RESTAPIPort=39213");
-    expect(activeConfiguration).toContain(`AdminPassword="${installedWorld?.adminPassword}"`);
+    const generatedPassword = activeConfiguration.match(/AdminPassword="([^"]+)"/)?.[1];
+    expect(generatedPassword).toHaveLength(24);
     expect(updates.at(-1)).toBe("Installed build 424242");
   });
 
@@ -139,8 +140,8 @@ echo "Success! App '2394010' fully installed."
     expect(preserved.options).toMatchObject({ ExpRate: "2.000000", ServerReplicatePawnCullDistance: "NaN" });
     expect(preserved.shippedDefaults.options.ServerReplicatePawnCullDistance).toBe("15000.000000");
     expect(preserved).not.toHaveProperty("content");
-    expect(preserved.options).not.toHaveProperty("AdminPassword");
-    await expect(resolveShippedDefaultChanges(configurationWorldId, ["AdminPassword"])).rejects.toThrow("cannot be reset");
+    expect(preserved.options.AdminPassword).toMatch(/^"[^"]{24}"$/);
+    await expect(resolveShippedDefaultChanges(configurationWorldId, ["AdminPassword"])).rejects.toThrow("no default");
     await expect(resolveShippedDefaultChanges(configurationWorldId, ["UnknownSetting"])).rejects.toThrow("cannot be reset");
     await saveConfigurationOptions(configurationWorldId, {}, ["ServerReplicatePawnCullDistance"]);
     expect((await readConfigurationOptions(configurationWorldId)).options.ServerReplicatePawnCullDistance).toBe("15000.000000");
@@ -150,7 +151,12 @@ echo "Success! App '2394010' fully installed."
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     globalThis.fetch = vi.fn(async (input, init) => { calls.push({ url: String(input), init }); return new Response(JSON.stringify({ ok: true }), { status: 200 }); }) as typeof fetch;
     const { palworldRest } = await import("@/server/services/rest");
-    const world = { id: "rest", displayName: "REST", installDir: root, platform: "linux", gamePort: 1, queryPort: 2, restApiPort: 39313, rconPort: 4, adminPassword: "secret", serverPassword: "", restApiEnabled: true, rconEnabled: false, communityServer: false, autostart: false, crashGuard: false, legacyPerfFlags: false, extraArgs: "", env: {}, wineBinary: "wine", winePrefix: null, wineLaunchFlags: "", status: "running", processId: 1, buildId: null, latestBuildId: null, lastStartedAt: null, createdAt: 1, updatedAt: 1 } as const;
+    const { createWorld } = await import("@/server/services/worlds");
+    const installDir = path.join(root, "rest-world");
+    const configDir = path.join(installDir, "Pal", "Saved", "Config", "LinuxServer");
+    await mkdir(configDir, { recursive: true });
+    await writeFile(path.join(configDir, "PalWorldSettings.ini"), '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(AdminPassword="secret")\n');
+    const world = await createWorld({ displayName: "REST", installDir, gamePort: 39311, queryPort: 39312, restApiPort: 39313, rconPort: 39314, restApiEnabled: true });
     await palworldRest.announce(world, "Maintenance soon");
     expect(calls[0]?.url).toBe("http://127.0.0.1:39313/v1/api/announce");
     expect(calls[0]?.init?.headers).toMatchObject({ Authorization: `Basic ${Buffer.from("admin:secret").toString("base64")}` });
@@ -180,6 +186,9 @@ echo "Success! App '2394010' fully installed."
     const { runLegacyRconCommand } = await import("@/server/services/legacy-rcon");
     const installDir = path.join(root, "rcon-world"); await mkdir(installDir, { recursive: true });
     const world = await createWorld({ displayName: "Fake RCON", installDir, gamePort: 39411, queryPort: 39412, restApiPort: 39413, rconPort: address.port, adminPassword: "rcon-secret", rconEnabled: true });
+    const configDir = path.join(installDir, "Pal", "Saved", "Config", "LinuxServer");
+    await mkdir(configDir, { recursive: true });
+    await writeFile(path.join(configDir, "PalWorldSettings.ini"), '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(AdminPassword="rcon-secret")\n');
     await setRuntimeState(world.id, "running", process.pid);
     await expect(runLegacyRconCommand(world.id, "Info")).resolves.toBe("fake response for Info");
     await setRuntimeState(world.id, "stopped", null);

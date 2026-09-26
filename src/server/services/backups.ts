@@ -1,5 +1,5 @@
 import "server-only";
-import { access, mkdir, rm, stat } from "node:fs/promises";
+import { access, chmod, mkdir, rm, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -33,6 +33,7 @@ export async function createBackup(worldId: string, reason: string, context: Job
   await mkdir(directory, { recursive: true });
   const destination = path.join(directory, `${Date.now()}-${id}.zip`);
   const zip = new AdmZip(); zip.addLocalFolder(source, "Saved"); zip.writeZip(destination);
+  await chmod(destination, 0o600);
   const verified = new AdmZip(destination).test();
   if (!verified) { await rm(destination, { force: true }); throw new Error("Backup verification failed."); }
   const info = await stat(destination);

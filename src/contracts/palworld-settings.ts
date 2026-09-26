@@ -1,19 +1,21 @@
-export type PalworldSettingType = "bool" | "int" | "float" | "text" | "select" | "tuple";
+export type PalworldSettingType = "bool" | "int" | "float" | "text" | "password" | "select" | "multi-select" | "tuple";
 export type PalworldSettingEvidence = "official" | "uncertain";
+export type PalworldSettingPresentation = "compact" | "standard" | "wide" | "lead";
+export type PalworldSettingLayoutItem = { keys: readonly string[]; span: 4 | 6 | 8 | 12; presentation?: PalworldSettingPresentation; grouped?: boolean };
 export type PalworldSettingField = {
   key: string; label: string; type: PalworldSettingType; help: string; evidence: PalworldSettingEvidence;
-  options?: readonly string[]; min?: number; max?: number; allowEmpty?: boolean;
+  options?: readonly string[]; min?: number; max?: number; allowEmpty?: boolean; presentation?: PalworldSettingPresentation;
 };
-export type PalworldSettingSection = { id: string; title: string; description: string; fields: readonly PalworldSettingField[]; managed?: boolean };
+export type PalworldSettingSection = { id: string; title: string; description: string; fields: readonly PalworldSettingField[]; managed?: "identity" | "listing" | "network" | "lifecycle" | "performance" | "launch" | "registration"; layout?: readonly PalworldSettingLayoutItem[] };
 export type PalworldSettingTab = { id: string; title: string; description: string; sections: readonly PalworldSettingSection[] };
-export type PalworldSettingValue = string | number | boolean;
+export type PalworldSettingValue = string | number | boolean | string[];
 export type DecodedSettingValue =
   | { status: "valid"; value: PalworldSettingValue; raw: string }
   | { status: "missing" }
   | { status: "invalid"; raw: string; reason: string }
   | { status: "unsupported-default"; raw: string; reason: string };
 
-export const PALWORLD_MANAGER_SETTING_KEYS = ["AdminPassword", "ServerPassword", "RESTAPIEnabled", "RESTAPIPort", "RCONEnabled", "RCONPort"] as const;
+export const PALWORLD_MANAGER_SETTING_KEYS = ["PublicPort", "RESTAPIEnabled", "RESTAPIPort", "RCONEnabled", "RCONPort"] as const;
 
 export const PALWORLD_SETTING_TABS: readonly PalworldSettingTab[] = [
   { id: "gameplay", title: "Gameplay", description: "Core game rules, progression, travel, and respawn behavior.", sections: [
@@ -146,7 +148,7 @@ export const PALWORLD_SETTING_TABS: readonly PalworldSettingTab[] = [
     { id: "access-crossplay", title: "Access & Crossplay", description: "Player capacity, supported platforms, mods, and community visibility.", fields: [
       { key: "CoopPlayerMaxNum", label: "Co-op max players", type: "int", help: "Intended co-op party-size cap. It is widely reported not to control dedicated-server capacity; use ServerPlayerMaxNum for that.", evidence: "uncertain" },
       { key: "ServerPlayerMaxNum", label: "Server max players", type: "int", help: "Maximum concurrent dedicated-server players. Higher admits more players and raises load; lower provides fewer slots. The supported/default ceiling is 32.", evidence: "official" },
-      { key: "CrossplayPlatforms", label: "Crossplay platforms", type: "tuple", help: "Platforms allowed to connect. Remove a platform to reject it; include a supported platform to permit it. Console/Game Pass users rely on the community browser.", evidence: "official" },
+      { key: "CrossplayPlatforms", label: "Crossplay platforms", type: "multi-select", help: "Platforms allowed to connect. Select one or more supported platforms; PSM writes the required tuple syntax to the INI. Console/Game Pass users rely on the community browser.", evidence: "official", options: ["Steam", "Xbox", "PS5", "Mac"], presentation: "wide" },
       { key: "bAllowClientMod", label: "Allow client mods", type: "bool", help: "Allows mod-enabled clients to connect. Off rejects them; on does not install or validate their mods.", evidence: "official" },
       { key: "bShowPlayerList", label: "Show player list", type: "bool", help: "On shows the online player list in the ESC menu; off hides it.", evidence: "official" },
       { key: "bIsShowJoinLeftMessage", label: "Show join/leave msgs", type: "bool", help: "On announces joins/leaves in game; off suppresses those messages.", evidence: "official" },
@@ -157,35 +159,76 @@ export const PALWORLD_SETTING_TABS: readonly PalworldSettingTab[] = [
       { key: "bAllowGlobalPalboxImport", label: "Global Palbox import", type: "bool", help: "Allows importing outside Pals. On lets players bring advanced Pals into the server; off protects local progression.", evidence: "official" },
     ] },
   ] },
-  { id: "server-admin", title: "Server & Admin", description: "Server identity, network access, administration, data protection, and performance.", sections: [
-    { id: "identity-network", title: "Identity & Network", description: "Public server identity, region, and advertised network address.", fields: [
-      { key: "ServerName", label: "Server name", type: "text", help: "Name in the community-server browser. Changing it does not change the manager's local world label.", evidence: "official" },
-      { key: "ServerDescription", label: "Description", type: "text", help: "Description shown with the listing. Empty shows no custom description.", evidence: "official" },
+  { id: "server-admin", title: "Server Admin", description: "Server identity, connectivity, access, lifecycle, performance, and installation.", sections: [
+    { id: "server-identity", title: "Server Identity", description: "The local PSM name and the identity Palworld presents to players.", managed: "identity", fields: [
+      { key: "ServerName", label: "Server name", type: "text", help: "Name shown to players in the community-server browser. Display Name also follows this value unless a separate Display Name override is set.", evidence: "official" },
+      { key: "ServerDescription", label: "Description", type: "text", help: "Description shown with the listing. Empty shows no custom description.", evidence: "official", presentation: "wide" },
       { key: "Region", label: "Region", type: "text", help: "Region label for listing/filtering. It does not change hosting location or latency.", evidence: "official" },
+    ], layout: [
+      { keys: ["ServerName"], span: 6 }, { keys: ["displayName"], span: 6 },
+      { keys: ["Region"], span: 4, presentation: "compact" }, { keys: ["ServerDescription"], span: 8, presentation: "wide" },
+    ] },
+    { id: "community-listing", title: "Community Listing", description: "Community-browser visibility and the public address advertised through NAT or tunnels.", managed: "listing", fields: [
       { key: "PublicIP", label: "Public IP (for tunnels)", type: "text", help: "External IP advertised by a community server. Set only when detection is wrong or a tunnel requires it; it does not bind the listener.", evidence: "official" },
-      { key: "PublicPort", label: "Public port (advertised)", type: "int", help: "External port advertised by a community server. It does not change the actual listening port.", evidence: "official" },
+    ], layout: [
+      { keys: ["communityServer"], span: 12, presentation: "lead" },
+      { keys: ["PublicIP"], span: 8, presentation: "wide" }, { keys: ["publicPort"], span: 4, presentation: "compact" },
     ] },
-    { id: "security-server-services", title: "Security & Server Services", description: "Credentials, authentication, moderation, REST API, and RCON.", managed: true, fields: [
+    { id: "network-ports", title: "Network & Ports", description: "Local game, query, REST API, and RCON listeners.", managed: "network", fields: [], layout: [
+      { keys: ["gamePort"], span: 6 }, { keys: ["queryPort"], span: 6 },
+      { keys: ["restApiEnabled", "restApiPort"], span: 6, grouped: true }, { keys: ["rconEnabled", "rconPort"], span: 6, grouped: true },
+    ] },
+    { id: "access-security", title: "Access & Security", description: "Player and administrator credentials, platform authentication, and moderation feeds.", fields: [
+      { key: "ServerPassword", label: "Server password", type: "password", help: "Password players must enter to join. Palworld stores this value in plaintext in PalWorldSettings.ini and server backups.", evidence: "official" },
+      { key: "AdminPassword", label: "Administrator password", type: "password", help: "Credential used by Palworld REST and RCON administration. Palworld stores it in plaintext in PalWorldSettings.ini and server backups.", evidence: "official" },
       { key: "bUseAuth", label: "Require auth", type: "bool", help: "Platform identity authentication. Turning it off weakens access security and is not normally useful.", evidence: "official" },
-      { key: "BanListURL", label: "Ban list URL", type: "text", help: "Remote global ban-list feed. It is not the server's local player-ban file; do not use an untrusted URL.", evidence: "official" },
+      { key: "BanListURL", label: "Ban list URL", type: "text", help: "Remote global ban-list feed. It is not the server's local player-ban file; do not use an untrusted URL.", evidence: "official", presentation: "wide" },
+    ], layout: [
+      { keys: ["ServerPassword"], span: 6 }, { keys: ["AdminPassword"], span: 6 },
+      { keys: ["bUseAuth"], span: 4, presentation: "compact" }, { keys: ["BanListURL"], span: 8, presentation: "wide" },
     ] },
-    { id: "data-logging", title: "Data & Logging", description: "Automatic saving, rolling save protection, and server log format.", fields: [
+    { id: "lifecycle-recovery", title: "Lifecycle & Recovery", description: "Automatic startup and process recovery behavior.", managed: "lifecycle", fields: [], layout: [
+      { keys: ["autostart"], span: 6 }, { keys: ["crashGuard"], span: 6 },
+    ] },
+    { id: "saving-logs", title: "Saving & Logs", description: "World saving, rolling backup protection, and log format.", fields: [
       { key: "AutoSaveSpan", label: "Auto-save interval (s)", type: "float", help: "Time between automatic world saves. Lower saves more often but increases disk work; higher reduces disk work but increases possible crash-related progress loss.", evidence: "official" },
       { key: "bIsUseBackupSaveData", label: "Rolling save backups", type: "bool", help: "Enables Palworld's own rolling backups inside save data. On increases disk activity and is separate from manager-created backup archives.", evidence: "official" },
       { key: "LogFormatType", label: "Log format", type: "select", help: "Text is human-readable; Json is structured for log-processing tools.", evidence: "official", options: ["Text","Json"] },
+    ], layout: [
+      { keys: ["AutoSaveSpan"], span: 4 }, { keys: ["bIsUseBackupSaveData"], span: 4 }, { keys: ["LogFormatType"], span: 4 },
     ] },
-    { id: "performance-synchronization", title: "Performance & Synchronization", description: "Advanced processing, replication, synchronization intervals, and caches.", fields: [
+    { id: "performance-synchronization", title: "Performance & Synchronization", description: "Process performance, replication, synchronization intervals, and caches.", managed: "performance", fields: [
       { key: "ServerReplicatePawnCullDistance", label: "Pal synchronization distance (cm)", type: "float", help: "Pal synchronization distance. Higher shows distant Pals but costs bandwidth/processing; lower reduces load but causes later pop-in.", evidence: "official", min: 5000, max: 15000 },
       { key: "ItemContainerForceMarkDirtyInterval", label: "Open-container resync interval (s)", type: "float", help: "Forced re-sync interval while a container UI is open. Higher syncs less often and may feel laggy; lower syncs more often and increases work.", evidence: "official" },
       { key: "PlayerDataPalStorageUpdateCheckTickInterval", label: "Pal storage check interval (s)", type: "float", help: "Interval between player Pal-storage update checks. Higher checks less often; lower checks more frequently. Pocketpair does not currently publish a safe range.", evidence: "uncertain" },
       { key: "MaxGuildsPerFrame", label: "Guilds processed per frame", type: "int", help: "Maximum guilds processed in one server frame. Higher processes more work per frame; lower spreads work over more frames. Pocketpair does not currently document tuning guidance.", evidence: "uncertain" },
       { key: "BuildingNameDisplayCacheTTLSeconds", label: "Builder-name cache lifetime (s)", type: "int", help: "Lifetime of cached builder-name lookups for structures. Higher retains cached names longer; lower refreshes them more often.", evidence: "uncertain" },
+    ], layout: [
+      { keys: ["legacyPerfFlags"], span: 12, presentation: "lead" },
+      { keys: ["ServerReplicatePawnCullDistance"], span: 6 }, { keys: ["ItemContainerForceMarkDirtyInterval"], span: 6 },
+      { keys: ["PlayerDataPalStorageUpdateCheckTickInterval"], span: 4 }, { keys: ["MaxGuildsPerFrame"], span: 4 }, { keys: ["BuildingNameDisplayCacheTTLSeconds"], span: 4 },
+    ] },
+    { id: "installation-launch", title: "Installation & Launch", description: "Server location, platform, launch arguments, Wine, and environment configuration.", managed: "launch", fields: [], layout: [
+      { keys: ["platform"], span: 4 }, { keys: ["installDir"], span: 8, presentation: "wide" },
+      { keys: ["extraArgs"], span: 12, presentation: "wide" }, { keys: ["environment"], span: 12, presentation: "wide" },
+      { keys: ["wineBinary"], span: 6 }, { keys: ["winePrefix"], span: 6 }, { keys: ["wineLaunchFlags"], span: 12, presentation: "wide" },
+    ] },
+    { id: "registration-removal", title: "Registration & Removal", description: "Export this PSM registration or remove it without deleting server files.", managed: "registration", fields: [], layout: [
+      { keys: ["registrationActions"], span: 12, presentation: "wide" },
     ] },
   ] },
 ];
 
 export const PALWORLD_SETTING_FIELDS: readonly PalworldSettingField[] = PALWORLD_SETTING_TABS.flatMap((tab) => tab.sections.flatMap((section) => section.fields));
 export const PALWORLD_SETTING_FIELD_MAP = new Map(PALWORLD_SETTING_FIELDS.map((field) => [field.key, field]));
+
+export function settingPresentation(field: PalworldSettingField): PalworldSettingPresentation {
+  return field.presentation ?? (field.type === "tuple" || field.type === "multi-select" ? "wide" : field.type === "text" || field.type === "password" ? "standard" : "compact");
+}
+
+export function settingLayoutSpan(presentation: PalworldSettingPresentation): 4 | 6 | 12 {
+  return presentation === "compact" ? 4 : presentation === "standard" ? 6 : 12;
+}
 
 function quotedString(raw: string): string | undefined {
   if (!raw.startsWith('"') || !raw.endsWith('"')) return undefined;
@@ -207,6 +250,13 @@ export function validTuple(raw: string, allowEmpty = false): boolean {
   return !quoted && !escaped && depth === 0;
 }
 
+function tupleOptions(raw: string, options: readonly string[]): string[] | undefined {
+  if (!/^\([^()]*\)$/.test(raw)) return undefined;
+  const values = raw.slice(1, -1).split(",").map((value) => value.trim()).filter(Boolean);
+  if (!values.length || new Set(values).size !== values.length || values.some((value) => !options.includes(value))) return undefined;
+  return options.filter((option) => values.includes(option));
+}
+
 export function decodeSettingValue(field: PalworldSettingField, raw: string | undefined): DecodedSettingValue {
   if (raw == null) return { status: "missing" };
   if (raw.length > 8_192 || /[\r\n\0]/.test(raw)) return { status: "invalid", raw, reason: "Value contains unsupported characters or exceeds the size limit." };
@@ -222,13 +272,17 @@ export function decodeSettingValue(field: PalworldSettingField, raw: string | un
     if (field.max != null && value > field.max) return { status: "invalid", raw, reason: `Value is higher than ${field.max}.` };
     return { status: "valid", value, raw };
   }
-  if (field.type === "text") {
+  if (field.type === "text" || field.type === "password") {
     const value = quotedString(raw);
     return value == null ? { status: "invalid", raw, reason: "Expected a quoted string." } : { status: "valid", value, raw };
   }
   if (field.type === "select") {
     const value = quotedString(raw) ?? raw;
     return field.options?.includes(value) ? { status: "valid", value, raw } : { status: "invalid", raw, reason: `Expected one of: ${field.options?.join(", ")}.` };
+  }
+  if (field.type === "multi-select") {
+    const value = tupleOptions(raw, field.options ?? []);
+    return value ? { status: "valid", value, raw } : { status: "invalid", raw, reason: `Expected one or more of: ${field.options?.join(", ")}.` };
   }
   if (validTuple(raw, field.allowEmpty)) return { status: "valid", value: raw, raw };
   return { status: "invalid", raw, reason: field.allowEmpty ? "Expected an empty value or balanced tuple." : "Expected a balanced tuple." };
@@ -246,6 +300,11 @@ export function encodeSettingValue(field: PalworldSettingField, value: unknown):
     if (field.min != null && value < field.min) throw new Error(`${field.label} cannot be lower than ${field.min}.`);
     if (field.max != null && value > field.max) throw new Error(`${field.label} cannot be higher than ${field.max}.`);
     return String(value);
+  }
+  if (field.type === "multi-select") {
+    const options = field.options ?? [];
+    if (!Array.isArray(value) || !value.length || value.some((entry) => typeof entry !== "string" || !options.includes(entry)) || new Set(value).size !== value.length) throw new Error(`${field.label} must include one or more of: ${options.join(", ")}.`);
+    return `(${options.filter((option) => value.includes(option)).join(",")})`;
   }
   if (typeof value !== "string" || value.length > 8_192 || /[\r\n\0]/.test(value)) throw new Error(`${field.label} contains an invalid value.`);
   if (field.type === "select") { if (!field.options?.includes(value)) throw new Error(`${field.label} must be one of: ${field.options?.join(", ")}.`); return value; }

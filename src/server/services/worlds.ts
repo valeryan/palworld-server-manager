@@ -2,7 +2,7 @@ import "server-only";
 import path from "node:path";
 import { access, realpath } from "node:fs/promises";
 import { and, eq, ne } from "drizzle-orm";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { CreateWorldInput, WorldRegistration, WorldView } from "@/contracts/world";
 import { createWorldSchema, parseWorldUpdate, worldRegistrationSchema } from "@/contracts/world";
 import { database } from "@/server/db";
@@ -11,7 +11,7 @@ import { eventBus } from "./events";
 
 type WorldRow = typeof worlds.$inferSelect;
 const PORT_FIELDS = ["gamePort", "queryPort", "restApiPort", "rconPort"] as const;
-const STOP_REQUIRED_FIELDS = ["installDir", "platform", ...PORT_FIELDS, "adminPassword", "serverPassword", "restApiEnabled", "rconEnabled", "communityServer", "legacyPerfFlags", "extraArgs", "env", "wineBinary", "winePrefix", "wineLaunchFlags"] as const;
+const STOP_REQUIRED_FIELDS = ["installDir", "platform", ...PORT_FIELDS, "restApiEnabled", "rconEnabled", "communityServer", "legacyPerfFlags", "extraArgs", "env", "wineBinary", "winePrefix", "wineLaunchFlags"] as const;
 
 function toView(row: WorldRow): WorldView {
   return {
@@ -74,12 +74,11 @@ export async function getWorld(id: string): Promise<WorldView | null> {
 export async function createWorld(raw: unknown): Promise<WorldView> {
   const parsed = createWorldSchema.parse(raw);
   const input = await validateIsolation(parsed);
-  const adminPassword = input.restApiEnabled && !input.adminPassword ? randomBytes(18).toString("base64url") : input.adminPassword;
   const now = Date.now();
   const row: typeof worlds.$inferInsert = {
     id: randomUUID(), displayName: input.displayName, installDir: input.installDir, platform: input.platform,
     gamePort: input.gamePort, queryPort: input.queryPort, restApiPort: input.restApiPort, rconPort: input.rconPort,
-    adminPassword, serverPassword: input.serverPassword, restApiEnabled: input.restApiEnabled,
+    adminPassword: input.adminPassword, serverPassword: input.serverPassword, restApiEnabled: input.restApiEnabled,
     rconEnabled: input.rconEnabled, communityServer: input.communityServer, autostart: input.autostart,
     crashGuard: input.crashGuard, legacyPerfFlags: input.legacyPerfFlags, extraArgs: input.extraArgs,
     environment: input.env, wineBinary: input.wineBinary, winePrefix: input.winePrefix, wineLaunchFlags: input.wineLaunchFlags,

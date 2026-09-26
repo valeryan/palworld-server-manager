@@ -35,17 +35,33 @@ test("adopts and manages an isolated world through critical browser workflows", 
 
   await page.getByRole("link", { name: "Manage", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Automated World", level: 1 })).toBeVisible();
-  for (const tab of ["Overview", "Players", "Deaths", "Console", "Server config", "Backups", "Schedule", "Properties"]) {
+  for (const tab of ["Overview", "Players", "Deaths", "Console", "Settings", "Backups", "Schedule"]) {
     await expect(page.getByRole("button", { name: tab, exact: true })).toBeVisible();
   }
+  await expect(page.getByRole("button", { name: "Properties", exact: true })).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Server config", exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "Server Admin", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Server & Admin", exact: true })).toHaveCount(0);
+  await page.getByRole("tab", { name: "Multiplayer", exact: true }).click();
+  const crossplaySelect = page.getByRole("group", { name: "Crossplay platforms", exact: true });
+  const crossplayLayout = crossplaySelect.locator("xpath=ancestor::div[contains(@class,'structured-layout-item')][1]");
+  await expect(crossplayLayout).toHaveClass(/span-12/);
+  for (const platform of ["Steam", "Xbox", "PS5", "Mac"]) await expect(crossplaySelect.getByRole("button", { name: platform, exact: true })).toHaveAttribute("aria-pressed", "true");
+  await crossplaySelect.getByRole("button", { name: "Xbox", exact: true }).click();
+  await crossplaySelect.getByRole("button", { name: "Mac", exact: true }).click();
+  await expect(crossplaySelect.getByRole("button", { name: "Xbox", exact: true })).toHaveAttribute("aria-pressed", "false");
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect.poll(async () => (await page.request.get(`/api/worlds/${new URL(page.url()).pathname.split("/").at(-1)}/configuration/admin`)).json()).toMatchObject({ configuration: { options: { CrossplayPlatforms: "(Steam,PS5)" } } });
   await page.getByRole("tab", { name: "Gameplay", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Time & Progression" })).toBeVisible();
   const daySpeedHelp = page.getByRole("button", { name: "Help for Day speed" });
   await expect(daySpeedHelp).toBeEnabled();
   await daySpeedHelp.hover();
-  await expect(page.getByRole("tooltip")).toContainText("Higher makes daytime pass faster and become shorter");
+  const daySpeedTooltip = page.getByRole("tooltip");
+  await expect(daySpeedTooltip.locator("strong")).toHaveText("DayTimeSpeedRate");
+  await expect(daySpeedTooltip).toContainText("Higher makes daytime pass faster and become shorter");
+  await expect(page.locator(".setting-label > small")).toHaveCount(0);
   await page.getByRole("button", { name: "Casual PvE", exact: true }).click();
   await expect(page.getByText("Reviewing 4 staged changes")).toBeVisible();
   await expect(page.locator(".structured-field.changed")).toHaveCount(4);
@@ -56,36 +72,43 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await editor.fill('[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(ServerName="Automated E2E",Difficulty=None,ExpRate=2.000000,ServerReplicatePawnCullDistance=NaN)\n');
   await page.getByRole("button", { name: "Save raw settings" }).click();
   await expect(page.getByText("Configuration saved; restart to apply changes")).toBeVisible();
-  await expect(page.getByText("saved", { exact: true })).toBeVisible();
+  await expect(page.getByText("saved", { exact: true }).first()).toBeVisible();
   await page.getByRole("button", { name: "Guided configuration", exact: true }).click();
-  await page.getByRole("tab", { name: "Server & Admin", exact: true }).click();
+  await page.getByRole("tab", { name: "Server Admin", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Community Listing" })).toBeVisible();
+  await expect(page.locator(".service-block")).toHaveCount(2);
+  const descriptionInput = page.getByLabel("Description", { exact: true });
+  const descriptionLayout = descriptionInput.locator("xpath=ancestor::div[contains(@class,'structured-layout-item')][1]");
+  const [descriptionBox, descriptionInputBox] = await Promise.all([descriptionLayout.boundingBox(), descriptionInput.boundingBox()]);
+  expect(descriptionBox && descriptionInputBox && descriptionInputBox.width > descriptionBox.width * 0.8).toBe(true);
+  const communityLayout = page.getByRole("button", { name: "Community server", exact: true }).locator("xpath=ancestor::div[contains(@class,'structured-layout-item')][1]");
+  const publicIpLayout = page.getByLabel("Public IP (for tunnels)", { exact: true }).locator("xpath=ancestor::div[contains(@class,'structured-layout-item')][1]");
+  const publicPortLayout = page.getByLabel("Public port (advertised)", { exact: true }).locator("xpath=ancestor::div[contains(@class,'structured-layout-item')][1]");
+  const [communityBox, publicIpBox, publicPortBox] = await Promise.all([communityLayout.boundingBox(), publicIpLayout.boundingBox(), publicPortLayout.boundingBox()]);
+  expect(communityBox && publicIpBox && publicPortBox && communityBox.y < publicIpBox.y && Math.abs(publicIpBox.y - publicPortBox.y) < 2).toBe(true);
+  await page.getByRole("button", { name: "Help for Game port" }).hover();
+  const gamePortTooltip = page.getByRole("tooltip");
+  await expect(gamePortTooltip.locator("strong")).toHaveText("PSM setting");
+  await expect(gamePortTooltip).toContainText("local UDP listener");
   await expect(page.getByRole("heading", { name: "Performance & Synchronization" })).toBeVisible();
-  const synchronizationDistance = page.locator(".structured-field").filter({ hasText: "ServerReplicatePawnCullDistance" });
+  const synchronizationDistance = page.getByRole("button", { name: "Help for Pal synchronization distance (cm)" }).locator("xpath=ancestor::div[contains(@class,'structured-field')][1]");
   await expect(synchronizationDistance.getByText("NaN", { exact: true })).toBeVisible();
   await expect(synchronizationDistance).toContainText("Expected a valid number");
   await expect(synchronizationDistance.getByRole("button", { name: "Replace with shipped default" })).toBeVisible();
   const publicPort = page.getByLabel("Public port (advertised)", { exact: true });
   await publicPort.fill("49611");
-  const publicPortCard = publicPort.locator("..");
-  const publicPortRevert = publicPortCard.getByRole("button", { name: /Revert to/ });
-  await expect(publicPortRevert).toBeVisible();
+  const publicPortCard = publicPort.locator("xpath=ancestor::label[1]");
   await expect(publicPortCard).toHaveClass(/changed/);
   await expect(page.getByRole("button", { name: "Review changes (1)" })).toBeVisible();
-  const contained = await publicPortCard.evaluate((card) => {
-    const cardBox = card.getBoundingClientRect();
-    const revertBox = card.querySelector(".field-revert")!.getBoundingClientRect();
-    return revertBox.left >= cardBox.left && revertBox.right <= cardBox.right && revertBox.top >= cardBox.top && revertBox.bottom <= cardBox.bottom;
-  });
-  expect(contained).toBe(true);
   await page.getByRole("button", { name: "Save changes" }).click();
-  await expect(page.getByText("Saved 1 setting; restart to apply changes")).toBeVisible();
+  await expect(page.getByText("Saved 1 setting")).toBeVisible();
   const worldId = new URL(page.url()).pathname.split("/").at(-1)!;
   await expect.poll(async () => {
     const response = await page.request.get(`/api/worlds/${worldId}/configuration/admin`);
     return ((await response.json()) as { configuration: { options: Record<string, string> } }).configuration.options.ServerReplicatePawnCullDistance;
   }).toBe("NaN");
-  await page.getByRole("tab", { name: "Server & Admin", exact: true }).click();
-  await page.locator(".structured-field").filter({ hasText: "ServerReplicatePawnCullDistance" }).getByRole("button", { name: "Replace with shipped default" }).click();
+  await page.getByRole("tab", { name: "Server Admin", exact: true }).click();
+  await page.getByRole("button", { name: "Help for Pal synchronization distance (cm)" }).locator("xpath=ancestor::div[contains(@class,'structured-field')][1]").getByRole("button", { name: "Replace with shipped default" }).click();
   await expect(page.getByRole("button", { name: "Review changes (1)" })).toBeVisible();
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect.poll(async () => {
@@ -93,7 +116,7 @@ test("adopts and manages an isolated world through critical browser workflows", 
     return ((await response.json()) as { configuration: { options: Record<string, string> } }).configuration.options.ServerReplicatePawnCullDistance;
   }).toBe("15000.000000");
   await page.reload();
-  await page.getByRole("button", { name: "Server config", exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByPlaceholder("Search settings or keys…").fill("DenyTechnologyList");
   const deniedTechnologies = page.getByLabel("Denied technologies", { exact: true });
   await deniedTechnologies.fill('(TechnologyA,"Technology B")');
@@ -125,28 +148,35 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await page.getByRole("button", { name: "Disable" }).click();
   await expect(page.getByRole("button", { name: "Enable" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Server config", exact: true }).click();
-  await page.getByRole("tab", { name: "Server & Admin", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Security & Server Services" })).toBeVisible();
-  const managedAdmin = page.locator(".admin-managed-settings");
-  await managedAdmin.locator('input[type="password"]').nth(0).fill("temporary-admin-password");
-  await managedAdmin.locator('input[type="password"]').nth(1).fill("temporary-server-password");
-  await page.getByText("REST API", { exact: true }).locator("..").getByRole("button").click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Server Admin", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Access & Security" })).toBeVisible();
+  await page.getByLabel("Administrator password", { exact: true }).fill("temporary-admin-password");
+  await page.getByLabel("Server password", { exact: true }).fill("temporary-server-password");
+  await page.getByRole("button", { name: "REST API", exact: true }).click();
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect.poll(async () => {
     const response = await page.request.get(`/api/worlds/${new URL(page.url()).pathname.split("/").at(-1)}/configuration/admin`);
-    const payload = await response.json() as { admin: { adminPasswordSet: boolean; serverPasswordSet: boolean } };
-    return `${payload.admin.adminPasswordSet}:${payload.admin.serverPasswordSet}`;
-  }).toBe("true:true");
-  await page.getByRole("tab", { name: "Server & Admin", exact: true }).click();
-  await page.getByLabel("Clear stored admin password").check();
-  await page.getByLabel("Clear stored server password").check();
+    const payload = await response.json() as { configuration: { options: Record<string, string> } };
+    return `${payload.configuration.options.AdminPassword}:${payload.configuration.options.ServerPassword}`;
+  }).toBe('"temporary-admin-password":"temporary-server-password"');
+  await page.getByRole("tab", { name: "Server Admin", exact: true }).click();
+  await page.getByRole("button", { name: "Crash recovery", exact: true }).click();
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect.poll(async () => {
     const response = await page.request.get(`/api/worlds/${new URL(page.url()).pathname.split("/").at(-1)}/configuration/admin`);
-    const payload = await response.json() as { admin: { adminPasswordSet: boolean; serverPasswordSet: boolean } };
-    return `${payload.admin.adminPasswordSet}:${payload.admin.serverPasswordSet}`;
-  }).toBe("false:false");
+    const payload = await response.json() as { configuration: { options: Record<string, string> } };
+    return `${payload.configuration.options.AdminPassword}:${payload.configuration.options.ServerPassword}`;
+  }).toBe('"temporary-admin-password":"temporary-server-password"');
+  await page.getByRole("tab", { name: "Server Admin", exact: true }).click();
+  await page.getByLabel("Administrator password", { exact: true }).fill("");
+  await page.getByLabel("Server password", { exact: true }).fill("");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/worlds/${new URL(page.url()).pathname.split("/").at(-1)}/configuration/admin`);
+    const payload = await response.json() as { configuration: { options: Record<string, string> } };
+    return `${payload.configuration.options.AdminPassword}:${payload.configuration.options.ServerPassword}`;
+  }).toBe('"":""');
   await page.getByRole("button", { name: "Raw INI & history", exact: true }).click();
   const reconciledEditor = page.locator(".settings-editor");
   const beforeRawReconcile = await reconciledEditor.inputValue();
@@ -163,17 +193,58 @@ test("adopts and manages an isolated world through critical browser workflows", 
     const response = await page.request.get(`/api/worlds/${new URL(page.url()).pathname.split("/").at(-1)}`);
     return ((await response.json()) as { world: { restApiPort: number } }).world.restApiPort;
   }).toBe(Number(oldRestPort));
-  await page.getByRole("button", { name: "Properties", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Properties" })).toBeVisible();
-  await expect(page.getByLabel("Install directory")).toHaveValue(worldDirectory);
-  await expect(page.locator('select[name="platform"]')).toHaveValue("linux");
-  await page.getByLabel("Display name in PSM").fill("Automated World Renamed");
-  await page.getByRole("button", { name: "Save properties" }).click();
+  await page.getByRole("button", { name: "Guided configuration", exact: true }).click();
+  await page.getByRole("tab", { name: "Server Admin", exact: true }).click();
+  await expect(page.locator(".port-summary")).toContainText("49611");
+  await page.getByLabel("Game port", { exact: true }).fill("39621");
+  await page.getByRole("button", { name: "Community server", exact: true }).click();
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect.poll(async () => {
+    const [worldResponse, adminResponse] = await Promise.all([page.request.get(`/api/worlds/${worldId}`), page.request.get(`/api/worlds/${worldId}/configuration/admin`)]);
+    const world = ((await worldResponse.json()) as { world: { gamePort: number; communityServer: boolean } }).world;
+    const advertised = ((await adminResponse.json()) as { configuration: { advertisedPort: { mode: string; effectivePort: number } } }).configuration.advertisedPort;
+    return `${world.gamePort}:${world.communityServer}:${advertised.mode}:${advertised.effectivePort}`;
+  }).toBe("39621:true:override:49611");
+  await page.getByRole("tab", { name: "Server Admin", exact: true }).click();
+  await page.getByLabel("Game port", { exact: true }).fill("39622");
+  await page.getByLabel("Public port (advertised)", { exact: true }).fill("");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/worlds/${worldId}/configuration/admin`);
+    const payload = await response.json() as { admin: { gamePort: number; communityServer: boolean }; configuration: { advertisedPort: { mode: string; effectivePort: number } } };
+    return `${payload.admin.gamePort}:${payload.admin.communityServer}:${payload.configuration.advertisedPort.mode}:${payload.configuration.advertisedPort.effectivePort}`;
+  }).toBe("39622:true:inherit:39622");
+  await page.getByRole("tab", { name: "Server Admin", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Installation & Launch" })).toBeVisible();
+  await expect(page.getByLabel("Install directory", { exact: true })).toHaveValue(worldDirectory);
+  await expect(page.getByLabel("Platform", { exact: true })).toHaveValue("linux");
+  const versionsBeforePsmSave = ((await (await page.request.get(`/api/worlds/${worldId}/configuration/versions`)).json()) as { versions: unknown[] }).versions.length;
+  await page.getByLabel("Display name", { exact: true }).fill("Automated World Renamed");
+  await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page.getByRole("heading", { name: "Automated World Renamed", level: 1 })).toBeVisible();
   await expect.poll(async () => {
-    const response = await page.request.get(`/api/worlds/${new URL(page.url()).pathname.split("/").at(-1)}/configuration/options`);
-    return ((await response.json()) as { configuration: { options: Record<string, string> } }).configuration.options.PublicPort;
-  }).toBe("49611");
+    const response = await page.request.get(`/api/worlds/${new URL(page.url()).pathname.split("/").at(-1)}/configuration/admin`);
+    const advertised = ((await response.json()) as { configuration: { advertisedPort: { mode: string; effectivePort: number } } }).configuration.advertisedPort;
+    return `${advertised.mode}:${advertised.effectivePort}`;
+  }).toBe("inherit:39622");
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/worlds/${worldId}`);
+    return ((await response.json()) as { world: { communityServer: boolean } }).world.communityServer;
+  }).toBe(true);
+  await expect.poll(async () => ((await (await page.request.get(`/api/worlds/${worldId}/configuration/versions`)).json()) as { versions: unknown[] }).versions.length).toBe(versionsBeforePsmSave);
+  await page.getByRole("tab", { name: "Server Admin", exact: true }).click();
+  const serverName = page.getByLabel("Server name", { exact: true });
+  const displayName = page.getByLabel("Display name", { exact: true });
+  await displayName.fill("");
+  await serverName.fill("Inherited Server Name");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(page.getByRole("heading", { name: "Inherited Server Name", level: 1 })).toBeVisible();
+  await page.getByRole("tab", { name: "Server Admin", exact: true }).click();
+  await expect(page.getByLabel("Display name", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("Display name", { exact: true })).toHaveAttribute("placeholder", "Inherited Server Name");
+  await page.getByLabel("Server name", { exact: true }).fill("Followed Server Name");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(page.getByRole("heading", { name: "Followed Server Name", level: 1 })).toBeVisible();
 
   await page.getByRole("button", { name: "Start", exact: true }).click();
   await waitForLatestJob(page, "start");
@@ -187,4 +258,14 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await waitForLatestJob(page, "stop");
   await page.reload();
   await expect(page.getByText("Stopped", { exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
+  for (const setting of ["Close to system tray", "Launch at login", "Manager web port", "History and log retention", "Authenticated remote administration", "Language", "Manager data"]) {
+    await expect(page.getByRole("button", { name: `Help for ${setting}` })).toBeVisible();
+  }
+  await page.getByRole("button", { name: "Help for Completed operations" }).hover();
+  const retentionTooltip = page.getByRole("tooltip");
+  await expect(retentionTooltip.locator("strong")).toHaveText("Completed operations");
+  await expect(retentionTooltip).toContainText("Maximum number of completed operation records");
+  await expect(page.locator(".launch-option-grid small, .custom-launch-flags small, .retention-footer small, .language-control > small")).toHaveCount(0);
 });

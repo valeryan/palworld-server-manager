@@ -1,12 +1,15 @@
 import "server-only";
 import type { WorldView } from "@/contracts/world";
+import { readConfigurationCredentials } from "./configuration";
 
 async function request(world: WorldView, method: string, endpoint: string, body?: unknown, timeoutMs = 5_000): Promise<unknown> {
   if (!world.restApiEnabled) throw new Error("REST API is disabled for this world.");
+  const { adminPassword } = await readConfigurationCredentials(world.id);
+  if (!adminPassword) throw new Error("Set an administrator password before using the Palworld REST API.");
   const response = await fetch(`http://127.0.0.1:${world.restApiPort}/v1/api/${endpoint}`, {
     method,
     signal: AbortSignal.timeout(timeoutMs),
-    headers: { Authorization: `Basic ${Buffer.from(`admin:${world.adminPassword}`).toString("base64")}`, Accept: "application/json", ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
+    headers: { Authorization: `Basic ${Buffer.from(`admin:${adminPassword}`).toString("base64")}`, Accept: "application/json", ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const responseText = await response.text();

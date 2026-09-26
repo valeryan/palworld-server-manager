@@ -4,11 +4,51 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { and, desc, eq } from "drizzle-orm";
 import { database } from "@/server/db";
-import { configVersions, events, worlds } from "@/server/db/schema";
+import { configVersions, events } from "@/server/db/schema";
 import type { UpdateWorldInput, WorldView } from "@/contracts/world";
 import { decodeDefaultSettingValue, PALWORLD_MANAGER_SETTING_KEYS, PALWORLD_SETTING_FIELD_MAP } from "@/contracts/palworld-settings";
 import { getWorld, updateWorld } from "./worlds";
 import { pruneConfigurationVersions } from "./retention";
+
+export type AdvertisedPortState =
+  | { mode: "inherit"; effectivePort: number }
+  | { mode: "override"; effectivePort: number }
+  | { mode: "invalid"; raw: string; effectivePort: number };
+
+export function advertisedPortState(raw: string | undefined, gamePort: number): AdvertisedPortState {
+  if (raw == null) return { mode: "inherit", effectivePort: gamePort };
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1 || value > 65535) return { mode: "invalid", raw, effectivePort: gamePort };
+  return value === gamePort ? { mode: "inherit", effectivePort: gamePort } : { mode: "override", effectivePort: value };
+}
+
+export function managedPublicPortChange(previous: AdvertisedPortState, previousGamePort: number, nextGamePort: number, override: number | null | undefined, overrideProvided: boolean): string | undefined {
+  if (overrideProvided) return String(override ?? nextGamePort);
+  if (previous.mode === "inherit" && previousGamePort !== nextGamePort) return String(nextGamePort);
+  return undefined;
+}
+
+function optionalConfigurationString(raw: string | undefined): string | undefined {
+  if (raw == null) return undefined;
+  try { const value: unknown = JSON.parse(raw); return typeof value === "string" && value.trim() ? value.trim() : undefined; }
+  catch { return undefined; }
+}
+
+export function managedDisplayNameChange(previousDisplayName: string, previousRawServerName: string | undefined, nextRawServerName: string | undefined, override: string | null | undefined, overrideProvided: boolean): string | undefined {
+  const previousServerName = optionalConfigurationString(previousRawServerName);
+  const nextServerName = optionalConfigurationString(nextRawServerName);
+  if (overrideProvided) {
+    const value = override?.trim() || nextServerName;
+    if (!value) throw new Error("Display Name cannot inherit until Server Name has a valid value.");
+    if (value.length > 80) throw new Error("Display Name cannot exceed 80 characters; set a shorter Display Name override.");
+    return value;
+  }
+  if (previousServerName && nextServerName && previousDisplayName === previousServerName && previousServerName !== nextServerName) {
+    if (nextServerName.length > 80) throw new Error("Display Name cannot exceed 80 characters; set a shorter Display Name override.");
+    return nextServerName;
+  }
+  return undefined;
+}
 
 function configPath(installDir: string, platform: "linux" | "windows") {
   return path.join(installDir, "Pal", "Saved", "Config", platform === "windows" ? "WindowsServer" : "LinuxServer", "PalWorldSettings.ini");
@@ -81,8 +121,6 @@ export function managedWorldChangesFromConfiguration(content: string, world: Wor
   const assign = <K extends keyof UpdateWorldInput>(key: K, value: UpdateWorldInput[K]) => {
     if (JSON.stringify(world[key as keyof WorldView]) !== JSON.stringify(value)) patch[key] = value;
   };
-  if (Object.hasOwn(options, "AdminPassword")) assign("adminPassword", decodeConfigurationString(options.AdminPassword!, "AdminPassword"));
-  if (Object.hasOwn(options, "ServerPassword")) assign("serverPassword", decodeConfigurationString(options.ServerPassword!, "ServerPassword"));
   for (const [optionKey, worldKey] of [["RESTAPIEnabled", "restApiEnabled"], ["RCONEnabled", "rconEnabled"]] as const) {
     if (!Object.hasOwn(options, optionKey)) continue;
     const value = options[optionKey]!.toLowerCase();
@@ -96,6 +134,18 @@ export function managedWorldChangesFromConfiguration(content: string, world: Wor
     assign(worldKey, value);
   }
   return patch;
+}
+
+export function configurationCredentials(content: string) {
+  const options = parseConfigurationOptions(content);
+  return {
+    adminPassword: Object.hasOwn(options, "AdminPassword") ? decodeConfigurationString(options.AdminPassword!, "AdminPassword") : "",
+    serverPassword: Object.hasOwn(options, "ServerPassword") ? decodeConfigurationString(options.ServerPassword!, "ServerPassword") : "",
+  };
+}
+
+export async function readConfigurationCredentials(worldId: string) {
+  return configurationCredentials((await readConfiguration(worldId)).content);
 }
 
 async function reconcileManagedWorldConfiguration(worldId: string, content: string) {
@@ -117,10 +167,10 @@ async function writeAtomic(filePath: string, content: string) {
 export async function readConfiguration(worldId: string) {
   const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
   const filePath = configPath(world.installDir, world.platform);
-  try { return { path: filePath, exists: true, content: await readFile(filePath, "utf8"), running: world.status === "running" }; }
+  try { const content = await readFile(filePath, "utf8"); return { path: filePath, exists: true, content, running: world.status === "running", advertisedPort: advertisedPortState(parseConfigurationOptions(content).PublicPort, world.gamePort) }; }
   catch {
-    try { return { path: filePath, exists: false, content: await readFile(defaultConfigurationPath(world.installDir), "utf8"), running: world.status === "running" }; }
-    catch { return { path: filePath, exists: false, content: "", running: world.status === "running" }; }
+    try { return { path: filePath, exists: false, content: await readFile(defaultConfigurationPath(world.installDir), "utf8"), running: world.status === "running", advertisedPort: advertisedPortState(undefined, world.gamePort) }; }
+    catch { return { path: filePath, exists: false, content: "", running: world.status === "running", advertisedPort: advertisedPortState(undefined, world.gamePort) }; }
   }
 }
 
@@ -164,6 +214,7 @@ export async function readConfigurationOptions(worldId: string) {
     shippedDefaults,
     schemaWarnings: { unknownActiveKeys, unknownDefaultKeys, missingDefaultKeys },
     restartRequired,
+    advertisedPort: configuration.advertisedPort,
   };
 }
 
@@ -193,7 +244,7 @@ export async function saveConfigurationOptions(worldId: string, changes: Record<
 }
 
 type ManagedConfigurationOptions = { syncPublicPort?: boolean };
-const managedConfigurationWorldFields = new Set(["adminPassword", "serverPassword", "restApiEnabled", "restApiPort", "rconEnabled", "rconPort"]);
+const managedConfigurationWorldFields = new Set(["restApiEnabled", "restApiPort", "rconEnabled", "rconPort"]);
 
 export function needsManagedConfigurationSync(input: unknown): boolean {
   return Boolean(input && typeof input === "object" && !Array.isArray(input) && Object.keys(input).some((key) => managedConfigurationWorldFields.has(key)));
@@ -210,21 +261,11 @@ export function managedConfigurationChanges(world: WorldView, options: ManagedCo
   // the local game listener. Seed it for new installs and update it only when
   // the manager-owned game port itself changes, preserving tunnel/NAT values.
   if (options.syncPublicPort) changes.PublicPort = String(world.gamePort);
-  // An empty registry credential commonly means “not imported”, not “erase the
-  // working game credential”. Explicit credential clearing belongs in its own UI.
-  if (world.adminPassword) changes.AdminPassword = JSON.stringify(world.adminPassword);
-  if (world.serverPassword) changes.ServerPassword = JSON.stringify(world.serverPassword);
   return changes;
 }
 
 export async function syncManagedConfiguration(worldId: string, options: ManagedConfigurationOptions = {}) {
-  let world = await getWorld(worldId); if (!world) throw new Error("World not found.");
-  if (world.restApiEnabled && !world.adminPassword) {
-    const adminPassword = randomBytes(18).toString("base64url");
-    await database().update(worlds).set({ adminPassword, updatedAt: Date.now() }).where(eq(worlds.id, worldId));
-    await database().insert(events).values({ worldId, kind: "settings", message: "Generated the missing REST administrator credential", createdAt: Date.now() });
-    world = { ...world, adminPassword };
-  }
+  const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
   const configuration = await readConfiguration(worldId);
   let source = configuration.content;
   let initialized = !configuration.exists;
@@ -235,7 +276,12 @@ export async function syncManagedConfiguration(worldId: string, options: Managed
     catch { return { synchronized: false, initialized: false, reason: "The shipped default configuration is not available yet." }; }
   }
   if (!source) return { synchronized: false, initialized: false, reason: "PalWorldSettings.ini is not available yet." };
-  let content = applyConfigurationOptions(source, managedConfigurationChanges(world, { syncPublicPort: initialized || options.syncPublicPort }));
+  const changes = managedConfigurationChanges(world, { syncPublicPort: initialized || options.syncPublicPort });
+  if (initialized && world.restApiEnabled) {
+    const current = configurationCredentials(source).adminPassword;
+    if (!current) changes.AdminPassword = JSON.stringify(randomBytes(18).toString("base64url"));
+  }
+  let content = applyConfigurationOptions(source, changes);
   if (initialized) {
     // Match the established PSM behavior: use the shipped template as data, not
     // as the active file verbatim. This drops its instructional comments and

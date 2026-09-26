@@ -39,12 +39,26 @@ describe("language packs", () => {
     expect(fieldKeys.every((key) => `palworld.field.${key}.hint` in translations)).toBe(true);
     const groupIds = PALWORLD_SETTING_TABS.flatMap((tab) => [tab.id, ...tab.sections.map((section) => section.id)]);
     expect(new Set(groupIds).size).toBe(groupIds.length);
+    const managerHelpKeys = [
+      "managerProperties.displayNameHelp", "managerProperties.locationHelp", "properties.platformHelp",
+      "properties.gamePortHelp", "properties.queryPortHelp", "properties.publicPortHelp", "properties.communityHelp",
+      "properties.autostartHelp", "properties.crashRecoveryHelp", "properties.performanceHelp", "properties.extraArgsHelp",
+      "properties.environmentHelp", "properties.wineBinaryHelp", "properties.winePrefixHelp", "properties.wineFlagsHelp",
+      "properties.restApiHelp", "properties.restPortHelp", "properties.rconHelp", "properties.rconPortHelp",
+    ];
+    expect(managerHelpKeys.filter((key) => !(key in translations))).toEqual([]);
+    const applicationHelpKeys = [
+      "settings.port.labelHelp", "settings.language.labelHelp",
+      ...["operationDays", "operationCount", "operationLines", "activityDays", "activityCount", "logFiles", "configVersions"].map((key) => `settings.retention.${key}Help`),
+      ...["binding", "address", "create", "person", "worldAccess", "permissions", "codes"].map((key) => `remoteSettings.${key}Help`),
+    ];
+    expect(applicationHelpKeys.filter((key) => !(key in translations))).toEqual([]);
   });
 
   it("covers every dynamic UI key family", () => {
     const keys = [
       ...["stopped", "starting", "running", "stopping", "crashed", "unknown"].map((value) => `status.${value}`),
-      ...["overview", "players", "deaths", "console", "settings", "backups", "schedule", "admin"].map((value) => `world.tab.${value}`),
+      ...["overview", "players", "deaths", "console", "settings", "backups", "schedule"].map((value) => `world.tab.${value}`),
       ...["view", "lifecycle", "players", "messages"].map((value) => `remoteSettings.permission.${value}`),
       ...["start", "stop", "restart", "autostart", "crash-recovery", "install", "update", "check-update", "backup", "restore", "scheduled-backup", "scheduled-restart", "scheduled-stop", "scheduled-update", "scheduled-system-message", "scheduled-onscreen-notice", "scheduled-custom-http", "scheduled-idle-stop"].flatMap((value) => [`jobs.kind.${value}`, `jobs.starting.${value}`, `jobs.success.${value}`]),
     ];
