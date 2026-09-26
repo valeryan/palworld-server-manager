@@ -16,7 +16,7 @@ function createDatabase() {
     if (existsSync(/* turbopackIgnore: true */ relatedPath)) chmodSync(/* turbopackIgnore: true */ relatedPath, 0o600);
   }
   const database = drizzle({ client });
-  migrate(database, { migrationsFolder: path.join(process.cwd(), "drizzle") });
+  migrate(database, { migrationsFolder: path.join(/* turbopackIgnore: true */ process.cwd(), "drizzle") });
   return { database, client, databasePath };
 }
 type DatabaseBundle = ReturnType<typeof createDatabase>;

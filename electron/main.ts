@@ -24,7 +24,8 @@ if (sandboxNeedsCompatibility()) { app.commandLine.appendSwitch("no-sandbox"); a
 const isDev = Boolean(process.env.ELECTRON_START_URL); const token = randomBytes(32).toString("hex");
 const startHidden = process.argv.includes("--hidden");
 let window: BrowserWindow | null = null; let tray: Tray | null = null; let server: ChildProcess | null = null; let serverFailure: string | null = null; let quitting = false;
-if (process.env.PORTABLE_EXECUTABLE_DIR) { const portable = path.join(process.env.PORTABLE_EXECUTABLE_DIR, "PSM-Data"); mkdirSync(portable, { recursive: true }); app.setPath("userData", portable); }
+if (isDev && process.env.PALWORLD_MANAGER_DATA_DIR) { const developmentProfile = path.resolve(process.env.PALWORLD_MANAGER_DATA_DIR, "electron"); mkdirSync(developmentProfile, { recursive: true }); app.setPath("userData", developmentProfile); }
+else if (process.env.PORTABLE_EXECUTABLE_DIR) { const portable = path.join(process.env.PORTABLE_EXECUTABLE_DIR, "PSM-Data"); mkdirSync(portable, { recursive: true }); app.setPath("userData", portable); }
 const dataDir = () => app.getPath("userData"); const log = (message: string) => { try { appendFileSync(path.join(dataDir(), "launcher-v3.log"), `[${new Date().toISOString()}] ${message}\n`); } catch {} };
 const preferencePath = () => path.join(dataDir(), "desktop-preferences.json");
 type ManagerHost = "127.0.0.1" | "0.0.0.0";
