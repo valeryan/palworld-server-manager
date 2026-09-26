@@ -98,9 +98,12 @@
         "AppImage"
       ],
       "artifactName": "Palworld-Server-Manager-${version}-${arch}.${ext}",
-      "icon": "public/icon.png",
+      "icon": "public/spheres/pal-server-normal.png",
       "category": "Game",
       "syncDesktopName": true
+    },
+    "win": {
+      "icon": "public/spheres/pal-server-normal.ico"
     },
     "compression": "maximum",
     "electronLanguages": [

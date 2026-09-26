@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { desktopIconPath } from "../electron/desktop-icon";
 import { isSupersededNavigation } from "../electron/navigation";
 import { launchAtLoginArguments, normalizeManagerPort, parseCustomLaunchFlags, validateManagerPort } from "../electron/launch-options";
 
@@ -12,6 +13,26 @@ describe("Electron navigation errors", () => {
   it("does not suppress genuine startup failures", () => {
     expect(isSupersededNavigation(new Error("ERR_CONNECTION_REFUSED (-102)"))).toBe(false);
     expect(isSupersededNavigation("ERR_ABORTED (-3)")).toBe(false);
+  });
+});
+
+describe("Electron desktop icons", () => {
+  it("uses the development artwork only for development launches", () => {
+    expect(desktopIconPath({ isDevelopment: true, platform: "linux", developmentRoot: "/workspace", resourcesPath: "/resources" })).toBe(
+      "/workspace/public/spheres/pal-server-dev.png",
+    );
+    expect(desktopIconPath({ isDevelopment: false, platform: "linux", developmentRoot: "/workspace", resourcesPath: "/resources" })).toBe(
+      "/resources/app/public/spheres/pal-server-normal.png",
+    );
+  });
+
+  it("selects ICO artwork for Windows", () => {
+    expect(desktopIconPath({ isDevelopment: true, platform: "win32", developmentRoot: "C:\\workspace", resourcesPath: "C:\\resources" })).toMatch(
+      /pal-server-dev\.ico$/,
+    );
+    expect(desktopIconPath({ isDevelopment: false, platform: "win32", developmentRoot: "C:\\workspace", resourcesPath: "C:\\resources" })).toMatch(
+      /pal-server-normal\.ico$/,
+    );
   });
 });
 

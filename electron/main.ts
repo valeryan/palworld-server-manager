@@ -5,6 +5,7 @@ import { request } from "node:http";
 import { networkInterfaces } from "node:os";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
+import { desktopIconPath } from "./desktop-icon";
 import { isSupersededNavigation } from "./navigation";
 import { defaultLaunchAtLoginOptions, defaultManagerPort, launchAtLoginArguments, normalizeLaunchAtLoginOptions, normalizeManagerPort, parseCustomLaunchFlags, validateManagerPort, type LaunchAtLoginOptions } from "./launch-options";
 
@@ -69,7 +70,7 @@ function startServer() {
 
 function ping(): Promise<boolean> { return new Promise((resolve) => { const req = request({ hostname: "127.0.0.1", port, path: "/", method: "HEAD", timeout: 1_000 }, (response) => { response.destroy(); resolve(true); }); req.on("error", () => resolve(false)); req.on("timeout", () => { req.destroy(); resolve(false); }); req.end(); }); }
 async function waitForServer() { const deadline = Date.now() + 60_000; while (Date.now() < deadline) { if (serverFailure) throw new Error(serverFailure); if (await ping()) return; await new Promise((resolve) => setTimeout(resolve, 350)); } throw new Error(`The bundled web server did not answer on port ${port} within 60 seconds.`); }
-function iconPath() { return isDev ? path.join(__dirname, "..", "public", "icon.png") : path.join(process.resourcesPath, "app", "public", "icon.png"); }
+function iconPath() { return desktopIconPath({ isDevelopment: isDev, platform: process.platform, developmentRoot: path.join(__dirname, ".."), resourcesPath: process.resourcesPath }); }
 
 async function createWindow(show = true) {
   if (window) { if (show) { window.show(); window.focus(); } return; }
