@@ -20,6 +20,7 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await authenticate(page);
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Palworld servers" })).toBeVisible();
+  await expect(page.locator(".development-indicator")).toHaveCount(0);
 
   await page.getByRole("button", { name: "+ New world" }).click();
   await page.getByRole("button", { name: /Use existing server/ }).click();
