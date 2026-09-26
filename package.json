@@ -1,6 +1,6 @@
 {
   "name": "palworld-server-manager-next",
-  "version": "3.0.0-alpha.1",
+  "version": "1.0.0-alpha.1",
   "description": "A modern multi-world Palworld dedicated server manager",
   "author": "Palworld Server Manager",
   "desktopName": "palworld-server-manager.desktop",
@@ -97,7 +97,7 @@
       "target": [
         "AppImage"
       ],
-      "artifactName": "psm-next.AppImage",
+      "artifactName": "Palworld-Server-Manager-${version}-${arch}.${ext}",
       "icon": "public/icon.png",
       "category": "Game",
       "syncDesktopName": true

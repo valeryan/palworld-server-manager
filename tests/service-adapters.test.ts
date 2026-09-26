@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer, type Server } from "node:net";
@@ -46,6 +46,11 @@ describe("service boundaries with isolated fakes", () => {
       import("@/server/services/worlds"), import("@/server/services/processes"),
     ]);
     const world = await createWorld({ displayName: "Fake process", installDir, gamePort: 39111, queryPort: 39112, restApiPort: 39113, rconPort: 39114, restApiEnabled: false, crashGuard: false });
+    if (process.platform !== "win32") {
+      for (const suffix of ["", "-wal", "-shm"]) {
+        expect((await stat(`${process.env.PALWORLD_MANAGER_DB}${suffix}`)).mode & 0o777).toBe(0o600);
+      }
+    }
     processWorldId = world.id;
     await startWorld(world.id);
     const running = await getWorld(world.id);
