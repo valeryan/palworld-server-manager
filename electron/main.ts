@@ -5,6 +5,7 @@ import { request } from "node:http";
 import { networkInterfaces } from "node:os";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
+import { desktopIconPath } from "./desktop-icon";
 import { isSupersededNavigation } from "./navigation";
 import { defaultLaunchAtLoginOptions, defaultManagerPort, launchAtLoginArguments, normalizeLaunchAtLoginOptions, normalizeManagerPort, parseCustomLaunchFlags, validateManagerPort, type LaunchAtLoginOptions } from "./launch-options";
 
@@ -21,10 +22,11 @@ function sandboxNeedsCompatibility(): boolean {
 }
 if (sandboxNeedsCompatibility()) { app.commandLine.appendSwitch("no-sandbox"); app.commandLine.appendSwitch("no-zygote"); }
 
-const isDev = Boolean(process.env.ELECTRON_START_URL); const token = randomBytes(32).toString("hex");
+const isDev = Boolean(process.env.ELECTRON_START_URL); const developmentUrl = isDev ? new URL(process.env.ELECTRON_START_URL!) : null; const token = randomBytes(32).toString("hex");
 const startHidden = process.argv.includes("--hidden");
 let window: BrowserWindow | null = null; let tray: Tray | null = null; let server: ChildProcess | null = null; let serverFailure: string | null = null; let quitting = false;
-if (process.env.PORTABLE_EXECUTABLE_DIR) { const portable = path.join(process.env.PORTABLE_EXECUTABLE_DIR, "PSM-Data"); mkdirSync(portable, { recursive: true }); app.setPath("userData", portable); }
+if (isDev && process.env.PALWORLD_MANAGER_DATA_DIR) { const developmentProfile = path.resolve(process.env.PALWORLD_MANAGER_DATA_DIR, "electron"); mkdirSync(developmentProfile, { recursive: true }); app.setPath("userData", developmentProfile); }
+else if (process.env.PORTABLE_EXECUTABLE_DIR) { const portable = path.join(process.env.PORTABLE_EXECUTABLE_DIR, "PSM-Data"); mkdirSync(portable, { recursive: true }); app.setPath("userData", portable); }
 const dataDir = () => app.getPath("userData"); const log = (message: string) => { try { appendFileSync(path.join(dataDir(), "launcher-v3.log"), `[${new Date().toISOString()}] ${message}\n`); } catch {} };
 const preferencePath = () => path.join(dataDir(), "desktop-preferences.json");
 type ManagerHost = "127.0.0.1" | "0.0.0.0";
@@ -32,7 +34,7 @@ type DesktopPreferences = { closeToTray: boolean; launchAtLogin: boolean; launch
 function normalizeManagerHost(value: unknown): ManagerHost { return value === "0.0.0.0" ? value : "127.0.0.1"; }
 function preferences(): DesktopPreferences { try { const saved = JSON.parse(readFileSync(preferencePath(), "utf8")); return { closeToTray: saved.closeToTray !== false, launchAtLogin: saved.launchAtLogin === true, launchOptions: normalizeLaunchAtLoginOptions(saved.launchOptions), managerPort: normalizeManagerPort(saved.managerPort), managerHost: normalizeManagerHost(saved.managerHost) }; } catch { return { closeToTray: true, launchAtLogin: false, launchOptions: defaultLaunchAtLoginOptions, managerPort: defaultManagerPort, managerHost: "127.0.0.1" }; } }
 function writePreferences(patch: Partial<DesktopPreferences>) { mkdirSync(dataDir(), { recursive: true }); writeFileSync(preferencePath(), JSON.stringify({ ...preferences(), ...patch }, null, 2)); }
-const port = process.env.PSM_PORT ? validateManagerPort(process.env.PSM_PORT) : preferences().managerPort;
+const port = developmentUrl ? validateManagerPort(developmentUrl.port || "80") : process.env.PSM_PORT ? validateManagerPort(process.env.PSM_PORT) : preferences().managerPort;
 function remoteAccessEnabled(): boolean { try { return JSON.parse(readFileSync(path.join(dataDir(), "remote-access.json"), "utf8")).enabled === true; } catch { return false; } }
 const host: ManagerHost = process.env.PSM_HOST === "0.0.0.0" ? "0.0.0.0" : remoteAccessEnabled() ? preferences().managerHost : "127.0.0.1";
 function linuxAutostartPath() { return path.join(app.getPath("home"), ".config", "autostart", "com.palworld.servermanager.next.desktop"); }
@@ -66,9 +68,9 @@ function startServer() {
   server.on("error", (error) => { serverFailure = error.message; log(`Web server error: ${error.message}`); }); server.on("exit", (code) => { if (!quitting) serverFailure = `The bundled web server exited during startup (${code ?? "unknown status"}). The manager port ${port} may already be in use.`; log(`Web server exited: ${code}`); });
 }
 
-function ping(): Promise<boolean> { return new Promise((resolve) => { const req = request({ hostname: "127.0.0.1", port, path: "/", method: "HEAD", timeout: 1_000 }, (response) => { response.destroy(); resolve(true); }); req.on("error", () => resolve(false)); req.on("timeout", () => { req.destroy(); resolve(false); }); req.end(); }); }
+function ping(): Promise<boolean> { return new Promise((resolve) => { const req = developmentUrl ? request(developmentUrl, { method: "HEAD", timeout: 1_000 }, (response) => { response.destroy(); resolve(true); }) : request({ hostname: "127.0.0.1", port, path: "/", method: "HEAD", timeout: 1_000 }, (response) => { response.destroy(); resolve(true); }); req.on("error", () => resolve(false)); req.on("timeout", () => { req.destroy(); resolve(false); }); req.end(); }); }
 async function waitForServer() { const deadline = Date.now() + 60_000; while (Date.now() < deadline) { if (serverFailure) throw new Error(serverFailure); if (await ping()) return; await new Promise((resolve) => setTimeout(resolve, 350)); } throw new Error(`The bundled web server did not answer on port ${port} within 60 seconds.`); }
-function iconPath() { return isDev ? path.join(__dirname, "..", "public", "icon.png") : path.join(process.resourcesPath, "app", "public", "icon.png"); }
+function iconPath() { return desktopIconPath({ isDevelopment: isDev, platform: process.platform, developmentRoot: path.join(__dirname, ".."), resourcesPath: process.resourcesPath }); }
 
 async function createWindow(show = true) {
   if (window) { if (show) { window.show(); window.focus(); } return; }
@@ -81,8 +83,8 @@ async function createWindow(show = true) {
   created.on("close", (event) => { if (!quitting && tray && preferences().closeToTray) { event.preventDefault(); created.hide(); } });
   created.on("closed", () => { if (window === created) window = null; });
   if (show) created.once("ready-to-show", () => { if (!created.isDestroyed()) { created.show(); created.focus(); } });
-  const url = process.env.ELECTRON_START_URL || `http://127.0.0.1:${port}`;
-  await created.webContents.session.cookies.set({ url: `http://127.0.0.1:${port}`, name: "psm_admin", value: token, httpOnly: true, sameSite: "lax" });
+  const url = developmentUrl?.toString() || `http://127.0.0.1:${port}`;
+  await created.webContents.session.cookies.set({ url: developmentUrl?.origin || `http://127.0.0.1:${port}`, name: "psm_admin", value: token, httpOnly: true, sameSite: "lax" });
   try {
     await created.loadURL(url);
   } catch (error) {

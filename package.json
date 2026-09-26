@@ -9,10 +9,10 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n web,electron -c cyan,magenta \"npm:dev:web\" \"npm:dev:electron\"",
-    "dev:web": "next dev -p 4318",
-    "dev:electron": "npm run build:electron && wait-on tcp:127.0.0.1:4318 && cross-env ELECTRON_START_URL=http://127.0.0.1:4318 PALWORLD_MANAGER_DATA_DIR=.data-next electron .",
+    "dev:web": "node scripts/start-development-web.mjs",
+    "dev:electron": "npm run build:electron && node scripts/start-development-electron.mjs",
     "build": "npm run build:web && npm run build:electron",
-    "build:web": "next build",
+    "build:web": "node scripts/clean-web-build-artifacts.mjs && next build",
     "build:electron": "tsup",
     "prepare:standalone": "node scripts/prepare-standalone.mjs",
     "start": "next start -p 4318",
@@ -25,6 +25,7 @@
     "test:e2e:electron": "npm run pack && playwright test --project=packaged-electron",
     "test:guarded": "tsx scripts/guard-source-trees.ts",
     "rehearse:import": "tsx scripts/rehearse-production-import.ts",
+    "audit:settings-fixture": "tsx scripts/audit-palworld-settings.ts",
     "db:generate": "drizzle-kit generate",
     "clone:dev-data": "tsx scripts/clone-development-data.ts",
     "pack": "npm run build && npm run prepare:standalone && electron-builder --dir",
@@ -59,7 +60,6 @@
     "@types/react-dom": "^19",
     "@vitest/coverage-v8": "^5.0.1",
     "concurrently": "^10.0.5",
-    "cross-env": "^10.1.0",
     "drizzle-kit": "^1.0.0-rc.4",
     "electron": "^44.4.3",
     "electron-builder": "^26.15.3",
@@ -70,8 +70,7 @@
     "tsup": "^8.5.1",
     "tsx": "^4.23.14",
     "typescript": "^5",
-    "vitest": "^5.0.1",
-    "wait-on": "^9.1.0"
+    "vitest": "^5.0.1"
   },
   "engines": {
     "node": ">=24 <25",
@@ -98,9 +97,12 @@
         "AppImage"
       ],
       "artifactName": "Palworld-Server-Manager-${version}-${arch}.${ext}",
-      "icon": "public/icon.png",
+      "icon": "public/icons/app.png",
       "category": "Game",
       "syncDesktopName": true
+    },
+    "win": {
+      "icon": "public/icons/app.ico"
     },
     "compression": "maximum",
     "electronLanguages": [

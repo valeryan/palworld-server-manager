@@ -7,6 +7,7 @@ import { Providers } from "@/components/providers";
 export const metadata: Metadata = {
   title: "Palworld Server Manager",
   description: "Manage multiple Palworld dedicated servers",
+  icons: { icon: process.env.NODE_ENV === "development" ? "/icons/app-dev.ico" : "/icons/app.ico" },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { languagePackSchema } from "@/contracts/localization";
+import { PALWORLD_SETTING_FIELDS, PALWORLD_SETTING_TABS } from "@/contracts/palworld-settings";
 import { englishGuidedSettingTranslations } from "@/lib/localization-resources";
 
 function sourceFiles(directory: string): string[] {
@@ -30,6 +31,14 @@ describe("language packs", () => {
       }
     }
     expect([...missing].sort()).toEqual([]);
+  });
+
+  it("provides administrator guidance for every guided Palworld setting", () => {
+    const fieldKeys = PALWORLD_SETTING_FIELDS.map((field) => field.key).sort();
+    expect(PALWORLD_SETTING_FIELDS.every((field) => field.help.length >= 30)).toBe(true);
+    expect(fieldKeys.every((key) => `palworld.field.${key}.hint` in translations)).toBe(true);
+    const groupIds = PALWORLD_SETTING_TABS.flatMap((tab) => [tab.id, ...tab.sections.map((section) => section.id)]);
+    expect(new Set(groupIds).size).toBe(groupIds.length);
   });
 
   it("covers every dynamic UI key family", () => {

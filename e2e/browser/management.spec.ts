@@ -20,6 +20,7 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await authenticate(page);
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Palworld servers" })).toBeVisible();
+  await expect(page.locator(".development-indicator")).toHaveCount(0);
 
   await page.getByRole("button", { name: "+ New world" }).click();
   await page.getByRole("button", { name: /Use existing server/ }).click();
@@ -39,18 +40,68 @@ test("adopts and manages an isolated world through critical browser workflows", 
   }
 
   await page.getByRole("button", { name: "Server config", exact: true }).click();
+  await page.getByRole("tab", { name: "Gameplay", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Time & Progression" })).toBeVisible();
+  const daySpeedHelp = page.getByRole("button", { name: "Help for Day speed" });
+  await expect(daySpeedHelp).toBeEnabled();
+  await daySpeedHelp.hover();
+  await expect(page.getByRole("tooltip")).toContainText("Higher makes daytime pass faster and become shorter");
+  await page.getByRole("button", { name: "Casual PvE", exact: true }).click();
+  await expect(page.getByText("Reviewing 4 staged changes")).toBeVisible();
+  await expect(page.locator(".structured-field.changed")).toHaveCount(4);
+  await page.getByRole("button", { name: "Discard", exact: true }).click();
   await page.getByRole("button", { name: "Raw INI & history" }).click();
   const editor = page.locator(".settings-editor");
   await expect(editor).toContainText("E2E World");
-  await editor.fill('[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(ServerName="Automated E2E",Difficulty=None,ExpRate=2.000000)\n');
+  await editor.fill('[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(ServerName="Automated E2E",Difficulty=None,ExpRate=2.000000,ServerReplicatePawnCullDistance=NaN)\n');
   await page.getByRole("button", { name: "Save raw settings" }).click();
   await expect(page.getByText("Configuration saved; restart to apply changes")).toBeVisible();
   await expect(page.getByText("saved", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Guided configuration", exact: true }).click();
-  await page.getByRole("button", { name: "Admin", exact: true }).click();
-  await page.getByLabel("Public port (advertised)").fill("49611");
+  await page.getByRole("tab", { name: "Server & Admin", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Performance & Synchronization" })).toBeVisible();
+  const synchronizationDistance = page.locator(".structured-field").filter({ hasText: "ServerReplicatePawnCullDistance" });
+  await expect(synchronizationDistance.getByText("NaN", { exact: true })).toBeVisible();
+  await expect(synchronizationDistance).toContainText("Expected a valid number");
+  await expect(synchronizationDistance.getByRole("button", { name: "Replace with shipped default" })).toBeVisible();
+  const publicPort = page.getByLabel("Public port (advertised)", { exact: true });
+  await publicPort.fill("49611");
+  const publicPortCard = publicPort.locator("..");
+  const publicPortRevert = publicPortCard.getByRole("button", { name: /Revert to/ });
+  await expect(publicPortRevert).toBeVisible();
+  await expect(publicPortCard).toHaveClass(/changed/);
+  await expect(page.getByRole("button", { name: "Review changes (1)" })).toBeVisible();
+  const contained = await publicPortCard.evaluate((card) => {
+    const cardBox = card.getBoundingClientRect();
+    const revertBox = card.querySelector(".field-revert")!.getBoundingClientRect();
+    return revertBox.left >= cardBox.left && revertBox.right <= cardBox.right && revertBox.top >= cardBox.top && revertBox.bottom <= cardBox.bottom;
+  });
+  expect(contained).toBe(true);
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page.getByText("Saved 1 setting; restart to apply changes")).toBeVisible();
+  const worldId = new URL(page.url()).pathname.split("/").at(-1)!;
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/worlds/${worldId}/configuration/admin`);
+    return ((await response.json()) as { configuration: { options: Record<string, string> } }).configuration.options.ServerReplicatePawnCullDistance;
+  }).toBe("NaN");
+  await page.getByRole("tab", { name: "Server & Admin", exact: true }).click();
+  await page.locator(".structured-field").filter({ hasText: "ServerReplicatePawnCullDistance" }).getByRole("button", { name: "Replace with shipped default" }).click();
+  await expect(page.getByRole("button", { name: "Review changes (1)" })).toBeVisible();
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/worlds/${worldId}/configuration/admin`);
+    return ((await response.json()) as { configuration: { options: Record<string, string> } }).configuration.options.ServerReplicatePawnCullDistance;
+  }).toBe("15000.000000");
+  await page.reload();
+  await page.getByRole("button", { name: "Server config", exact: true }).click();
+  await page.getByPlaceholder("Search settings or keys…").fill("DenyTechnologyList");
+  const deniedTechnologies = page.getByLabel("Denied technologies", { exact: true });
+  await deniedTechnologies.fill('(TechnologyA,"Technology B")');
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/worlds/${worldId}/configuration/admin`);
+    return ((await response.json()) as { configuration: { options: Record<string, string> } }).configuration.options.DenyTechnologyList;
+  }).toBe('(TechnologyA,"Technology B")');
 
   await page.getByRole("button", { name: "Backups", exact: true }).click();
   await page.getByLabel("Keep newest backups").fill("3");
@@ -75,8 +126,8 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await expect(page.getByRole("button", { name: "Enable" })).toBeVisible();
 
   await page.getByRole("button", { name: "Server config", exact: true }).click();
-  await page.getByRole("button", { name: "Admin", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Admin" })).toBeVisible();
+  await page.getByRole("tab", { name: "Server & Admin", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Security & Server Services" })).toBeVisible();
   const managedAdmin = page.locator(".admin-managed-settings");
   await managedAdmin.locator('input[type="password"]').nth(0).fill("temporary-admin-password");
   await managedAdmin.locator('input[type="password"]').nth(1).fill("temporary-server-password");
@@ -87,7 +138,7 @@ test("adopts and manages an isolated world through critical browser workflows", 
     const payload = await response.json() as { admin: { adminPasswordSet: boolean; serverPasswordSet: boolean } };
     return `${payload.admin.adminPasswordSet}:${payload.admin.serverPasswordSet}`;
   }).toBe("true:true");
-  await page.getByRole("button", { name: "Admin", exact: true }).click();
+  await page.getByRole("tab", { name: "Server & Admin", exact: true }).click();
   await page.getByLabel("Clear stored admin password").check();
   await page.getByLabel("Clear stored server password").check();
   await page.getByRole("button", { name: "Save changes" }).click();

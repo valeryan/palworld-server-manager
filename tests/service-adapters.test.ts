@@ -16,6 +16,7 @@ const waitFor = async (predicate: () => Promise<boolean>, message: string) => {
 describe("service boundaries with isolated fakes", () => {
   let root = "";
   let processWorldId = "";
+  let configurationWorldId = "";
   let server: Server | undefined;
   const originalFetch = globalThis.fetch;
 
@@ -95,7 +96,7 @@ mkdir -p "$install/steamapps"
 printf '#!/bin/sh\\nexit 0\\n' > "$install/PalServer.sh"
 chmod 700 "$install/PalServer.sh"
 printf '"AppState" { "buildid" "424242" }\\n' > "$install/steamapps/appmanifest_2394010.acf"
-printf '; This shipped template comment must not be copied into the active file.\\n[/Script/Pal.PalGameWorldSettings]\\nOptionSettings=(ServerName="Default Palworld Server",PublicPort=8211,RESTAPIEnabled=False,RESTAPIPort=8212,RCONEnabled=False,RCONPort=25575)\\n' > "$install/DefaultPalWorldSettings.ini"
+printf '; This shipped template comment must not be copied into the active file.\\n[/Script/Pal.PalGameWorldSettings]\\nOptionSettings=(ServerName="Default Palworld Server",PublicPort=8211,ServerReplicatePawnCullDistance=15000.000000,DenyTechnologyList=,RESTAPIEnabled=False,RESTAPIPort=8212,RCONEnabled=False,RCONPort=25575)\\n' > "$install/DefaultPalWorldSettings.ini"
 mkdir -p "$install/Pal/Saved/Config/LinuxServer"
 : > "$install/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini"
 echo "login $PSM_STEAM_USERNAME $PSM_STEAM_PASSWORD"
@@ -107,6 +108,7 @@ echo "Success! App '2394010' fully installed."
     const { createWorld, getWorld } = await import("@/server/services/worlds");
     const { installOrUpdate } = await import("@/server/services/steamcmd");
     const world = await createWorld({ displayName: "Fake Steam", installDir, gamePort: 39211, queryPort: 39212, restApiPort: 39213, rconPort: 39214 });
+    configurationWorldId = world.id;
     const output: string[] = []; const updates: string[] = [];
     const context: JobContext = { signal: new AbortController().signal, log: (line) => output.push(line), update: async (_progress, message) => { updates.push(message); } };
     await installOrUpdate(world, context);
@@ -125,6 +127,23 @@ echo "Success! App '2394010' fully installed."
     expect(activeConfiguration).toContain("RESTAPIPort=39213");
     expect(activeConfiguration).toContain(`AdminPassword="${installedWorld?.adminPassword}"`);
     expect(updates.at(-1)).toBe("Installed build 424242");
+  });
+
+  it("preserves invalid raw settings until an explicit shipped-default repair", async () => {
+    const activePath = path.join(root, "steam-world", "Pal", "Saved", "Config", "LinuxServer", "PalWorldSettings.ini");
+    const active = (await readFile(activePath, "utf8")).replace("ServerReplicatePawnCullDistance=15000.000000", "ServerReplicatePawnCullDistance=NaN");
+    await writeFile(activePath, active);
+    const { readConfigurationOptions, resolveShippedDefaultChanges, saveConfigurationOptions } = await import("@/server/services/configuration");
+    await saveConfigurationOptions(configurationWorldId, { ExpRate: "2.000000" });
+    const preserved = await readConfigurationOptions(configurationWorldId);
+    expect(preserved.options).toMatchObject({ ExpRate: "2.000000", ServerReplicatePawnCullDistance: "NaN" });
+    expect(preserved.shippedDefaults.options.ServerReplicatePawnCullDistance).toBe("15000.000000");
+    expect(preserved).not.toHaveProperty("content");
+    expect(preserved.options).not.toHaveProperty("AdminPassword");
+    await expect(resolveShippedDefaultChanges(configurationWorldId, ["AdminPassword"])).rejects.toThrow("cannot be reset");
+    await expect(resolveShippedDefaultChanges(configurationWorldId, ["UnknownSetting"])).rejects.toThrow("cannot be reset");
+    await saveConfigurationOptions(configurationWorldId, {}, ["ServerReplicatePawnCullDistance"]);
+    expect((await readConfigurationOptions(configurationWorldId)).options.ServerReplicatePawnCullDistance).toBe("15000.000000");
   });
 
   it("sends authenticated requests through a fake Palworld REST endpoint", async () => {
