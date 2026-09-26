@@ -288,6 +288,7 @@
     "structured.discard": "Discard",
     "structured.save": "Save changes",
     "structured.default": "Default",
+    "structured.helpFor": "Help for {{setting}}",
     "structured.revert": "Revert to {{value}}",
     "backups.title": "Backups",
     "backups.description": "Verified snapshots of this world's Saved directory.",

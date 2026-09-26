@@ -14,6 +14,11 @@ const eslintConfig = defineConfig([
     "dist-electron/**",
     "dist-standalone/**",
     "release/**",
+    "coverage/**",
+    "playwright-report/**",
+    "test-results/**",
+    ".e2e-data/**",
+    ".e2e-runtime/**",
     "next-env.d.ts",
   ]),
 ]);

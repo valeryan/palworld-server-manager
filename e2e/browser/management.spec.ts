@@ -39,6 +39,11 @@ test("adopts and manages an isolated world through critical browser workflows", 
   }
 
   await page.getByRole("button", { name: "Server config", exact: true }).click();
+  await page.getByRole("button", { name: "Time & Rates", exact: true }).click();
+  const daySpeedHelp = page.getByRole("button", { name: "Help for Day speed" });
+  await expect(daySpeedHelp).toBeEnabled();
+  await daySpeedHelp.hover();
+  await expect(page.getByRole("tooltip")).toContainText("Higher makes daytime pass faster and become shorter");
   await page.getByRole("button", { name: "Raw INI & history" }).click();
   const editor = page.locator(".settings-editor");
   await expect(editor).toContainText("E2E World");
@@ -48,7 +53,7 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await expect(page.getByText("saved", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Guided configuration", exact: true }).click();
   await page.getByRole("button", { name: "Admin", exact: true }).click();
-  await page.getByLabel("Public port (advertised)").fill("49611");
+  await page.getByLabel("Public port (advertised)", { exact: true }).fill("49611");
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page.getByText("Saved 1 setting; restart to apply changes")).toBeVisible();
 
