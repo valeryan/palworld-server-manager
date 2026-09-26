@@ -1,6 +1,8 @@
 export type PalworldSettingType = "bool" | "int" | "float" | "text" | "select" | "tuple";
 export type PalworldSettingField = { key: string; label: string; type: PalworldSettingType; default: string | number | boolean; options?: readonly string[]; min?: number; max?: number; hint?: string };
 export type PalworldSettingGroup = { title: string; description: string; fields: readonly PalworldSettingField[] };
+export type PalworldSettingSection = PalworldSettingGroup & { managed?: boolean };
+export type PalworldSettingTab = { title: string; description: string; sections: readonly PalworldSettingSection[] };
 
 export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
   {
@@ -830,6 +832,67 @@ export const PALWORLD_SETTING_GROUPS: readonly PalworldSettingGroup[] = [
 ];
 export const PALWORLD_SETTING_FIELDS: readonly PalworldSettingField[] = PALWORLD_SETTING_GROUPS.flatMap((group) => group.fields);
 const fieldMap = new Map(PALWORLD_SETTING_FIELDS.map((field) => [field.key, field]));
+
+function settingFields(...keys: string[]): readonly PalworldSettingField[] {
+  return keys.map((key) => {
+    const field = fieldMap.get(key);
+    if (!field) throw new Error(`Unknown Palworld setting in guided layout: ${key}`);
+    return field;
+  });
+}
+
+export const PALWORLD_SETTING_TABS: readonly PalworldSettingTab[] = [
+  {
+    title: "Gameplay",
+    description: "Core game rules, progression, travel, and respawn behavior.",
+    sections: [
+      { title: "Difficulty & Death", description: "Overall difficulty, death penalties, and hardcore consequences.", fields: settingFields("Difficulty", "DeathPenalty", "bHardcore", "bPalLost", "bCharacterRecreateInHardcore") },
+      { title: "Randomizer", description: "Randomized Pal distribution, seed, and level behavior.", fields: settingFields("RandomizerType", "RandomizerSeed", "bIsRandomizerPalLevelRandom") },
+      { title: "Time & Progression", description: "Day and night timing, experience gain, and work speed.", fields: settingFields("DayTimeSpeedRate", "NightTimeSpeedRate", "ExpRate", "WorkSpeedRate", "MonsterFarmActionSpeedRate") },
+      { title: "Travel & Respawn", description: "Fast travel, starting locations, and respawn penalties.", fields: settingFields("bEnableFastTravel", "bEnableFastTravelOnlyBaseCamp", "bIsStartLocationSelectByMap", "BlockRespawnTime", "RespawnPenaltyDurationThreshold", "RespawnPenaltyTimeScale") },
+    ],
+  },
+  {
+    title: "Players & Pals",
+    description: "Player and Pal attributes, survival rates, enhancement, and input assistance.",
+    sections: [
+      { title: "Player Stats", description: "Player combat, survival, regeneration, and carrying capacity.", fields: settingFields("PlayerDamageRateAttack", "PlayerDamageRateDefense", "PlayerStomachDecreaceRate", "PlayerStaminaDecreaceRate", "PlayerAutoHPRegeneRate", "PlayerAutoHpRegeneRateInSleep", "ItemWeightRate") },
+      { title: "Stat Enhancement", description: "Choose which player attributes may be enhanced.", fields: settingFields("bAllowEnhanceStat_Health", "bAllowEnhanceStat_Attack", "bAllowEnhanceStat_Stamina", "bAllowEnhanceStat_Weight", "bAllowEnhanceStat_WorkSpeed") },
+      { title: "Pal Stats", description: "Pal capture, population, combat, survival, recovery, and breeding rates.", fields: settingFields("PalCaptureRate", "PalSpawnNumRate", "PalDamageRateAttack", "PalDamageRateDefense", "PalStomachDecreaceRate", "PalStaminaDecreaceRate", "PalAutoHPRegeneRate", "PalAutoHpRegeneRateInSleep", "PalEggDefaultHatchingTime", "EnablePredatorBossPal") },
+      { title: "Input Assistance", description: "Aim-assist behavior for controller and keyboard players.", fields: settingFields("bEnableAimAssistPad", "bEnableAimAssistKeyboard") },
+    ],
+  },
+  {
+    title: "World & Bases",
+    description: "Resources, drops, world events, construction, and base limits.",
+    sections: [
+      { title: "Resources & Drops", description: "Gathering, item drops, object health, durability, and item lifetime.", fields: settingFields("CollectionDropRate", "CollectionObjectHpRate", "CollectionObjectRespawnSpeedRate", "EnemyDropItemRate", "DropItemMaxNum", "PhysicsActiveDropItemMaxNum", "DropItemMaxNum_UNKO", "DropItemAliveMaxHours", "EquipmentDurabilityDamageRate", "ItemCorruptionMultiplier") },
+      { title: "World Events & Rules", description: "Supply drops, raids, camps, fishing, technologies, and other world rules.", fields: settingFields("SupplyDropSpan", "bEnableInvaderEnemy", "bActiveUNKO", "FishingDifficultyRate", "bAllowEnemyCampSpawnNearBaseCamp", "DenyTechnologyList") },
+      { title: "Building & Base Camps", description: "Structure durability, base capacity, workers, building limits, and display rules.", fields: settingFields("BuildObjectHpRate", "BuildObjectDamageRate", "BuildObjectDeteriorationDamageRate", "BaseCampMaxNum", "BaseCampWorkerMaxNum", "BaseCampMaxNumInGuild", "MaxBuildingLimitNum", "MaxBuildingLimitNumPerPlayer", "bBuildAreaLimit", "bEnableBuildingPlayerUIdDisplay") },
+    ],
+  },
+  {
+    title: "Multiplayer",
+    description: "PvP, guilds, communication, player access, crossplay, and shared Pal storage.",
+    sections: [
+      { title: "PvP & Player Presence", description: "Multiplayer state, PvP damage, logout behavior, map visibility, and kill rewards.", fields: settingFields("bEnablePlayerToPlayerDamage", "bEnableFriendlyFire", "bIsPvP", "bIsMultiplay", "bEnableNonLoginPenalty", "bExistPlayerAfterLogout", "bDisplayPvPItemNumOnWorldMap_BaseCamp", "bDisplayPvPItemNumOnWorldMap_Player", "bAdditionalDropItemWhenPlayerKillingInPvPMode", "AdditionalDropItemWhenPlayerKillingInPvPMode", "AdditionalDropItemNumWhenPlayerKillingInPvPMode") },
+      { title: "Guilds", description: "Guild membership, resets, defense, looting, cooldowns, and leadership transfer.", fields: settingFields("GuildPlayerMaxNum", "bAutoResetGuildNoOnlinePlayers", "AutoResetGuildTimeNoOnlinePlayers", "bEnableDefenseOtherGuildPlayer", "bCanPickupOtherGuildDeathPenaltyDrop", "bInvisibleOtherGuildBaseCampAreaFX", "GuildRejoinCooldownMinutes", "AutoTransferMasterCheckIntervalSeconds", "AutoTransferMasterThresholdDays") },
+      { title: "Voice Chat", description: "Proximity voice-chat availability and audible distance.", fields: settingFields("bEnableVoiceChat", "VoiceChatMaxVolumeDistance", "VoiceChatZeroVolumeDistance") },
+      { title: "Access & Crossplay", description: "Player capacity, supported platforms, mods, and community visibility.", fields: settingFields("CoopPlayerMaxNum", "ServerPlayerMaxNum", "CrossplayPlatforms", "bAllowClientMod", "bShowPlayerList", "bIsShowJoinLeftMessage", "ChatPostLimitPerMinute") },
+      { title: "Global Palbox", description: "Global Palbox export and import policy.", fields: settingFields("bAllowGlobalPalboxExport", "bAllowGlobalPalboxImport") },
+    ],
+  },
+  {
+    title: "Server & Admin",
+    description: "Server identity, network access, administration, data protection, and performance.",
+    sections: [
+      { title: "Identity & Network", description: "Public server identity, region, and advertised network address.", fields: settingFields("ServerName", "ServerDescription", "Region", "PublicIP", "PublicPort") },
+      { title: "Security & Server Services", description: "Credentials, authentication, moderation, REST API, and RCON.", fields: settingFields("bUseAuth", "BanListURL"), managed: true },
+      { title: "Data & Logging", description: "Automatic saving, rolling save protection, and server log format.", fields: settingFields("AutoSaveSpan", "bIsUseBackupSaveData", "LogFormatType") },
+      { title: "Performance & Synchronization", description: "Advanced processing, replication, synchronization intervals, and caches.", fields: settingFields("ServerReplicatePawnCullDistance", "ItemContainerForceMarkDirtyInterval", "PlayerDataPalStorageUpdateCheckTickInterval", "MaxGuildsPerFrame", "BuildingNameDisplayCacheTTLSeconds") },
+    ],
+  },
+];
 
 export function decodeSettingValue(field: PalworldSettingField, raw: string | undefined): string | number | boolean {
   if (raw == null || raw === "") return field.default;

@@ -9,7 +9,7 @@ import { createWorldSchema, parseWorldUpdate, worldRegistrationSchema } from "@/
 import { createScheduleSchema } from "@/contracts/schedule";
 import { nextRun } from "@/server/services/schedules";
 import { applyConfigurationOptions, managedConfigurationChanges, managedWorldChangesFromConfiguration, needsManagedConfigurationSync, parseConfigurationOptions } from "@/server/services/configuration";
-import { decodeSettingValue, PALWORLD_SETTING_FIELDS, PALWORLD_SETTING_GROUPS, validateAndEncodeSettingChanges } from "@/contracts/palworld-settings";
+import { decodeSettingValue, PALWORLD_SETTING_FIELDS, PALWORLD_SETTING_GROUPS, PALWORLD_SETTING_TABS, validateAndEncodeSettingChanges } from "@/contracts/palworld-settings";
 import { cancelJob, listJobs, startJob } from "@/server/services/jobs";
 import { backupSettingsSchema } from "@/contracts/backup";
 import { retentionCandidates } from "@/server/services/backups";
@@ -198,6 +198,14 @@ describe("PalWorldSettings transformations", () => {
     expect(new Set(keys).size).toBe(keys.length);
     const admin = PALWORLD_SETTING_GROUPS.find((group) => group.title === "Admin");
     expect(admin?.fields.map((field) => field.key)).toEqual(expect.arrayContaining(["ServerName", "BanListURL", "CoopPlayerMaxNum", "ServerPlayerMaxNum", "CrossplayPlatforms", "bAllowClientMod"]));
+  });
+  it("organizes every guided field exactly once across five presentation tabs", () => {
+    const layoutKeys = PALWORLD_SETTING_TABS.flatMap((tab) => tab.sections.flatMap((section) => section.fields.map((field) => field.key)));
+    expect(PALWORLD_SETTING_TABS.map((tab) => tab.title)).toEqual(["Gameplay", "Players & Pals", "World & Bases", "Multiplayer", "Server & Admin"]);
+    expect(layoutKeys).toHaveLength(PALWORLD_SETTING_FIELDS.length);
+    expect(new Set(layoutKeys).size).toBe(layoutKeys.length);
+    expect([...layoutKeys].sort()).toEqual(PALWORLD_SETTING_FIELDS.map((field) => field.key).sort());
+    expect(PALWORLD_SETTING_TABS.flatMap((tab) => tab.sections).filter((section) => section.managed).map((section) => section.title)).toEqual(["Security & Server Services"]);
   });
   it("exposes and validates the complete original structured field inventory", () => {
     expect(PALWORLD_SETTING_FIELDS).toHaveLength(116);

@@ -40,11 +40,16 @@ test("adopts and manages an isolated world through critical browser workflows", 
   }
 
   await page.getByRole("button", { name: "Server config", exact: true }).click();
-  await page.getByRole("button", { name: "Time & Rates", exact: true }).click();
+  await page.getByRole("tab", { name: "Gameplay", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Time & Progression" })).toBeVisible();
   const daySpeedHelp = page.getByRole("button", { name: "Help for Day speed" });
   await expect(daySpeedHelp).toBeEnabled();
   await daySpeedHelp.hover();
   await expect(page.getByRole("tooltip")).toContainText("Higher makes daytime pass faster and become shorter");
+  await page.getByRole("button", { name: "Casual PvE", exact: true }).click();
+  await expect(page.getByText("Reviewing 6 staged changes")).toBeVisible();
+  await expect(page.locator(".structured-field.changed")).toHaveCount(6);
+  await page.getByRole("button", { name: "Discard", exact: true }).click();
   await page.getByRole("button", { name: "Raw INI & history" }).click();
   const editor = page.locator(".settings-editor");
   await expect(editor).toContainText("E2E World");
@@ -53,16 +58,18 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await expect(page.getByText("Configuration saved; restart to apply changes")).toBeVisible();
   await expect(page.getByText("saved", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Guided configuration", exact: true }).click();
-  await page.getByRole("button", { name: "Performance & Synchronization", exact: true }).click();
+  await page.getByRole("tab", { name: "Server & Admin", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Performance & Synchronization" })).toBeVisible();
   const synchronizationDistance = page.getByLabel("Pal synchronization distance (cm)", { exact: true });
   await expect(synchronizationDistance).toHaveValue("15000");
   await expect(synchronizationDistance.locator("..").getByRole("button", { name: /Revert to/ })).toHaveCount(0);
-  await page.getByRole("button", { name: "Admin", exact: true }).click();
   const publicPort = page.getByLabel("Public port (advertised)", { exact: true });
   await publicPort.fill("49611");
   const publicPortCard = publicPort.locator("..");
   const publicPortRevert = publicPortCard.getByRole("button", { name: /Revert to/ });
   await expect(publicPortRevert).toBeVisible();
+  await expect(publicPortCard).toHaveClass(/changed/);
+  await expect(page.getByRole("button", { name: "Review changes (1)" })).toBeVisible();
   const contained = await publicPortCard.evaluate((card) => {
     const cardBox = card.getBoundingClientRect();
     const revertBox = card.querySelector(".field-revert")!.getBoundingClientRect();
@@ -95,8 +102,8 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await expect(page.getByRole("button", { name: "Enable" })).toBeVisible();
 
   await page.getByRole("button", { name: "Server config", exact: true }).click();
-  await page.getByRole("button", { name: "Admin", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Admin" })).toBeVisible();
+  await page.getByRole("tab", { name: "Server & Admin", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Security & Server Services" })).toBeVisible();
   const managedAdmin = page.locator(".admin-managed-settings");
   await managedAdmin.locator('input[type="password"]').nth(0).fill("temporary-admin-password");
   await managedAdmin.locator('input[type="password"]').nth(1).fill("temporary-server-password");
@@ -107,7 +114,7 @@ test("adopts and manages an isolated world through critical browser workflows", 
     const payload = await response.json() as { admin: { adminPasswordSet: boolean; serverPasswordSet: boolean } };
     return `${payload.admin.adminPasswordSet}:${payload.admin.serverPasswordSet}`;
   }).toBe("true:true");
-  await page.getByRole("button", { name: "Admin", exact: true }).click();
+  await page.getByRole("tab", { name: "Server & Admin", exact: true }).click();
   await page.getByLabel("Clear stored admin password").check();
   await page.getByLabel("Clear stored server password").check();
   await page.getByRole("button", { name: "Save changes" }).click();
