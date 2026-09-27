@@ -37,7 +37,7 @@
 .button.restart-pending{border-color:color-mix(in srgb,var(--brand) 80%,transparent);background:var(--brand-soft-strong);color:var(--brand-text);font-weight:800;box-shadow:0 0 0 1px color-mix(in srgb,var(--brand) 13%,transparent),0 0 18px color-mix(in srgb,var(--brand) 12%,transparent)}.button.restart-pending:hover,.button.restart-pending:focus-visible{border-color:var(--brand);background:var(--brand-soft-strong);color:var(--text);outline:none}
 
 /* Sphere themes */
-:root{--sphere-trim:#f4c542;--sphere-core-start:#31c4fe;--sphere-core-middle:#31c4fe;--sphere-core-end:#31c4fe;--sphere-label:#07101d;--sphere-label-stroke:#ffffff8c;--brand-soft:color-mix(in srgb,var(--brand) 16%,transparent);--brand-soft-strong:color-mix(in srgb,var(--brand) 28%,transparent);--brand-border:color-mix(in srgb,var(--brand) 55%,transparent);--brand-text:var(--brand)}
+:root{--sphere-trim:#f4c542;--sphere-core-start:#31c4fe;--sphere-core-middle:#31c4fe;--sphere-core-end:#31c4fe;--sphere-label:#07101d;--sphere-label-stroke:#ffffff8c;--brand-soft:color-mix(in srgb,var(--brand) 16%,transparent);--brand-soft-strong:color-mix(in srgb,var(--brand) 28%,transparent);--brand-border:color-mix(in srgb,var(--brand) 55%,transparent);--brand-text:var(--text)}
 
 .brand-mark{width:42px;height:42px;border-radius:0;background:none;box-shadow:0 8px 28px var(--brand-soft-strong)}
 .sphere-mark{display:block;width:100%;height:100%;overflow:visible;filter:drop-shadow(0 3px 7px var(--shadow))}
@@ -54,6 +54,7 @@
 .sphere-mark-points-large path{fill:var(--sphere-trim);stroke:#08152d;stroke-width:10;stroke-linejoin:round}
 .sphere-mark-points-small path{fill:var(--sphere-trim);stroke:#08152d;stroke-width:9;stroke-linejoin:round}
 .world-icon{padding:0;border:0;border-radius:0;background:transparent}
+.path{color:var(--muted)}
 
 .button.primary,.settings-groups button.active,.world-tabs button.active,.filter-bar button.active{color:var(--brand-ink);border-color:var(--brand)}
 .button.primary{border-color:var(--brand-border)}
@@ -79,7 +80,7 @@
 .theme-picker span,.theme-picker strong,.theme-picker small{display:block;min-width:0}
 .theme-picker strong{font-size:12px}
 .theme-picker small{margin-top:4px;color:var(--muted);font-size:9px}
-.theme-picker button.active small{color:var(--swatch)}
+.theme-picker button.active small{color:var(--text)}
 .toggle{border-color:var(--line-strong);background:var(--inset);color:var(--text);font-weight:700}
 .toggle i{background:var(--muted);box-shadow:0 0 0 2px color-mix(in srgb,var(--muted) 22%,transparent)}
 .toggle.on{color:var(--brand-ink);border-color:var(--brand);background:var(--brand)}
