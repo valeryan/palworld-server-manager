@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import Script from "next/script";
+import { connection } from "next/server";
 import "./globals.css";
 import "./remote.css";
 import { Providers } from "@/components/providers";
-import { themeStorageKey, themes } from "@/lib/themes";
-
-const themeInitializer = `try{var t=localStorage.getItem(${JSON.stringify(themeStorageKey)});if(${JSON.stringify(themes.map((theme) => theme.id))}.includes(t))document.documentElement.dataset.theme=t}catch(e){}`;
+import { themeStyleSheet } from "@/lib/themes";
+import { getTheme } from "@/server/services/appearance";
 
 export const metadata: Metadata = {
   title: "Palworld Server Manager",
@@ -14,11 +13,13 @@ export const metadata: Metadata = {
   icons: { icon: process.env.NODE_ENV === "development" ? "/icons/app-dev.ico" : "/icons/app.ico" },
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  await connection();
+  const theme = await getTheme();
   return (
-    <html lang="en" className="h-full antialiased" suppressHydrationWarning>
-      <head><Script id="psm-theme" strategy="beforeInteractive">{themeInitializer}</Script></head>
-      <body className="min-h-full"><Providers>{children}</Providers></body>
+    <html lang="en" className="h-full antialiased" data-theme={theme}>
+      <head><style id="psm-theme-palettes">{themeStyleSheet()}</style></head>
+      <body className="min-h-full"><Providers initialTheme={theme}>{children}</Providers></body>
     </html>
   );
 }
