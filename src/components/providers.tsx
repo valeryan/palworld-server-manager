@@ -5,6 +5,7 @@ import { I18nextProvider, initReactI18next } from "react-i18next";
 import { useEffect, useState, type ReactNode } from "react";
 import english from "../../public/locales/en.json";
 import { englishGuidedSettingTranslations } from "@/lib/localization-resources";
+import { ThemeProvider } from "./theme-provider";
 
 function LiveUpdates() {
   const client = useQueryClient();
@@ -42,5 +43,5 @@ export function Providers({ children }: { children: ReactNode }) {
     void instance.use(initReactI18next).init({ lng: "en", fallbackLng: "en", resources: { en: { translation: { ...english.translations, ...englishGuidedSettingTranslations() } } }, keySeparator: false, nsSeparator: false, interpolation: { escapeValue: false }, react: { useSuspense: false }, initAsync: false });
     return instance;
   });
-  return <I18nextProvider i18n={localization}><QueryClientProvider client={client}><LanguageLoader instance={localization} /><LiveUpdates />{children}</QueryClientProvider></I18nextProvider>;
+  return <ThemeProvider><I18nextProvider i18n={localization}><QueryClientProvider client={client}><LanguageLoader instance={localization} /><LiveUpdates />{children}</QueryClientProvider></I18nextProvider></ThemeProvider>;
 }
