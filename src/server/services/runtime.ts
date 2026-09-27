@@ -4,6 +4,7 @@ import { database } from "@/server/db";
 import { events, schedules, sessions } from "@/server/db/schema";
 import { listWorlds, getWorld } from "./worlds";
 import { reconcileProcesses, restartWorld, startWorld, stopWorld } from "./processes";
+import { bootstrapWorldSettings } from "./configuration";
 import { startJob, type JobContext } from "./jobs";
 import { createBackup } from "./backups";
 import { installOrUpdate } from "./steamcmd";
@@ -179,6 +180,7 @@ export async function runtimeTick(now = Date.now()): Promise<void> {
 export async function startRuntime(): Promise<void> {
   if (globalThis.__psmRuntimeStarted) return;
   globalThis.__psmRuntimeStarted = true;
+  await bootstrapWorldSettings();
   await reconcileProcesses();
   for (const world of await listWorlds()) if (world.autostart && world.status !== "running" && world.status !== "starting") await startJob(world.id, "autostart", async () => startWorld(world.id));
   void runtimeTick().catch((error) => log(null, "scheduler", `Runtime tick failed: ${error instanceof Error ? error.message : String(error)}`));

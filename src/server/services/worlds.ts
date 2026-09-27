@@ -2,16 +2,17 @@ import "server-only";
 import path from "node:path";
 import { access, realpath } from "node:fs/promises";
 import { and, eq, ne } from "drizzle-orm";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { CreateWorldInput, WorldRegistration, WorldView } from "@/contracts/world";
-import { createWorldSchema, parseWorldUpdate, worldRegistrationSchema } from "@/contracts/world";
+import { createWorldSchema, managedWorldSettingsSchema, parseWorldUpdate, worldRegistrationSchema } from "@/contracts/world";
 import { database } from "@/server/db";
-import { worlds } from "@/server/db/schema";
+import { worlds, worldSettings } from "@/server/db/schema";
 import { eventBus } from "./events";
+import { withReservationLock } from "./reservations";
 
 type WorldRow = typeof worlds.$inferSelect;
 const PORT_FIELDS = ["gamePort", "queryPort", "restApiPort", "rconPort"] as const;
-const STOP_REQUIRED_FIELDS = ["installDir", "platform", ...PORT_FIELDS, "adminPassword", "serverPassword", "restApiEnabled", "rconEnabled", "communityServer", "legacyPerfFlags", "extraArgs", "env", "wineBinary", "winePrefix", "wineLaunchFlags"] as const;
+const STOP_REQUIRED_FIELDS = ["installDir", "platform", ...PORT_FIELDS, "restApiEnabled", "rconEnabled", "communityServer", "legacyPerfFlags", "extraArgs", "env", "wineBinary", "winePrefix", "wineLaunchFlags"] as const;
 
 function toView(row: WorldRow): WorldView {
   return {
@@ -26,13 +27,18 @@ function toView(row: WorldRow): WorldView {
   };
 }
 
-async function canonical(candidate: string): Promise<string> {
+export async function canonicalInstallDir(candidate: string): Promise<string> {
   const resolved = path.resolve(candidate);
-  try { return await realpath(resolved); }
-  catch {
-    const parent = path.dirname(resolved);
-    try { return path.join(await realpath(parent), path.basename(resolved)); }
-    catch { return resolved; }
+  let ancestor = resolved;
+  const missing: string[] = [];
+  while (true) {
+    try { return path.join(await realpath(ancestor), ...missing.reverse()); }
+    catch {
+      const parent = path.dirname(ancestor);
+      if (parent === ancestor) return resolved;
+      missing.push(path.basename(ancestor));
+      ancestor = parent;
+    }
   }
 }
 
@@ -43,16 +49,20 @@ export function pathsOverlap(left: string, right: string): boolean {
 }
 
 async function validateIsolation(input: CreateWorldInput, excludingId?: string): Promise<CreateWorldInput> {
-  const installDir = await canonical(input.installDir);
+  const installDir = await canonicalInstallDir(input.installDir);
   const existing = await database().select().from(worlds);
+  const desiredRows = await database().select().from(worldSettings);
+  const desiredByWorld = new Map(desiredRows.map((row) => [row.worldId, managedWorldSettingsSchema.parse(row.desiredManager)]));
   for (const row of existing) {
     if (row.id === excludingId) continue;
-    if (pathsOverlap(installDir, await canonical(row.installDir))) {
-      throw new Error(`Install directory overlaps with ${row.displayName}: ${row.installDir}`);
-    }
-    for (const field of PORT_FIELDS) {
-      for (const otherField of PORT_FIELDS) {
-        if (input[field] === row[otherField]) throw new Error(`Port ${input[field]} is already used by ${row.displayName} (${otherField}).`);
+    for (const reservation of [row, desiredByWorld.get(row.id)].filter(Boolean) as Array<typeof row | NonNullable<ReturnType<typeof desiredByWorld.get>>>) {
+      if (pathsOverlap(installDir, await canonicalInstallDir(reservation.installDir))) {
+        throw new Error(`Install directory overlaps with ${row.displayName}: ${reservation.installDir}`);
+      }
+      for (const field of PORT_FIELDS) {
+        for (const otherField of PORT_FIELDS) {
+          if (input[field] === reservation[otherField]) throw new Error(`Port ${input[field]} is already used or reserved by ${row.displayName} (${otherField}).`);
+        }
       }
     }
   }
@@ -73,19 +83,19 @@ export async function getWorld(id: string): Promise<WorldView | null> {
 
 export async function createWorld(raw: unknown): Promise<WorldView> {
   const parsed = createWorldSchema.parse(raw);
-  const input = await validateIsolation(parsed);
-  const adminPassword = input.restApiEnabled && !input.adminPassword ? randomBytes(18).toString("base64url") : input.adminPassword;
-  const now = Date.now();
-  const row: typeof worlds.$inferInsert = {
-    id: randomUUID(), displayName: input.displayName, installDir: input.installDir, platform: input.platform,
-    gamePort: input.gamePort, queryPort: input.queryPort, restApiPort: input.restApiPort, rconPort: input.rconPort,
-    adminPassword, serverPassword: input.serverPassword, restApiEnabled: input.restApiEnabled,
-    rconEnabled: input.rconEnabled, communityServer: input.communityServer, autostart: input.autostart,
-    crashGuard: input.crashGuard, legacyPerfFlags: input.legacyPerfFlags, extraArgs: input.extraArgs,
-    environment: input.env, wineBinary: input.wineBinary, winePrefix: input.winePrefix, wineLaunchFlags: input.wineLaunchFlags,
-    status: "stopped", createdAt: now, updatedAt: now,
-  };
-  await database().insert(worlds).values(row);
+  const row = await withReservationLock(async () => {
+    const input = await validateIsolation(parsed); const now = Date.now();
+    const candidate: typeof worlds.$inferInsert = {
+      id: randomUUID(), displayName: input.displayName, installDir: input.installDir, platform: input.platform,
+      gamePort: input.gamePort, queryPort: input.queryPort, restApiPort: input.restApiPort, rconPort: input.rconPort,
+      adminPassword: input.adminPassword, serverPassword: input.serverPassword, restApiEnabled: input.restApiEnabled,
+      rconEnabled: input.rconEnabled, communityServer: input.communityServer, autostart: input.autostart,
+      crashGuard: input.crashGuard, legacyPerfFlags: input.legacyPerfFlags, extraArgs: input.extraArgs,
+      environment: input.env, wineBinary: input.wineBinary, winePrefix: input.winePrefix, wineLaunchFlags: input.wineLaunchFlags,
+      status: "stopped", createdAt: now, updatedAt: now,
+    };
+    await database().insert(worlds).values(candidate); return candidate;
+  });
   eventBus().publish({ type: "world", worldId: row.id, data: { action: "created" } });
   return (await getWorld(row.id))!;
 }
@@ -106,15 +116,14 @@ export async function updateWorld(id: string, raw: unknown): Promise<WorldView> 
     throw new Error("Stop the world before changing launch, path, port, platform, or environment settings.");
   }
   const merged = createWorldSchema.parse({ ...current, ...patch });
-  const input = await validateIsolation(merged, id);
-  await database().update(worlds).set({
+  await withReservationLock(async () => { const input = await validateIsolation(merged, id); await database().update(worlds).set({
     displayName: input.displayName, installDir: input.installDir, platform: input.platform,
     gamePort: input.gamePort, queryPort: input.queryPort, restApiPort: input.restApiPort, rconPort: input.rconPort,
     adminPassword: input.adminPassword, serverPassword: input.serverPassword, restApiEnabled: input.restApiEnabled,
     rconEnabled: input.rconEnabled, communityServer: input.communityServer, autostart: input.autostart,
     crashGuard: input.crashGuard, legacyPerfFlags: input.legacyPerfFlags, extraArgs: input.extraArgs, environment: input.env,
     wineBinary: input.wineBinary, winePrefix: input.winePrefix, wineLaunchFlags: input.wineLaunchFlags, updatedAt: Date.now(),
-  }).where(eq(worlds.id, id));
+  }).where(eq(worlds.id, id)); });
   eventBus().publish({ type: "world", worldId: id, data: { action: "updated" } });
   return (await getWorld(id))!;
 }

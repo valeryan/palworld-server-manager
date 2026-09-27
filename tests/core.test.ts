@@ -8,8 +8,8 @@ import { commandFor, parseArguments } from "@/server/services/processes";
 import { createWorldSchema, parseWorldUpdate, worldRegistrationSchema } from "@/contracts/world";
 import { createScheduleSchema } from "@/contracts/schedule";
 import { nextRun } from "@/server/services/schedules";
-import { applyConfigurationOptions, managedConfigurationChanges, managedWorldChangesFromConfiguration, needsManagedConfigurationSync, parseConfigurationOptions } from "@/server/services/configuration";
-import { decodeDefaultSettingValue, decodeSettingValue, PALWORLD_MANAGER_SETTING_KEYS, PALWORLD_SETTING_FIELDS, PALWORLD_SETTING_TABS, validateAndEncodeSettingChanges } from "@/contracts/palworld-settings";
+import { advertisedPortState, applyConfigurationOptions, configurationCredentials, managedConfigurationChanges, managedDisplayNameChange, managedPublicPortChange, managedWorldChangesFromConfiguration, needsManagedConfigurationSync, parseConfigurationOptions } from "@/server/services/configuration";
+import { decodeDefaultSettingValue, decodeSettingValue, PALWORLD_MANAGER_SETTING_KEYS, PALWORLD_SETTING_FIELDS, PALWORLD_SETTING_TABS, settingLayoutSpan, settingPresentation, validateAndEncodeSettingChanges } from "@/contracts/palworld-settings";
 import { cancelJob, listJobs, startJob } from "@/server/services/jobs";
 import { backupSettingsSchema } from "@/contracts/backup";
 import { retentionCandidates } from "@/server/services/backups";
@@ -168,9 +168,9 @@ describe("PalWorldSettings transformations", () => {
     const changed = applyConfigurationOptions(source, { ExpRate: "2.5", bEnableFastTravel: "True" });
     expect(parseConfigurationOptions(changed)).toMatchObject({ ServerName: '"Family, \\\"Friends\\\""', ExpRate: "2.5", SomeTuple: "(X=1,Y=2)", ServerReplicatePawnCullDistance: "NaN", bEnableFastTravel: "True" });
   });
-  it("maps manager-owned network and credential values", () => {
+  it("maps manager-owned network values without duplicating INI credentials", () => {
     const world = { ...createWorldSchema.parse({ displayName: "Test", installDir: "/tmp/test", gamePort: 8211, restApiPort: 8213, rconPort: 25575, adminPassword: "a\"b", serverPassword: "secret", restApiEnabled: true, rconEnabled: false }), id: "world", status: "stopped" as const, processId: null, buildId: null, latestBuildId: null, lastStartedAt: null, createdAt: 1, updatedAt: 1 };
-    expect(managedConfigurationChanges(world, { syncPublicPort: true })).toMatchObject({ PublicPort: "8211", AdminPassword: '"a\\\"b"', ServerPassword: '"secret"', RESTAPIEnabled: "True", RESTAPIPort: "8213", RCONEnabled: "False", RCONPort: "25575" });
+    expect(managedConfigurationChanges(world, { syncPublicPort: true })).toEqual({ PublicPort: "8211", RESTAPIEnabled: "True", RESTAPIPort: "8213", RCONEnabled: "False", RCONPort: "25575" });
     expect(managedConfigurationChanges(world)).not.toHaveProperty("PublicPort");
   });
   it("never erases game credentials when registry credentials are absent", () => {
@@ -183,16 +183,36 @@ describe("PalWorldSettings transformations", () => {
     const content = applyConfigurationOptions("[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(PublicPort=49000)\n", managedConfigurationChanges(world));
     expect(parseConfigurationOptions(content).PublicPort).toBe("49000");
   });
+  it("classifies inherited, overridden, and invalid advertised ports", () => {
+    expect(advertisedPortState(undefined, 8211)).toEqual({ mode: "inherit", effectivePort: 8211 });
+    expect(advertisedPortState("8211", 8211)).toEqual({ mode: "inherit", effectivePort: 8211 });
+    expect(advertisedPortState("49000", 8211)).toEqual({ mode: "override", effectivePort: 49000 });
+    expect(advertisedPortState("not-a-port", 8211)).toEqual({ mode: "invalid", raw: "not-a-port", effectivePort: 8211 });
+  });
+  it("follows game-port changes only while the advertised port is inherited", () => {
+    expect(managedPublicPortChange(advertisedPortState("8211", 8211), 8211, 9000, undefined, false)).toBe("9000");
+    expect(managedPublicPortChange(advertisedPortState("49000", 8211), 8211, 9000, undefined, false)).toBeUndefined();
+    expect(managedPublicPortChange(advertisedPortState("49000", 8211), 8211, 9000, null, true)).toBe("9000");
+    expect(managedPublicPortChange(advertisedPortState("49000", 8211), 8211, 9000, 50000, true)).toBe("50000");
+  });
+  it("follows Server Name only while Display Name is inherited", () => {
+    expect(managedDisplayNameChange("Old server", '"Old server"', '"New server"', undefined, false)).toBe("New server");
+    expect(managedDisplayNameChange("PSM override", '"Old server"', '"New server"', undefined, false)).toBeUndefined();
+    expect(managedDisplayNameChange("PSM override", '"Old server"', '"New server"', null, true)).toBe("New server");
+    expect(managedDisplayNameChange("Old server", '"Old server"', '"New server"', "Local name", true)).toBe("Local name");
+    expect(() => managedDisplayNameChange("PSM override", undefined, undefined, null, true)).toThrow("cannot inherit");
+  });
   it("does not rewrite the INI for PSM-only presentation changes", () => {
     expect(needsManagedConfigurationSync({ displayName: "Local label" })).toBe(false);
     expect(needsManagedConfigurationSync({ autostart: true, extraArgs: "-useperfthreads" })).toBe(false);
     expect(needsManagedConfigurationSync({ adminPassword: "new", restApiPort: 8213 })).toBe(true);
+    expect(needsManagedConfigurationSync({ adminPassword: "new" })).toBe(false);
     expect(needsManagedConfigurationSync({ gamePort: 8211 })).toBe(false);
   });
   it("reconciles manager-integrated values from raw INI without touching presentation properties", () => {
-    const world = { ...createWorldSchema.parse({ displayName: "Local label", installDir: "/tmp/test", adminPassword: "old", restApiPort: 8212 }), id: "world", status: "stopped" as const, processId: null, buildId: null, latestBuildId: null, lastStartedAt: null, createdAt: 1, updatedAt: 1 };
     const content = '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(AdminPassword="new",ServerPassword="players",RESTAPIEnabled=False,RESTAPIPort=9012,RCONEnabled=True,RCONPort=25580)\n';
-    expect(managedWorldChangesFromConfiguration(content, world)).toEqual({ adminPassword: "new", serverPassword: "players", restApiEnabled: false, restApiPort: 9012, rconEnabled: true, rconPort: 25580 });
+    expect(managedWorldChangesFromConfiguration(content)).toEqual({ restApiEnabled: false, restApiPort: 9012, rconEnabled: true, rconPort: 25580 });
+    expect(configurationCredentials(content)).toEqual({ adminPassword: "new", serverPassword: "players" });
   });
   it("places each guided field exactly once in the canonical tree", () => {
     const sections = PALWORLD_SETTING_TABS.flatMap((tab) => tab.sections);
@@ -201,17 +221,31 @@ describe("PalWorldSettings transformations", () => {
     expect(keys.filter((key) => (PALWORLD_MANAGER_SETTING_KEYS as readonly string[]).includes(key))).toEqual([]);
     const admin = PALWORLD_SETTING_TABS.find((tab) => tab.id === "server-admin");
     expect(admin?.sections.flatMap((section) => section.fields.map((field) => field.key))).toEqual(expect.arrayContaining(["ServerName", "BanListURL", "AutoSaveSpan", "ServerReplicatePawnCullDistance"]));
+    expect(admin?.sections.slice(0, 3).map((section) => section.title)).toEqual(["Server Identity", "Community Listing", "Network & Ports"]);
+    expect(PALWORLD_SETTING_FIELDS.filter((field) => field.presentation === "wide").map((field) => field.key)).toEqual(["CrossplayPlatforms", "ServerDescription", "BanListURL"]);
+    expect(settingPresentation({ key: "Tuple", label: "Tuple", type: "tuple", help: "", evidence: "official" })).toBe("wide");
+    expect(settingPresentation({ key: "Toggle", label: "Toggle", type: "bool", help: "", evidence: "official" })).toBe("compact");
+    expect(settingLayoutSpan("standard")).toBe(6);
+    const adminFieldKeys = new Set(admin?.sections.flatMap((section) => section.fields.map((field) => field.key)));
+    const laidOutFieldKeys = admin?.sections.flatMap((section) => section.layout?.flatMap((item) => item.keys.filter((key) => adminFieldKeys.has(key))) ?? []) ?? [];
+    expect(new Set(laidOutFieldKeys).size).toBe(laidOutFieldKeys.length);
+    expect(new Set(laidOutFieldKeys)).toEqual(adminFieldKeys);
+    const laidOutManagerKeys = admin?.sections.flatMap((section) => section.layout?.flatMap((item) => item.keys.filter((key) => !adminFieldKeys.has(key))) ?? []) ?? [];
+    expect(new Set(laidOutManagerKeys)).toEqual(new Set(["displayName", "communityServer", "publicPort", "gamePort", "queryPort", "restApiEnabled", "restApiPort", "rconEnabled", "rconPort", "autostart", "crashGuard", "legacyPerfFlags", "platform", "installDir", "extraArgs", "environment", "wineBinary", "winePrefix", "wineLaunchFlags", "registrationActions"]));
   });
   it("organizes every guided field exactly once across five presentation tabs", () => {
     const layoutKeys = PALWORLD_SETTING_TABS.flatMap((tab) => tab.sections.flatMap((section) => section.fields.map((field) => field.key)));
-    expect(PALWORLD_SETTING_TABS.map((tab) => tab.title)).toEqual(["Gameplay", "Players & Pals", "World & Bases", "Multiplayer", "Server & Admin"]);
+    expect(PALWORLD_SETTING_TABS.map((tab) => tab.title)).toEqual(["Gameplay", "Players & Pals", "World & Bases", "Multiplayer", "Server Admin"]);
     expect(layoutKeys).toHaveLength(PALWORLD_SETTING_FIELDS.length);
     expect(new Set(layoutKeys).size).toBe(layoutKeys.length);
     expect([...layoutKeys].sort()).toEqual(PALWORLD_SETTING_FIELDS.map((field) => field.key).sort());
-    expect(PALWORLD_SETTING_TABS.flatMap((tab) => tab.sections).filter((section) => section.managed).map((section) => section.title)).toEqual(["Security & Server Services"]);
+    expect(PALWORLD_SETTING_TABS.flatMap((tab) => tab.sections).filter((section) => section.managed).map((section) => [section.title, section.managed])).toEqual([
+      ["Server Identity", "identity"], ["Community Listing", "listing"], ["Network & Ports", "network"], ["Lifecycle & Recovery", "lifecycle"],
+      ["Performance & Synchronization", "performance"], ["Installation & Launch", "launch"], ["Registration & Removal", "registration"],
+    ]);
   });
   it("exposes and validates the complete original structured field inventory", () => {
-    expect(PALWORLD_SETTING_FIELDS).toHaveLength(116);
+    expect(PALWORLD_SETTING_FIELDS).toHaveLength(117);
     expect(validateAndEncodeSettingChanges({ BaseCampWorkerMaxNum: 50, DeathPenalty: "Item", bEnableFastTravel: false })).toEqual({ BaseCampWorkerMaxNum: "50", DeathPenalty: "Item", bEnableFastTravel: "False" });
     expect(() => validateAndEncodeSettingChanges({ BaseCampWorkerMaxNum: 51 })).toThrow("cannot be higher than 50");
     expect(() => validateAndEncodeSettingChanges({ DeathPenalty: "Everything" })).toThrow("must be one of");
@@ -231,11 +265,20 @@ describe("PalWorldSettings transformations", () => {
     expect(decodeSettingValue(field, tuple)).toEqual({ status: "valid", value: tuple, raw: tuple });
     expect(() => validateAndEncodeSettingChanges({ DenyTechnologyList: '("TechnologyA"' })).toThrow("balanced tuple");
   });
+  it("owns CrossplayPlatforms tuple parsing and canonical serialization", () => {
+    const field = PALWORLD_SETTING_FIELDS.find((candidate) => candidate.key === "CrossplayPlatforms")!;
+    expect(field).toMatchObject({ type: "multi-select", options: ["Steam", "Xbox", "PS5", "Mac"], presentation: "wide" });
+    expect(decodeSettingValue(field, "(PS5, Steam)")).toEqual({ status: "valid", value: ["Steam", "PS5"], raw: "(PS5, Steam)" });
+    expect(validateAndEncodeSettingChanges({ CrossplayPlatforms: ["PS5", "Steam"] })).toEqual({ CrossplayPlatforms: "(Steam,PS5)" });
+    expect(decodeSettingValue(field, "Steam,Xbox")).toMatchObject({ status: "invalid" });
+    expect(decodeSettingValue(field, "(Steam,Switch)")).toMatchObject({ status: "invalid" });
+    expect(decodeSettingValue(field, "(Steam,Steam)")).toMatchObject({ status: "invalid" });
+    expect(() => validateAndEncodeSettingChanges({ CrossplayPlatforms: [] })).toThrow("one or more");
+  });
   it("accounts for every setting in the tested Palworld 1.0.5 template", async () => {
     const template = await readFile(path.join(process.cwd(), "tests/fixtures/DefaultPalWorldSettings-1.0.5.ini"), "utf8");
     const templateKeys = Object.keys(parseConfigurationOptions(template)).sort();
-    const managerOwned = ["AdminPassword", "RCONEnabled", "RCONPort", "RESTAPIEnabled", "RESTAPIPort", "ServerPassword"];
-    const representedKeys = [...PALWORLD_SETTING_FIELDS.map((field) => field.key), ...managerOwned].sort();
+    const representedKeys = [...PALWORLD_SETTING_FIELDS.map((field) => field.key), ...PALWORLD_MANAGER_SETTING_KEYS].sort();
     expect(templateKeys).toHaveLength(122);
     expect(representedKeys).toEqual(templateKeys);
     const options = parseConfigurationOptions(template);

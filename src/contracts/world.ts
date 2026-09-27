@@ -28,6 +28,7 @@ export const createWorldSchema = z.object({
 });
 
 export const updateWorldSchema = createWorldSchema.partial();
+export const managedWorldSettingsSchema = createWorldSchema.omit({ adminPassword: true, serverPassword: true }).strict();
 export const portableWorldSchema = createWorldSchema.omit({ adminPassword: true, serverPassword: true }).strict();
 export const worldRegistrationSchema = z.object({
   format: z.literal("psm-next/world-registration"),
@@ -54,6 +55,7 @@ export const worldActionSchema = z.discriminatedUnion("action", [
 
 export type CreateWorldInput = z.infer<typeof createWorldSchema>;
 export type UpdateWorldInput = z.infer<typeof updateWorldSchema>;
+export type ManagedWorldSettings = z.infer<typeof managedWorldSettingsSchema>;
 export type WorldActionInput = z.infer<typeof worldActionSchema>;
 export type WorldStatus = z.infer<typeof worldStatusSchema>;
 export type WorldRegistration = z.infer<typeof worldRegistrationSchema>;

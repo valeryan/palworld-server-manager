@@ -1,5 +1,5 @@
 import "server-only";
-import { access, mkdir, rm, stat } from "node:fs/promises";
+import { access, chmod, mkdir, rm, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -13,6 +13,7 @@ import { paths } from "@/server/paths";
 import { getWorld } from "./worlds";
 import { listWorlds, pathsOverlap } from "./worlds";
 import { worldIsLocked } from "./jobs";
+import { adoptRestoredConfiguration, validateConfiguration } from "./configuration";
 
 function saveDirectory(installDir: string): string { return path.join(installDir, "Pal", "Saved"); }
 function safeEntries(zip: AdmZip): boolean {
@@ -33,6 +34,7 @@ export async function createBackup(worldId: string, reason: string, context: Job
   await mkdir(directory, { recursive: true });
   const destination = path.join(directory, `${Date.now()}-${id}.zip`);
   const zip = new AdmZip(); zip.addLocalFolder(source, "Saved"); zip.writeZip(destination);
+  await chmod(destination, 0o600);
   const verified = new AdmZip(destination).test();
   if (!verified) { await rm(destination, { force: true }); throw new Error("Backup verification failed."); }
   const info = await stat(destination);
@@ -49,6 +51,10 @@ export async function restoreBackup(worldId: string, backupId: string, context: 
   if (!record || record.worldId !== worldId) throw new Error("Backup not found for this world.");
   const zip = new AdmZip(record.filePath);
   if (!zip.test() || !safeEntries(zip)) throw new Error("Backup is corrupt or contains unsafe paths.");
+  const settingsEntry = zip.getEntry(`Saved/Config/${world.platform === "windows" ? "WindowsServer" : "LinuxServer"}/PalWorldSettings.ini`);
+  if (!settingsEntry) throw new Error("Backup does not contain PalWorldSettings.ini.");
+  const restoredConfiguration = settingsEntry.getData().toString("utf8");
+  validateConfiguration(restoredConfiguration);
   await context.update(10, "Creating pre-restore backup");
   await createBackup(worldId, `pre-restore-${backupId}`, { signal: context.signal, update: async () => {}, log: context.log });
   const saved = saveDirectory(world.installDir); const staging = `${saved}.restore-${randomUUID()}`;
@@ -56,8 +62,17 @@ export async function restoreBackup(worldId: string, backupId: string, context: 
   const extracted = path.join(staging, "Saved");
   await stat(extracted).catch(() => { throw new Error("Backup does not contain a Saved directory."); });
   const displaced = `${saved}.before-${Date.now()}`;
-  await import("node:fs/promises").then(async ({ rename }) => { await rename(saved, displaced); await rename(extracted, saved); });
-  await rm(staging, { recursive: true, force: true });
+  try {
+    await adoptRestoredConfiguration(worldId, restoredConfiguration, async () => {
+      const { rename } = await import("node:fs/promises");
+      await rename(saved, displaced);
+      try { await rename(extracted, saved); }
+      catch (cause) { await rename(displaced, saved); throw cause; }
+      return async () => { await rm(saved, { recursive: true, force: true }); await rename(displaced, saved); };
+    });
+  } finally {
+    await rm(staging, { recursive: true, force: true });
+  }
   await context.update(100, `Restored backup; previous save retained at ${displaced}`);
 }
 

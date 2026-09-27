@@ -12,10 +12,6 @@ export async function GET(request: Request, context: Context) {
     const { id } = await context.params;
     const world = await getWorld(id);
     if (!world) return Response.json({ ok: false, error: "World not found." }, { status: 404 });
-    return Response.json({
-      ok: true,
-      registration: exportWorldRegistration(world),
-      credentials: { adminPasswordSet: Boolean(world.adminPassword), serverPasswordSet: Boolean(world.serverPassword) },
-    });
+    return Response.json({ ok: true, registration: exportWorldRegistration(world) });
   } catch (error) { return errorResponse(error); }
 }
