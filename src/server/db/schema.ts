@@ -67,6 +67,22 @@ export const configVersions = sqliteTable("config_versions", {
   content: text("content").notNull(), note: text("note"), createdAt: integer("created_at").notNull(),
 }, (table) => [index("config_versions_world_created_idx").on(table.worldId, table.createdAt)]);
 
+export const worldSettings = sqliteTable("world_settings", {
+  worldId: text("world_id").primaryKey().references(() => worlds.id, { onDelete: "cascade" }),
+  desiredManager: text("desired_manager", { mode: "json" }).$type<Record<string, unknown>>().notNull(),
+  desiredContent: text("desired_content").notNull(),
+  appliedContent: text("applied_content").notNull(),
+  desiredRevision: integer("desired_revision").notNull().default(1),
+  appliedRevision: integer("applied_revision").notNull().default(0),
+  appliedSemanticHash: text("applied_semantic_hash"),
+  pendingSince: integer("pending_since"),
+  lastApplyError: text("last_apply_error"),
+  drift: integer("drift", { mode: "boolean" }).notNull().default(false),
+  driftReason: text("drift_reason"),
+  updatedAt: integer("updated_at").notNull(),
+  appliedAt: integer("applied_at"),
+});
+
 export const sessions = sqliteTable("sessions", {
   id: integer("id").primaryKey({ autoIncrement: true }), worldId: text("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
   userId: text("user_id"), playerName: text("player_name"), event: text("event", { enum: ["join", "leave"] }).notNull(), createdAt: integer("created_at").notNull(),

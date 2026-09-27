@@ -231,7 +231,7 @@ test("adopts and manages an isolated world through critical browser workflows", 
     const response = await page.request.get(`/api/worlds/${worldId}`);
     return ((await response.json()) as { world: { communityServer: boolean } }).world.communityServer;
   }).toBe(true);
-  await expect.poll(async () => ((await (await page.request.get(`/api/worlds/${worldId}/configuration/versions`)).json()) as { versions: unknown[] }).versions.length).toBe(versionsBeforePsmSave);
+  await expect.poll(async () => ((await (await page.request.get(`/api/worlds/${worldId}/configuration/versions`)).json()) as { versions: unknown[] }).versions.length).toBe(versionsBeforePsmSave + 1);
   await page.getByRole("tab", { name: "Server Admin", exact: true }).click();
   const serverName = page.getByLabel("Server name", { exact: true });
   const displayName = page.getByLabel("Display name", { exact: true });
@@ -250,10 +250,27 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await waitForLatestJob(page, "start");
   await page.reload();
   await expect(page.getByText("Running", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("tab", { name: "Server Admin", exact: true }).click();
+  await page.getByLabel("Administrator password", { exact: true }).fill("staged-while-running");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  const pendingRestart = page.getByRole("button", { name: "Restart", exact: true });
+  await expect(pendingRestart).toHaveClass(/restart-pending/);
+  await expect(pendingRestart).toHaveAttribute("title", "Settings changes are pending and will be applied during this restart.");
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/worlds/${worldId}/configuration/admin`);
+    const payload = await response.json() as { configuration: { pendingApply: boolean; options: Record<string, string>; appliedOptions: Record<string, string> } };
+    return `${payload.configuration.pendingApply}:${payload.configuration.options.AdminPassword}:${payload.configuration.appliedOptions.AdminPassword}`;
+  }).toBe('true:"staged-while-running":""');
   await page.getByRole("button", { name: "Restart", exact: true }).click();
   await waitForLatestJob(page, "restart");
   await page.reload();
   await expect(page.getByText("Running", { exact: true })).toBeVisible();
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/worlds/${worldId}/configuration/admin`);
+    const payload = await response.json() as { configuration: { pendingApply: boolean; appliedOptions: Record<string, string> } };
+    return `${payload.configuration.pendingApply}:${payload.configuration.appliedOptions.AdminPassword}`;
+  }).toBe('false:"staged-while-running"');
   await page.getByRole("button", { name: "Stop", exact: true }).click();
   await waitForLatestJob(page, "stop");
   await page.reload();

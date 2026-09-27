@@ -1,6 +1,5 @@
 import "server-only";
 import { createWriteStream, existsSync } from "node:fs";
-import { access, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import killTree from "tree-kill";
@@ -11,7 +10,7 @@ import { worlds } from "@/server/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { eventBus } from "./events";
 import { getWorld, listWorlds, setRuntimeState } from "./worlds";
-import { readConfiguration } from "./configuration";
+import { applyDesiredSettings, prepareWorldStart } from "./configuration";
 import { palworldRest } from "./rest";
 
 declare global { var __psmChildren: Map<string, ChildProcess> | undefined; }
@@ -61,12 +60,12 @@ export function commandFor(world: WorldView): { command: string; args: string[];
 }
 
 export async function startWorld(worldId: string): Promise<void> {
-  const world = await getWorld(worldId);
-  if (!world) throw new Error("World not found.");
-  if (world.processId && processIsAlive(world.processId)) throw new Error("World is already running.");
-  const { command, args, env } = commandFor(world);
-  if (!executableAvailable(command, env)) throw new Error(`Server executable is not available: ${command}`);
-  await setRuntimeState(worldId, "starting", null);
+  const { world, command, args, env } = await prepareWorldStart(worldId, async (world) => {
+    const prepared = commandFor(world);
+    if (!executableAvailable(prepared.command, prepared.env)) throw new Error(`Server executable is not available: ${prepared.command}`);
+    await setRuntimeState(worldId, "starting", null);
+    return { world, ...prepared };
+  });
   const logPath = path.join(paths.worldLogs(worldId), `server-${new Date().toISOString().replace(/[:.]/g, "-")}.log`);
   const stream = createWriteStream(logPath, { flags: "a" });
   const child = spawn(command, args, { cwd: world.installDir, env, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
@@ -75,9 +74,12 @@ export async function startWorld(worldId: string): Promise<void> {
   child.on("exit", async (code, signal) => {
     children().delete(worldId); stream.end(`\n[manager] exited code=${code ?? "null"} signal=${signal ?? "none"}\n`);
     const latest = await getWorld(worldId); const expected = latest?.status === "stopping";
-    // stopWorld still has to restore the manager-owned configuration after the
-    // process exits. Keep the visible state transitional until that work is done.
-    if (!expected) await setRuntimeState(worldId, code === 0 ? "stopped" : "crashed", null);
+    // A controlled stop remains transitional until stopWorld has projected the
+    // latest desired revision after the process is confirmed gone.
+    if (!expected) {
+      await setRuntimeState(worldId, code === 0 ? "stopped" : "crashed", null);
+      await applyDesiredSettings(worldId).catch(() => undefined);
+    }
     if (!expected && code !== 0 && latest?.crashGuard) {
       await database().update(worlds).set({ crashCount: sql`${worlds.crashCount} + 1` }).where(eq(worlds.id, worldId));
       setTimeout(() => void import("./jobs").then(({ startJob }) => startJob(worldId, "crash-recovery", async () => startWorld(worldId))).catch(() => undefined), 5_000);
@@ -92,14 +94,16 @@ export async function startWorld(worldId: string): Promise<void> {
 
 export async function stopWorld(worldId: string, force = false, options: { waitSeconds?: number; message?: string } = {}): Promise<void> {
   const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
-  if (!world.processId || !processIsAlive(world.processId)) { await setRuntimeState(worldId, "stopped", null); return; }
+  if (!world.processId || !processIsAlive(world.processId)) {
+    await setRuntimeState(worldId, "stopped", null);
+    const application = await applyDesiredSettings(worldId);
+    if (application.pendingApply) throw new Error(`Server stopped; settings remain pending${application.applyError ? `: ${application.applyError}` : "."}`);
+    return;
+  }
   await setRuntimeState(worldId, "stopping", world.processId);
-  let intendedConfiguration: { path: string; content: string } | null = null;
   let gracefulShutdownRequested = false;
   if (!force && world.restApiEnabled) {
     try {
-      const configuration = await readConfiguration(worldId);
-      if (configuration.exists) intendedConfiguration = { path: configuration.path, content: configuration.content };
       await palworldRest.save(world).catch(() => undefined);
       await palworldRest.shutdown(world, options.waitSeconds ?? 15, options.message ?? "Server shutting down.");
       gracefulShutdownRequested = true;
@@ -111,12 +115,9 @@ export async function stopWorld(worldId: string, force = false, options: { waitS
   const deadline = Date.now() + (force ? 3_000 : 10_000);
   while (processIsAlive(world.processId) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 250));
   if (processIsAlive(world.processId)) await new Promise<void>((resolve, reject) => killTree(world.processId!, "SIGKILL", (error) => error ? reject(error) : resolve()));
-  if (intendedConfiguration) {
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    await access(path.dirname(intendedConfiguration.path));
-    await writeFile(intendedConfiguration.path, intendedConfiguration.content, { encoding: "utf8", mode: 0o600 });
-  }
   await setRuntimeState(worldId, "stopped", null);
+  const application = await applyDesiredSettings(worldId);
+  if (application.pendingApply) throw new Error(`Server stopped; settings remain pending${application.applyError ? `: ${application.applyError}` : "."}`);
 }
 
 export async function restartWorld(worldId: string, options: { waitSeconds?: number; message?: string } = {}): Promise<void> { await stopWorld(worldId, false, options); await startWorld(worldId); }

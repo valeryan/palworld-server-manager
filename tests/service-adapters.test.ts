@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer, type Server } from "node:net";
@@ -40,6 +40,8 @@ describe("service boundaries with isolated fakes", () => {
   it("drives lifecycle state through a fake PalServer process", async () => {
     const installDir = path.join(root, "process-world");
     await mkdir(path.join(installDir, "Pal", "Saved"), { recursive: true });
+    await mkdir(path.join(installDir, "Pal", "Saved", "Config", "LinuxServer"), { recursive: true });
+    await writeFile(path.join(installDir, "Pal", "Saved", "Config", "LinuxServer", "PalWorldSettings.ini"), '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(ServerName="Fake process")\n');
     const executable = path.join(installDir, "PalServer.sh");
     await writeFile(executable, "#!/bin/sh\ntrap 'exit 0' TERM INT\nwhile :; do sleep 1; done\n");
     await chmod(executable, 0o700);
@@ -130,14 +132,16 @@ echo "Success! App '2394010' fully installed."
     expect(updates.at(-1)).toBe("Installed build 424242");
   });
 
-  it("preserves invalid raw settings until an explicit shipped-default repair", async () => {
+  it("detects external semantic drift without replacing desired settings", async () => {
     const activePath = path.join(root, "steam-world", "Pal", "Saved", "Config", "LinuxServer", "PalWorldSettings.ini");
     const active = (await readFile(activePath, "utf8")).replace("ServerReplicatePawnCullDistance=15000.000000", "ServerReplicatePawnCullDistance=NaN");
     await writeFile(activePath, active);
     const { readConfigurationOptions, resolveShippedDefaultChanges, saveConfigurationOptions } = await import("@/server/services/configuration");
-    await saveConfigurationOptions(configurationWorldId, { ExpRate: "2.000000" });
+    const result = await saveConfigurationOptions(configurationWorldId, { ExpRate: "2.000000" });
     const preserved = await readConfigurationOptions(configurationWorldId);
-    expect(preserved.options).toMatchObject({ ExpRate: "2.000000", ServerReplicatePawnCullDistance: "NaN" });
+    expect(result).toMatchObject({ pendingApply: true, drift: true });
+    expect(preserved.options).toMatchObject({ ExpRate: "2.000000", ServerReplicatePawnCullDistance: "15000.000000" });
+    expect(await readFile(activePath, "utf8")).toContain("ServerReplicatePawnCullDistance=NaN");
     expect(preserved.shippedDefaults.options.ServerReplicatePawnCullDistance).toBe("15000.000000");
     expect(preserved).not.toHaveProperty("content");
     expect(preserved.options.AdminPassword).toMatch(/^"[^"]{24}"$/);
@@ -151,7 +155,8 @@ echo "Success! App '2394010' fully installed."
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     globalThis.fetch = vi.fn(async (input, init) => { calls.push({ url: String(input), init }); return new Response(JSON.stringify({ ok: true }), { status: 200 }); }) as typeof fetch;
     const { palworldRest } = await import("@/server/services/rest");
-    const { createWorld } = await import("@/server/services/worlds");
+    const { createWorld, setRuntimeState } = await import("@/server/services/worlds");
+    const { readConfiguration, saveConfiguration } = await import("@/server/services/configuration");
     const installDir = path.join(root, "rest-world");
     const configDir = path.join(installDir, "Pal", "Saved", "Config", "LinuxServer");
     await mkdir(configDir, { recursive: true });
@@ -161,6 +166,104 @@ echo "Success! App '2394010' fully installed."
     expect(calls[0]?.url).toBe("http://127.0.0.1:39313/v1/api/announce");
     expect(calls[0]?.init?.headers).toMatchObject({ Authorization: `Basic ${Buffer.from("admin:secret").toString("base64")}` });
     expect(calls[0]?.init?.body).toBe(JSON.stringify({ message: "Maintenance soon" }));
+    const configuration = await readConfiguration(world.id);
+    await setRuntimeState(world.id, "running", process.pid);
+    await saveConfiguration(world.id, configuration.content.replace('AdminPassword="secret"', 'AdminPassword="staged"'), configuration.desiredRevision);
+    await expect(saveConfiguration(world.id, configuration.content, configuration.desiredRevision)).rejects.toThrow("changed since");
+    await palworldRest.announce({ ...world, status: "running", processId: process.pid }, "Still live");
+    expect(calls[1]?.init?.headers).toMatchObject({ Authorization: `Basic ${Buffer.from("admin:secret").toString("base64")}` });
+    await setRuntimeState(world.id, "stopped", null);
+  });
+
+  it("keeps a combined manager and INI change pending when projection fails", async () => {
+    const installDir = path.join(root, "projection-world");
+    const configPath = path.join(installDir, "Pal", "Saved", "Config", "LinuxServer", "PalWorldSettings.ini");
+    await mkdir(path.dirname(configPath), { recursive: true });
+    await writeFile(configPath, '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(ServerName="Applied",RESTAPIPort=39713)\n');
+    const blockedParent = path.join(root, "not-a-directory"); await writeFile(blockedParent, "file");
+    const { createWorld, getWorld } = await import("@/server/services/worlds");
+    const { readSettingsState, saveDesiredSettings } = await import("@/server/services/configuration");
+    const world = await createWorld({ displayName: "Projection", installDir, gamePort: 39711, queryPort: 39712, restApiPort: 39713, rconPort: 39714 });
+    const before = await readSettingsState(world.id);
+    const desiredContent = before.desiredContent.replace('ServerName="Applied"', 'ServerName="Desired"').replace("RESTAPIPort=39713", "RESTAPIPort=39723");
+    const result = await saveDesiredSettings(world.id, { baseRevision: before.desiredRevision, manager: { ...before.desiredManager, installDir: path.join(blockedParent, "child"), restApiPort: 39723 }, content: desiredContent });
+    expect(result.pendingApply).toBe(true);
+    expect(result.applyError).toMatch(/directory|ENOTDIR/i);
+    expect(await getWorld(world.id)).toMatchObject({ installDir, restApiPort: 39713 });
+    expect(await readSettingsState(world.id)).toMatchObject({ desiredManager: { installDir: path.join(blockedParent, "child"), restApiPort: 39723 }, pendingApply: true });
+  });
+
+  it("preserves legacy credentials when bootstrapping from a shipped template", async () => {
+    const installDir = path.join(root, "legacy-template-world");
+    await mkdir(installDir, { recursive: true });
+    await writeFile(path.join(installDir, "DefaultPalWorldSettings.ini"), '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(AdminPassword="",ServerPassword="")\n');
+    const { createWorld, getWorld } = await import("@/server/services/worlds");
+    const { readSettingsState } = await import("@/server/services/configuration");
+    const world = await createWorld({ displayName: "Legacy template", installDir, gamePort: 39811, queryPort: 39812, restApiPort: 39813, rconPort: 39814, adminPassword: "legacy-admin", serverPassword: "legacy-player" });
+    const settings = await readSettingsState(world.id);
+    expect(settings.desiredContent).toContain('AdminPassword="legacy-admin"');
+    expect(settings.desiredContent).toContain('ServerPassword="legacy-player"');
+    expect(await getWorld(world.id)).toMatchObject({ adminPassword: "", serverPassword: "" });
+  });
+
+  it("preserves deferred legacy credentials when the template appears after bootstrap", async () => {
+    const installDir = path.join(root, "deferred-legacy-world"); await mkdir(installDir, { recursive: true });
+    const { createWorld, getWorld } = await import("@/server/services/worlds");
+    const { readSettingsState, syncManagedConfiguration } = await import("@/server/services/configuration");
+    const world = await createWorld({ displayName: "Deferred legacy", installDir, gamePort: 40311, queryPort: 40312, restApiPort: 40313, rconPort: 40314, adminPassword: "deferred-admin", serverPassword: "deferred-player" });
+    expect(await readSettingsState(world.id)).toMatchObject({ drift: true, pendingApply: true });
+    await writeFile(path.join(installDir, "DefaultPalWorldSettings.ini"), '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(AdminPassword="",ServerPassword="",RESTAPIEnabled=False,RESTAPIPort=40313,RCONEnabled=False,RCONPort=40314)\n');
+    expect(await syncManagedConfiguration(world.id)).toMatchObject({ initialized: true, pendingApply: false, drift: false });
+    const applied = await readSettingsState(world.id);
+    expect(applied.appliedContent).toContain('AdminPassword="deferred-admin"');
+    expect(applied.appliedContent).toContain('ServerPassword="deferred-player"');
+    expect(await getWorld(world.id)).toMatchObject({ adminPassword: "", serverPassword: "" });
+  });
+
+  it("does not overwrite a different configuration when relocating a world", async () => {
+    const installDir = path.join(root, "relocation-source"); const destination = path.join(root, "relocation-destination");
+    const sourceConfig = path.join(installDir, "Pal", "Saved", "Config", "LinuxServer", "PalWorldSettings.ini");
+    const destinationConfig = path.join(destination, "Pal", "Saved", "Config", "LinuxServer", "PalWorldSettings.ini");
+    await mkdir(path.dirname(sourceConfig), { recursive: true }); await mkdir(path.dirname(destinationConfig), { recursive: true });
+    await writeFile(sourceConfig, '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(ServerName="Source")\n');
+    await writeFile(destinationConfig, '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(ServerName="Destination")\n');
+    const { createWorld, getWorld } = await import("@/server/services/worlds");
+    const { readSettingsState, saveDesiredSettings } = await import("@/server/services/configuration");
+    const world = await createWorld({ displayName: "Relocation", installDir, gamePort: 39911, queryPort: 39912, restApiPort: 39913, rconPort: 39914 });
+    const before = await readSettingsState(world.id);
+    const result = await saveDesiredSettings(world.id, { baseRevision: before.desiredRevision, manager: { ...before.desiredManager, installDir: destination }, content: before.desiredContent });
+    expect(result).toMatchObject({ pendingApply: true, drift: true });
+    expect(await readFile(destinationConfig, "utf8")).toContain('ServerName="Destination"');
+    expect(await getWorld(world.id)).toMatchObject({ installDir });
+  });
+
+  it("serializes cross-world desired port reservations", async () => {
+    const { createWorld } = await import("@/server/services/worlds");
+    const { readSettingsState, saveDesiredSettings } = await import("@/server/services/configuration");
+    const firstDir = path.join(root, "reservation-a"); const secondDir = path.join(root, "reservation-b");
+    for (const installDir of [firstDir, secondDir]) { const file = path.join(installDir, "Pal", "Saved", "Config", "LinuxServer", "PalWorldSettings.ini"); await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(ServerName="Reservation")\n'); }
+    const first = await createWorld({ displayName: "Reservation A", installDir: firstDir, gamePort: 40011, queryPort: 40012, restApiPort: 40013, rconPort: 40014 });
+    const second = await createWorld({ displayName: "Reservation B", installDir: secondDir, gamePort: 40111, queryPort: 40112, restApiPort: 40113, rconPort: 40114 });
+    const [firstState, secondState] = await Promise.all([readSettingsState(first.id), readSettingsState(second.id)]);
+    const results = await Promise.allSettled([
+      saveDesiredSettings(first.id, { baseRevision: firstState.desiredRevision, manager: { ...firstState.desiredManager, gamePort: 40211 }, content: firstState.desiredContent }),
+      saveDesiredSettings(second.id, { baseRevision: secondState.desiredRevision, manager: { ...secondState.desiredManager, gamePort: 40211 }, content: secondState.desiredContent }),
+    ]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+  });
+
+  it("rejects staged install directories that alias another world through a symlink", async () => {
+    if (process.platform === "win32") return;
+    const { createWorld } = await import("@/server/services/worlds");
+    const { readSettingsState, saveDesiredSettings } = await import("@/server/services/configuration");
+    const occupied = path.join(root, "symlink-occupied"); const other = path.join(root, "symlink-other"); const alias = path.join(root, "symlink-alias");
+    for (const installDir of [occupied, other]) { const file = path.join(installDir, "Pal", "Saved", "Config", "LinuxServer", "PalWorldSettings.ini"); await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(ServerName="Alias test")\n'); }
+    await symlink(occupied, alias, "dir");
+    await createWorld({ displayName: "Symlink owner", installDir: occupied, gamePort: 40411, queryPort: 40412, restApiPort: 40413, rconPort: 40414 });
+    const candidate = await createWorld({ displayName: "Symlink candidate", installDir: other, gamePort: 40511, queryPort: 40512, restApiPort: 40513, rconPort: 40514 });
+    const settings = await readSettingsState(candidate.id);
+    await expect(saveDesiredSettings(candidate.id, { baseRevision: settings.desiredRevision, manager: { ...settings.desiredManager, installDir: path.join(alias, "missing", "deep") }, content: settings.desiredContent })).rejects.toThrow("overlaps");
   });
 
   it("executes the complete protocol against a fake RCON server", async () => {
@@ -197,13 +300,19 @@ echo "Success! App '2394010' fully installed."
   it("backs up and restores a fake filesystem tree without touching external paths", async () => {
     const installDir = path.join(root, "filesystem-world"); const saveFile = path.join(installDir, "Pal", "Saved", "SaveGames", "world.sav");
     await mkdir(path.dirname(saveFile), { recursive: true }); await writeFile(saveFile, "before");
+    const backupConfig = path.join(installDir, "Pal", "Saved", "Config", "LinuxServer", "PalWorldSettings.ini");
+    await mkdir(path.dirname(backupConfig), { recursive: true }); await writeFile(backupConfig, '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(ServerName="Backup")\n');
     const { createWorld } = await import("@/server/services/worlds");
     const { createBackup, restoreBackup } = await import("@/server/services/backups");
+    const { readSettingsState, saveDesiredSettings } = await import("@/server/services/configuration");
     const world = await createWorld({ displayName: "Fake filesystem", installDir, gamePort: 39511, queryPort: 39512, restApiPort: 39513, rconPort: 39514 });
     const context: JobContext = { signal: new AbortController().signal, log: () => undefined, update: async () => undefined };
     const backupId = await createBackup(world.id, "adapter-test", context);
+    const settings = await readSettingsState(world.id); const blockedParent = path.join(root, "restore-not-a-directory"); await writeFile(blockedParent, "file");
+    expect(await saveDesiredSettings(world.id, { baseRevision: settings.desiredRevision, manager: { ...settings.desiredManager, installDir: path.join(blockedParent, "child") }, content: settings.desiredContent })).toMatchObject({ pendingApply: true });
     await writeFile(saveFile, "after");
     await restoreBackup(world.id, backupId, context);
     expect(await readFile(saveFile, "utf8")).toBe("before");
+    expect(await readSettingsState(world.id)).toMatchObject({ desiredManager: { installDir }, appliedManager: { installDir }, pendingApply: false });
   });
 });

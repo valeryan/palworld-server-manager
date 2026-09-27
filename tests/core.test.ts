@@ -210,9 +210,8 @@ describe("PalWorldSettings transformations", () => {
     expect(needsManagedConfigurationSync({ gamePort: 8211 })).toBe(false);
   });
   it("reconciles manager-integrated values from raw INI without touching presentation properties", () => {
-    const world = { ...createWorldSchema.parse({ displayName: "Local label", installDir: "/tmp/test", adminPassword: "old", restApiPort: 8212 }), id: "world", status: "stopped" as const, processId: null, buildId: null, latestBuildId: null, lastStartedAt: null, createdAt: 1, updatedAt: 1 };
     const content = '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(AdminPassword="new",ServerPassword="players",RESTAPIEnabled=False,RESTAPIPort=9012,RCONEnabled=True,RCONPort=25580)\n';
-    expect(managedWorldChangesFromConfiguration(content, world)).toEqual({ restApiEnabled: false, restApiPort: 9012, rconEnabled: true, rconPort: 25580 });
+    expect(managedWorldChangesFromConfiguration(content)).toEqual({ restApiEnabled: false, restApiPort: 9012, rconEnabled: true, rconPort: 25580 });
     expect(configurationCredentials(content)).toEqual({ adminPassword: "new", serverPassword: "players" });
   });
   it("places each guided field exactly once in the canonical tree", () => {

@@ -286,6 +286,7 @@
     "structured.archiveTooLarge": "Configuration archives must be smaller than 5 MB.",
     "structured.imported": "Configuration imported; restart to apply changes.",
     "structured.restartRequired": "Restart required — configuration was saved after this server started.",
+    "world.pendingRestartHint": "Settings changes are pending and will be applied during this restart.",
     "structured.changedOnly": "Only changed fields are written. Unknown advanced INI options remain untouched.",
     "structured.search": "Search settings or keys…",
     "structured.reviewChanges": "Review changes ({{count}})",

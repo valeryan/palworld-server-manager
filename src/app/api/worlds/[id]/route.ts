@@ -1,6 +1,7 @@
 import { errorResponse, publicWorld, requireAdmin } from "@/server/http";
-import { getWorld, unregisterWorld, updateWorld } from "@/server/services/worlds";
-import { needsManagedConfigurationSync, syncManagedConfiguration } from "@/server/services/configuration";
+import { getWorld, unregisterWorld } from "@/server/services/worlds";
+import { applyConfigurationOptions, managedConfigurationChanges, readSettingsState, saveDesiredSettings } from "@/server/services/configuration";
+import { managedWorldSettingsSchema, parseWorldUpdate } from "@/contracts/world";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,10 +14,8 @@ export async function GET(_request: Request, context: Context) {
 
 export async function PATCH(request: Request, context: Context) {
   const denied = requireAdmin(request); if (denied) return denied;
-  try { const { id } = await context.params; const previous = await getWorld(id); if (!previous) throw new Error("World not found."); const input: unknown = await request.json(); const world = await updateWorld(id, input); let configuration;
-    try { configuration = needsManagedConfigurationSync(input) ? await syncManagedConfiguration(id) : { synchronized: false, skipped: true, reason: "No PalWorldSettings.ini-backed values changed." }; }
-    catch (error) { configuration = { synchronized: false, reason: error instanceof Error ? error.message : String(error) }; }
-    return Response.json({ ok: true, world: publicWorld(world), configuration }); }
+  try { const { id } = await context.params; const raw: unknown = await request.json(); if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Invalid request."); const input = raw as Record<string, unknown>; const baseRevision = Number(input.baseRevision); if (!Number.isInteger(baseRevision) || baseRevision < 0) throw new Error("A valid baseRevision is required."); const patch = parseWorldUpdate(input); const current = await readSettingsState(id); const { adminPassword, serverPassword, ...managerPatch } = patch; const manager = managedWorldSettingsSchema.parse({ ...current.desiredManager, ...managerPatch }); const optionChanges = { ...managedConfigurationChanges(manager), ...(adminPassword === undefined ? {} : { AdminPassword: JSON.stringify(adminPassword) }), ...(serverPassword === undefined ? {} : { ServerPassword: JSON.stringify(serverPassword) }) }; const result = await saveDesiredSettings(id, { baseRevision, manager, content: applyConfigurationOptions(current.desiredContent, optionChanges) }); const world = await getWorld(id); if (!world) throw new Error("World not found.");
+    return Response.json({ ok: true, world: publicWorld(world), configuration: result }); }
   catch (error) { return errorResponse(error); }
 }
 

@@ -12,6 +12,7 @@ import { SettingHelp } from "./setting-help";
 type Value = PalworldSettingValue;
 type Structured = {
   options: Record<string, string>; exists: boolean; running: boolean; restartRequired: boolean; path: string;
+  appliedOptions: Record<string, string>; desiredRevision: number; appliedRevision: number; pendingApply: boolean; drift: boolean; driftReason: string | null; applyError: string | null;
   shippedDefaults: { available: boolean; options: Record<string, string> };
   schemaWarnings: { unknownActiveKeys: string[]; unknownDefaultKeys: string[]; missingDefaultKeys: string[] };
 };
@@ -23,7 +24,7 @@ type AdminConfiguration = {
   communityServer: boolean; autostart: boolean; crashGuard: boolean; legacyPerfFlags: boolean; extraArgs: string; environment: Record<string, string>;
   wineBinary: string; winePrefix: string | null; wineLaunchFlags: string;
 };
-type StructuredResponse = { configuration: Structured; admin: AdminConfiguration };
+type StructuredResponse = { configuration: Structured; admin: AdminConfiguration; appliedAdmin: AdminConfiguration };
 type ManagerDraft = {
   displayName: string; installDir: string; platform: "linux" | "windows"; gamePort: string; queryPort: string; publicPort: string;
   communityServer: boolean; autostart: boolean; crashGuard: boolean; legacyPerfFlags: boolean; extraArgs: string; environment: string;
@@ -54,15 +55,16 @@ export function StructuredSettings({ worldId, onNotice }: { worldId: string; onN
   const query = useQuery({ queryKey: ["configuration-options", worldId], queryFn: () => get(worldId) });
   if (query.isLoading) return <p className="muted">{t("structured.loading")}</p>;
   if (query.error || !query.data) return <p className="error-text">{query.error?.message ?? t("structured.unavailable")}</p>;
-  return <StructuredForm key={JSON.stringify(query.data)} worldId={worldId} configuration={query.data.configuration} admin={query.data.admin} onNotice={onNotice} />;
+  return <StructuredForm key={JSON.stringify(query.data)} worldId={worldId} configuration={query.data.configuration} admin={query.data.admin} appliedAdmin={query.data.appliedAdmin} onNotice={onNotice} />;
 }
 
-function StructuredForm({ worldId, configuration, admin, onNotice }: { worldId: string; configuration: Structured; admin: AdminConfiguration; onNotice(message: string): void }) {
+function StructuredForm({ worldId, configuration, admin, appliedAdmin, onNotice }: { worldId: string; configuration: Structured; admin: AdminConfiguration; appliedAdmin: AdminConfiguration; onNotice(message: string): void }) {
   const { t } = useTranslation();
   const router = useRouter();
   const client = useQueryClient();
   const importInput = useRef<HTMLInputElement>(null);
   const activeStates = useMemo(() => Object.fromEntries(PALWORLD_SETTING_FIELDS.map((field) => [field.key, decodeSettingValue(field, configuration.options[field.key])])) as Record<string, DecodedSettingValue>, [configuration]);
+  const appliedStates = useMemo(() => Object.fromEntries(PALWORLD_SETTING_FIELDS.map((field) => [field.key, decodeSettingValue(field, configuration.appliedOptions[field.key])])) as Record<string, DecodedSettingValue>, [configuration]);
   const defaultStates = useMemo(() => Object.fromEntries(PALWORLD_SETTING_FIELDS.map((field) => [field.key, decodeDefaultSettingValue(field, configuration.shippedDefaults.options[field.key])])) as Record<string, DecodedSettingValue>, [configuration]);
   const initial = useMemo(() => Object.fromEntries(PALWORLD_SETTING_FIELDS.map((field) => {
     const active = activeStates[field.key]!; const shipped = defaultStates[field.key]!;
@@ -85,7 +87,8 @@ function StructuredForm({ worldId, configuration, admin, onNotice }: { worldId: 
     restApiEnabled: admin.restApiEnabled, restApiPort: String(admin.restApiPort), rconEnabled: admin.rconEnabled, rconPort: String(admin.rconPort),
   };
   const [manager, setManager] = useState<ManagerDraft>(initialManager);
-  const managerLocked = admin.status !== "stopped";
+  const managerLocked = false;
+  const worldRunning = admin.status !== "stopped";
   const changed = PALWORLD_SETTING_FIELDS.filter((field) => resetToDefaults.has(field.key) || (touched.has(field.key) && !valuesEqual(draft[field.key], initial[field.key])));
   const changedKeys = new Set(changed.map((field) => field.key));
   const managerChangedKeys = new Set((Object.keys(initialManager) as Array<keyof ManagerDraft>).filter((key) => manager[key] !== initialManager[key]));
@@ -133,7 +136,7 @@ function StructuredForm({ worldId, configuration, admin, onNotice }: { worldId: 
       ...(managerChangedKeys.has("rconEnabled") ? { rconEnabled: manager.rconEnabled } : {}),
       ...(managerChangedKeys.has("rconPort") ? { rconPort: parsePort(manager.rconPort, t("properties.rconPort")) } : {}),
     };
-    const response = await fetch(`/api/worlds/${worldId}/configuration/admin`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ changes, resetToDefaults: [...resetToDefaults], managed }) });
+    const response = await fetch(`/api/worlds/${worldId}/configuration/admin`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ baseRevision: configuration.desiredRevision, changes, resetToDefaults: [...resetToDefaults], managed }) });
     const body = await response.json(); if (!response.ok) throw new Error(body.error); return body;
   }, onSuccess: (body) => { onNotice(t(body.configurationChanged && configuration.running ? "structured.savedRestart" : "structured.saved", { count: changedCount })); void client.invalidateQueries({ queryKey: ["configuration-options", worldId] }); void client.invalidateQueries({ queryKey: ["configuration", worldId] }); void client.invalidateQueries({ queryKey: ["configuration-versions", worldId] }); void client.invalidateQueries({ queryKey: ["world", worldId] }); }, onError: (error) => onNotice(error.message) });
   const searchTerm = search.trim().toLowerCase();
@@ -157,8 +160,9 @@ function StructuredForm({ worldId, configuration, admin, onNotice }: { worldId: 
   const tabChangeCount = (tab: (typeof PALWORLD_SETTING_TABS)[number]) => tab.sections.reduce((count, section) => count + sectionChangeCount(section), 0);
   function applyPreset(name: string) { const preset = presets[name]; if (!preset) return; setDraft((current) => ({ ...current, ...preset.values })); setTouched((current) => new Set([...current, ...Object.keys(preset.values)])); setResetToDefaults((current) => new Set([...current].filter((key) => !Object.hasOwn(preset.values, key)))); setSearch(""); setReviewChanges(true); onNotice(t("structured.presetStaged", { name: t(preset.labelKey) })); }
   async function exportConfiguration() { const response = await fetch(`/api/worlds/${worldId}/configuration/export`); if (!response.ok) { const body = await response.json(); throw new Error(body.error); } const blob = await response.blob(); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `palworld-settings-${worldId}.zip`; anchor.click(); URL.revokeObjectURL(url); }
-  async function importConfiguration(event: ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; event.target.value = ""; if (!file) return; if (file.size > 5_000_000) { onNotice(t("structured.archiveTooLarge")); return; } const bytes = new Uint8Array(await file.arrayBuffer()); let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte); const response = await fetch(`/api/worlds/${worldId}/configuration/import`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ zipBase64: btoa(binary) }) }); const body = await response.json(); if (!response.ok) throw new Error(body.error); onNotice(t("structured.imported")); void client.invalidateQueries({ queryKey: ["configuration-options", worldId] }); void client.invalidateQueries({ queryKey: ["configuration", worldId] }); void client.invalidateQueries({ queryKey: ["configuration-versions", worldId] }); }
+  async function importConfiguration(event: ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; event.target.value = ""; if (!file) return; if (file.size > 5_000_000) { onNotice(t("structured.archiveTooLarge")); return; } const bytes = new Uint8Array(await file.arrayBuffer()); let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte); const response = await fetch(`/api/worlds/${worldId}/configuration/import`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ zipBase64: btoa(binary), baseRevision: configuration.desiredRevision }) }); const body = await response.json(); if (!response.ok) throw new Error(body.error); onNotice(t("structured.imported")); void client.invalidateQueries({ queryKey: ["configuration-options", worldId] }); void client.invalidateQueries({ queryKey: ["configuration", worldId] }); void client.invalidateQueries({ queryKey: ["configuration-versions", worldId] }); }
   async function chooseDirectory() { const selected = await window.psmDesktop?.pickDirectory(); if (selected) setManagerValue("installDir", selected); }
+  async function reconcile(action: "import-file" | "reapply-desired") { const response = await fetch(`/api/worlds/${worldId}/configuration/reconcile`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) }); const body = await response.json(); if (!response.ok) throw new Error(body.error); onNotice(action === "import-file" ? "Imported the external configuration." : "Reapplied desired settings."); await client.invalidateQueries({ queryKey: ["configuration-options", worldId] }); await client.invalidateQueries({ queryKey: ["configuration", worldId] }); await client.invalidateQueries({ queryKey: ["world", worldId] }); }
   async function exportRegistration() {
     setManagementPending(true);
     try {
@@ -175,6 +179,9 @@ function StructuredForm({ worldId, configuration, admin, onNotice }: { worldId: 
     catch (error) { onNotice(error instanceof Error ? error.message : String(error)); setManagementPending(false); }
   }
   const changeBadge = (key: keyof ManagerDraft) => managerChangedKeys.has(key) ? <em className="change-badge">{t("structured.changedBadge")}</em> : null;
+  const persistedManagerValue = (key: keyof ManagerDraft) => key === "environment" ? appliedAdmin.environment : key === "publicPort" ? appliedAdmin.advertisedPort : appliedAdmin[key as keyof AdminConfiguration];
+  const desiredManagerValue = (key: keyof ManagerDraft) => key === "environment" ? admin.environment : key === "publicPort" ? admin.advertisedPort : admin[key as keyof AdminConfiguration];
+  const managerPendingApply = (key: keyof ManagerDraft) => configuration.pendingApply && JSON.stringify(persistedManagerValue(key)) !== JSON.stringify(desiredManagerValue(key));
   const managerHelp = (key: keyof ManagerDraft) => {
     const keys: Record<keyof ManagerDraft, string> = {
       displayName: "managerProperties.displayNameHelp", installDir: "managerProperties.locationHelp", platform: "properties.platformHelp",
@@ -189,7 +196,7 @@ function StructuredForm({ worldId, configuration, admin, onNotice }: { worldId: 
   function managerControl(key: string) {
     const changedClass = managerChangedKeys.has(key as keyof ManagerDraft) ? "changed" : "";
     const typedKey = key as keyof ManagerDraft;
-    const label = (text: string) => <span>{text}<SettingHelp label={t("structured.helpFor", { setting: text })} heading={t("structured.psmSetting")} guidance={managerHelp(typedKey)} />{changeBadge(typedKey)}</span>;
+    const label = (text: string) => <span>{text}<SettingHelp label={t("structured.helpFor", { setting: text })} heading={t("structured.psmSetting")} guidance={managerHelp(typedKey)} />{changeBadge(typedKey)}{managerPendingApply(typedKey) && <em className="change-badge">Applies after restart</em>}</span>;
     if (key === "displayName") { const stagedServerName = typeof draft.ServerName === "string" ? draft.ServerName : activeServerName ?? admin.displayName; return <label className={`manager-field ${changedClass}`}>{label(t("managerProperties.displayName"))}<input aria-label={t("managerProperties.displayName")} value={manager.displayName} placeholder={stagedServerName} onChange={(event) => setManagerValue("displayName", event.target.value)} /></label>; }
     if (key === "communityServer") return <label className={`manager-field ${changedClass}`}>{label(t("properties.community"))}<button type="button" className={`toggle ${manager.communityServer ? "on" : ""}`} disabled={managerLocked} aria-label={t("properties.community")} aria-pressed={manager.communityServer} onClick={() => setManagerValue("communityServer", !manager.communityServer)}><i />{t(manager.communityServer ? "common.on" : "common.off")}</button></label>;
     if (key === "publicPort") return <label className={`manager-field ${changedClass} ${admin.advertisedPort.mode === "invalid" && !managerChangedKeys.has("publicPort") ? "invalid" : ""}`}>{label(t("properties.publicPort"))}<span className="inline-control"><input aria-label={t("properties.publicPort")} inputMode="numeric" value={manager.publicPort} disabled={managerLocked} placeholder={manager.gamePort || String(admin.gamePort)} aria-invalid={admin.advertisedPort.mode === "invalid" && !managerChangedKeys.has("publicPort")} onChange={(event) => setManagerValue("publicPort", event.target.value)} />{admin.advertisedPort.mode === "invalid" && !managerChangedKeys.has("publicPort") && <button type="button" className="button ghost" disabled={managerLocked} onClick={() => setManagerValue("publicPort", "")}>{t("properties.useGamePort")}</button>}</span></label>;
@@ -202,7 +209,7 @@ function StructuredForm({ worldId, configuration, admin, onNotice }: { worldId: 
     if (key === "environment") return <label className={`manager-field ${changedClass}`}>{label(t("properties.environment"))}<textarea className="environment-editor" aria-label={t("properties.environment")} value={manager.environment} disabled={managerLocked} onChange={(event) => setManagerValue("environment", event.target.value)} spellCheck={false} /></label>;
     const textKeys = { extraArgs: "properties.extraArgs", wineBinary: "properties.wineBinary", winePrefix: "properties.winePrefix", wineLaunchFlags: "properties.wineFlags" } as const;
     if (key in textKeys) { const typedKey = key as keyof typeof textKeys; const text = t(textKeys[typedKey]); return <label className={`manager-field ${changedClass}`}>{label(text)}<input aria-label={text} value={manager[typedKey]} disabled={managerLocked} onChange={(event) => setManagerValue(typedKey, event.target.value)} /></label>; }
-    return <div className="registration-actions"><p>{t("properties.security")}</p><div className="management-actions"><button type="button" className="button ghost" disabled={managementPending} onClick={() => void exportRegistration()}>{t("properties.export")}</button><button type="button" className="button danger" disabled={managementPending || managerLocked} onClick={() => void unregister()}>{t("properties.unregister")}</button></div></div>;
+    return <div className="registration-actions"><p>{t("properties.security")}</p><div className="management-actions"><button type="button" className="button ghost" disabled={managementPending} onClick={() => void exportRegistration()}>{t("properties.export")}</button><button type="button" className="button danger" disabled={managementPending || worldRunning} onClick={() => void unregister()}>{t("properties.unregister")}</button></div></div>;
   }
   function sectionGrid(section: (typeof visibleTabs)[number]["sections"][number]) {
     const fields = new Map(section.fields.map((field) => [field.key, field]));
@@ -212,13 +219,13 @@ function StructuredForm({ worldId, configuration, admin, onNotice }: { worldId: 
       const keys = item.keys.filter((key) => fields.has(key) || (!PALWORLD_SETTING_FIELD_MAP.has(key) && managerVisible(key)));
       if (!keys.length) return [];
       const presentation = item.presentation ?? (keys.length === 1 && fields.get(keys[0]!) ? settingPresentation(fields.get(keys[0]!)!) : "standard");
-      const controls = keys.map((key) => { const field = fields.get(key); return field ? <SettingControl key={key} field={field} presentation={presentation} value={draft[key]} activeState={activeStates[key]!} defaultState={defaultStates[key]!} changed={changedKeys.has(key)} resetScheduled={resetToDefaults.has(key)} onChange={(value) => setValue(key, value)} onReplaceDefault={() => stageDefaultRepair(field)} onRevert={() => revertField(key)} /> : <div className="manager-control" key={key}>{managerControl(key)}</div>; });
+      const controls = keys.map((key) => { const field = fields.get(key); return field ? <SettingControl key={key} field={field} presentation={presentation} value={draft[key]} activeState={activeStates[key]!} appliedState={appliedStates[key]!} pendingApply={configuration.pendingApply} defaultState={defaultStates[key]!} changed={changedKeys.has(key)} resetScheduled={resetToDefaults.has(key)} onChange={(value) => setValue(key, value)} onReplaceDefault={() => stageDefaultRepair(field)} onRevert={() => revertField(key)} /> : <div className="manager-control" key={key}>{managerControl(key)}</div>; });
       return [<div className={`structured-layout-item span-${item.span} ${presentation} ${"grouped" in item && item.grouped && keys.length > 1 ? "service-block" : ""} ${keys[0] === "registrationActions" ? "registration-item" : ""}`} key={item.keys.join("+")}>{controls}</div>];
     });
     return <>{items.length > 0 && <div className="structured-grid">{items}</div>}{managerLocked && section.managed === "listing" && <p className="form-warning">{t("properties.stopToEditListing")}</p>}{managerLocked && section.managed === "network" && <p className="form-warning">{t("properties.stopToEditNetwork")}</p>}{managerLocked && section.managed === "launch" && <p className="form-warning">{t("properties.stopToEdit")}</p>}</>;
   }
   return <Tooltip.Provider delayDuration={250}><div>
-    {configuration.restartRequired && <div className="restart-required">{t("structured.restartRequired")}</div>}
+    {configuration.pendingApply && <div className="restart-required">{configuration.drift ? (configuration.driftReason ?? "The active file differs from the applied settings.") : configuration.applyError ? `Settings are pending: ${configuration.applyError}` : t("structured.restartRequired")}{!worldRunning && (configuration.drift || configuration.applyError) && <span className="management-actions"><button className="button ghost" onClick={() => void reconcile("reapply-desired").catch((error) => onNotice(error.message))}>Reapply desired</button>{configuration.drift && <button className="button ghost" onClick={() => void reconcile("import-file").catch((error) => onNotice(error.message))}>Import file</button>}</span>}</div>}
     {!configuration.shippedDefaults.available && <div className="settings-compatibility-warning">{t("structured.templateUnavailable")}</div>}
     {(configuration.schemaWarnings.unknownActiveKeys.length > 0 || configuration.schemaWarnings.unknownDefaultKeys.length > 0 || configuration.schemaWarnings.missingDefaultKeys.length > 0) && <div className="settings-compatibility-warning">{t("structured.schemaWarning", { keys: [...configuration.schemaWarnings.unknownActiveKeys, ...configuration.schemaWarnings.unknownDefaultKeys, ...configuration.schemaWarnings.missingDefaultKeys].join(", ") })}</div>}
     <div className="structured-notice">{t("structured.changedOnly")}</div>
@@ -230,14 +237,16 @@ function StructuredForm({ worldId, configuration, admin, onNotice }: { worldId: 
   </div></Tooltip.Provider>;
 }
 
-function SettingControl({ field, presentation, value, activeState, defaultState, changed, resetScheduled, onChange, onReplaceDefault, onRevert }: { field: PalworldSettingField; presentation: PalworldSettingPresentation; value: Value | undefined; activeState: DecodedSettingValue; defaultState: DecodedSettingValue; changed: boolean; resetScheduled: boolean; onChange(value: Value): void; onReplaceDefault(): void; onRevert(): void }) {
+function SettingControl({ field, presentation, value, activeState, appliedState, pendingApply, defaultState, changed, resetScheduled, onChange, onReplaceDefault, onRevert }: { field: PalworldSettingField; presentation: PalworldSettingPresentation; value: Value | undefined; activeState: DecodedSettingValue; appliedState: DecodedSettingValue; pendingApply: boolean; defaultState: DecodedSettingValue; changed: boolean; resetScheduled: boolean; onChange(value: Value): void; onReplaceDefault(): void; onRevert(): void }) {
   const { t } = useTranslation(); const label = t(settingFieldKey(field.key, "label")); const guidance = t(settingFieldKey(field.key, "hint")); const inputId = `setting-${field.key}`;
   const [passwordVisible, setPasswordVisible] = useState(false);
   const invalid = activeState.status === "invalid";
   const unavailable = value === undefined;
   const savedDisplay = field.type === "password" ? t("structured.savedPassword") : activeState.status === "valid" ? Array.isArray(activeState.value) ? activeState.value.join(", ") : String(activeState.value) : activeState.status === "missing" ? t("structured.unset") : activeState.raw;
+  const differsFromApplied = pendingApply && JSON.stringify(activeState) !== JSON.stringify(appliedState);
+  const appliedDisplay = field.type === "password" ? t("structured.savedPassword") : appliedState.status === "valid" ? Array.isArray(appliedState.value) ? appliedState.value.join(", ") : String(appliedState.value) : t("structured.unset");
   return <div className={`structured-field ${presentation} ${changed ? "changed" : ""} ${invalid && !changed ? "invalid" : ""}`}>
-    <div className="setting-label"><span><label htmlFor={field.type === "bool" ? undefined : inputId}>{label}</label><SettingHelp label={t("structured.helpFor", { setting: label })} heading={field.key} guidance={guidance} />{changed && <em className="change-badge">{resetScheduled ? t("structured.repairStaged") : t("structured.changedBadge")}</em>}{activeState.status === "missing" && defaultState.status === "valid" && !changed && <em>{t("structured.shippedDefault")}</em>}</span></div>
+    <div className="setting-label"><span><label htmlFor={field.type === "bool" ? undefined : inputId}>{label}</label><SettingHelp label={t("structured.helpFor", { setting: label })} heading={field.key} guidance={guidance} />{changed && <em className="change-badge">{resetScheduled ? t("structured.repairStaged") : t("structured.changedBadge")}</em>}{differsFromApplied && <em className="change-badge">Applies after restart · Active: {appliedDisplay}</em>}{activeState.status === "missing" && defaultState.status === "valid" && !changed && <em>{t("structured.shippedDefault")}</em>}</span></div>
     {invalid && !changed ? <div className="invalid-setting"><code>{activeState.raw}</code><span>{activeState.reason}</span>{defaultState.status === "valid" && <button type="button" className="button ghost" onClick={onReplaceDefault}>{t("structured.replaceDefault")}</button>}</div> : unavailable ? <div className="unsupported-setting">{defaultState.status === "unsupported-default" ? t("structured.unsupportedDefault", { value: defaultState.raw }) : t("structured.unsetNoDefault")}</div> : field.type === "bool" ? <button type="button" className={`toggle ${value ? "on" : ""}`} aria-label={label} aria-pressed={Boolean(value)} onClick={() => onChange(!value)}><i />{t(value ? "common.on" : "common.off")}</button> : field.type === "select" ? <select id={inputId} value={String(value)} onChange={(event) => onChange(event.target.value)}>{field.options?.map((choice) => <option key={choice}>{choice}</option>)}</select> : field.type === "multi-select" ? <div id={inputId} className="setting-pill-select" role="group" aria-label={label}>{field.options?.map((choice) => { const selected = Array.isArray(value) && value.includes(choice); const lastSelected = selected && value.length === 1; return <button key={choice} type="button" className={selected ? "selected" : ""} aria-pressed={selected} disabled={lastSelected} onClick={() => onChange(selected ? value.filter((item) => item !== choice) : [...(Array.isArray(value) ? value : []), choice])}>{selected && <span aria-hidden="true">✓</span>}{choice}</button>; })}</div> : field.type === "password" ? <span className="password-control"><input id={inputId} type={passwordVisible ? "text" : "password"} value={String(value)} autoComplete="new-password" onChange={(event) => onChange(event.target.value)} /><button type="button" className="button ghost" aria-label={t(passwordVisible ? "structured.hidePassword" : "structured.showPassword")} onClick={() => setPasswordVisible((visible) => !visible)}>{t(passwordVisible ? "structured.hide" : "structured.show")}</button></span> : <input id={inputId} type={field.type === "int" || field.type === "float" ? "number" : "text"} value={String(value)} min={field.min} max={field.max} step={field.type === "int" ? 1 : field.type === "float" ? 0.1 : undefined} onChange={(event) => onChange(field.type === "int" || field.type === "float" ? event.target.value === "" ? "" : Number(event.target.value) : event.target.value)} />}
     {changed && <button type="button" className="field-revert" onClick={onRevert}>{t("structured.revert", { value: savedDisplay })}</button>}
   </div>;
