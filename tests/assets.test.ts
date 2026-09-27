@@ -4,12 +4,34 @@ import { describe, expect, it } from "vitest";
 
 const root = process.cwd();
 const icons = path.join(root, "public/icons");
+const spheres = path.join(root, "public/spheres");
 
 describe("application icon inventory", () => {
   it("contains exactly the canonical normal and development assets", () => {
     expect(readdirSync(icons).sort()).toEqual(["app-dev.ico", "app-dev.png", "app.ico", "app.png"]);
-    for (const obsolete of ["public/PalSpheres", "public/spheres", "public/icon.png", "public/icon.ico", "src/app/favicon.ico", "public/file.svg", "public/globe.svg", "public/next.svg", "public/vercel.svg", "public/window.svg"]) {
+    for (const obsolete of ["public/PalSpheres", "public/icon.png", "public/icon.ico", "src/app/favicon.ico", "public/file.svg", "public/globe.svg", "public/next.svg", "public/vercel.svg", "public/window.svg"]) {
       expect(existsSync(path.join(root, obsolete)), obsolete).toBe(false);
+    }
+  });
+
+  it("contains the complete sphere theme inventory", () => {
+    expect(readdirSync(spheres).sort()).toEqual([
+      "psm-sphere-blank.svg",
+      "psm-spheres-ancient.png",
+      "psm-spheres-blank.png",
+      "psm-spheres-exotic.png",
+      "psm-spheres-giga.png",
+      "psm-spheres-hyper.png",
+      "psm-spheres-legendary.png",
+      "psm-spheres-mega.png",
+      "psm-spheres-pal.png",
+      "psm-spheres-sol.png",
+      "psm-spheres-ultimate.png",
+      "psm-spheres-ultra.png",
+    ]);
+    for (const fileName of readdirSync(spheres).filter((fileName) => fileName.endsWith(".png"))) {
+      const bytes = readFileSync(path.join(spheres, fileName));
+      expect([bytes.readUInt32BE(16), bytes.readUInt32BE(20)], fileName).toEqual([512, 512]);
     }
   });
 

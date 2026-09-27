@@ -12,6 +12,7 @@ import { Toast } from "./toast";
 import { useJobPresentation } from "@/lib/use-job-presentation";
 import { useLocaleDateTime } from "@/lib/use-locale-format";
 import { BuildStatus } from "./build-status";
+import { SphereMark } from "./sphere-mark";
 
 type SafeWorld = Omit<WorldView, "adminPassword" | "serverPassword" | "env">;
 async function json<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
@@ -44,7 +45,7 @@ export function Dashboard() {
     <section id="worlds">
       <div className="section-title"><div><p className="eyebrow">{t("dashboard.eyebrow")}</p><h2>{t("dashboard.managedServers")}</h2></div><div className="fleet-tools"><button className="button ghost" onClick={() => void bulk("start", worlds.filter((world) => world.status === "stopped" || world.status === "crashed"))}>{t("dashboard.startEligible")}</button><button className="button ghost" onClick={() => void bulk("restart", worlds.filter((world) => world.status === "running"))}>{t("dashboard.restartRunning")}</button><button className="button danger" onClick={() => void bulk("stop", worlds.filter((world) => world.status === "running"))}>{t("dashboard.stopRunning")}</button><button className="icon-button" onClick={() => worldsQuery.refetch()} aria-label={t("dashboard.refresh")}>↻</button></div></div>
       {worldsQuery.isLoading ? <div className="empty">{t("dashboard.loadingRegistry")}</div> : worldsQuery.error ? <div className="empty error">{worldsQuery.error.message}</div> : worlds.length === 0 ? <div className="empty"><div><strong>{t("dashboard.emptyTitle")}</strong><p>{t("dashboard.emptyHelp")}</p></div></div> : <div className="world-grid">{worlds.map((world) => <article className="world-card" key={world.id}>
-        <div className="world-identity"><div className="world-head"><div className="world-icon">{world.displayName.slice(0, 1).toUpperCase()}</div><div><h3>{world.displayName}</h3><Status value={world.status} /></div></div><p className="path" title={world.installDir}>{world.installDir}</p></div>
+        <div className="world-identity"><div className="world-head"><div className="world-icon"><SphereMark label={world.displayName} /></div><div><h3>{world.displayName}</h3><Status value={world.status} /></div></div><p className="path" title={world.installDir}>{world.installDir}</p></div>
         <span className="platform">{world.platform}</span>
         <dl><div><dt>{t("dashboard.game")}</dt><dd>{world.gamePort}</dd></div><div><dt>{t("dashboard.query")}</dt><dd>{world.queryPort}</dd></div><div><dt>{t("dashboard.rest")}</dt><dd>{world.restApiPort}</dd></div><div><dt>{t("dashboard.build")}</dt><dd><BuildStatus installed={world.buildId} latest={world.latestBuildId} /></dd></div></dl>
         <div className="world-actions fleet-actions">{world.status === "running" ? <><button onClick={() => run(world, "restart")}>{t("common.restart")}</button><button className="danger" onClick={() => run(world, "stop")}>{t("common.stop")}</button></> : world.status === "starting" || world.status === "stopping" ? <button disabled>{t(world.status === "starting" ? "dashboard.starting" : "dashboard.stopping")}</button> : <button className="start" onClick={() => run(world, "start")}>{t("common.start")}</button>}<Link className="manage-link" href={`/worlds/${world.id}`}>{t("dashboard.manage")}</Link></div>

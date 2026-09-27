@@ -1,7 +1,8 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import Image from "next/image";
+import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import type { LaunchAtLoginOptions } from "../../electron/launch-options";
 import type { LanguageCatalog } from "@/contracts/localization";
@@ -10,8 +11,10 @@ import { AppShell } from "./app-shell";
 import { RemoteAccessSettings } from "./remote-access-settings";
 import { SettingHelp } from "./setting-help";
 import { Toast } from "./toast";
+import { useTheme } from "./theme-provider";
+import { themes } from "@/lib/themes";
 
-type Paths = { dataDirectory: string; database: string; steamCmd: string; logs: string; retention: RetentionSettings };
+type Paths = { dataDirectory: string; database: string; steamCmd: string; logs: string; retention: RetentionSettings; theme: string };
 const initialLaunchOptions: LaunchAtLoginOptions = { startHidden: true, disableGpu: false, forceX11: false, customFlags: "" };
 
 async function responseJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
@@ -22,6 +25,7 @@ async function responseJson<T>(input: RequestInfo, init?: RequestInit): Promise<
 
 export function SettingsPage() {
   const { t, i18n } = useTranslation();
+  const { theme: activeTheme, setTheme } = useTheme();
   const languageFile = useRef<HTMLInputElement>(null);
   const query = useQuery({ queryKey: ["app-settings"], queryFn: async () => (await responseJson<{ settings: Paths }>("/api/settings")).settings });
   const languages = useQuery({ queryKey: ["languages"], queryFn: async () => (await responseJson<{ catalog: LanguageCatalog }>("/api/i18n/languages")).catalog });
@@ -35,6 +39,7 @@ export function SettingsPage() {
   const [savingPort, setSavingPort] = useState(false);
   const [retentionDraft, setRetentionDraft] = useState<RetentionSettings | null>(null);
   const [savingRetention, setSavingRetention] = useState(false);
+  const [savingTheme, setSavingTheme] = useState(false);
   const [changingLanguage, setChangingLanguage] = useState(false);
   const [documentLocale, setDocumentLocale] = useState({ code: "en", direction: "ltr" as "ltr" | "rtl" });
   const [notice, setNotice] = useState<string | null>(null);
@@ -86,6 +91,13 @@ export function SettingsPage() {
     } catch (error) { setNotice(error instanceof Error ? error.message : String(error)); }
     finally { setSavingRetention(false); }
   }
+  async function chooseTheme(theme: Parameters<typeof setTheme>[0]) {
+    if (theme === activeTheme) return;
+    setSavingTheme(true);
+    try { await setTheme(theme); }
+    catch (error) { setNotice(error instanceof Error ? error.message : String(error)); }
+    finally { setSavingTheme(false); }
+  }
   async function chooseLanguage(code: string) {
     setChangingLanguage(true);
     try {
@@ -119,6 +131,10 @@ export function SettingsPage() {
     <header className="topbar"><div><p className="eyebrow">{t("settings.eyebrow")}</p><h1>{t("settings.title")}</h1><p className="page-subtitle">{t("settings.subtitle")}</p></div></header>
     <Toast message={notice} onDismiss={() => setNotice(null)} />
     <div className="settings-sections">
+      <section className="settings-appearance">
+        <div><h2>{t("settings.appearance.title")}{help("settings.appearance.title", "settings.appearance.description")}</h2></div>
+        <div className="theme-picker" role="radiogroup" aria-label={t("settings.appearance.label")}>{themes.map((theme) => <button key={theme.id} type="button" role="radio" aria-checked={activeTheme === theme.id} className={activeTheme === theme.id ? "active" : ""} disabled={savingTheme} onClick={() => void chooseTheme(theme.id)} style={{ "--swatch": theme.palette.accent } as CSSProperties}><Image src={theme.image} alt="" width={512} height={512} sizes="72px" priority={theme.id === "pal"} /><span><strong>{theme.name}</strong><small>{t(activeTheme === theme.id ? "settings.appearance.selected" : "settings.appearance.select")}</small></span></button>)}</div>
+      </section>
       <section><div><h2>{t("settings.tray.title")}{help("settings.tray.title", "settings.tray.description")}</h2></div><button className={`toggle ${closeToTray ? "on" : ""}`} disabled={!desktopReady} onClick={() => void toggleClose()}><i />{t(closeToTray ? "common.on" : "common.off")}</button></section>
       <section className="settings-launch">
         <div className="settings-section-heading"><div><h2>{t("settings.launch.title")}{help("settings.launch.title", "settings.launch.description", "settings.launch.compatibilityHelp")}</h2></div><button className={`toggle ${launchAtLogin ? "on" : ""}`} disabled={!desktopReady} onClick={() => void toggleLaunch()}><i />{t(launchAtLogin ? "common.on" : "common.off")}</button></div>
