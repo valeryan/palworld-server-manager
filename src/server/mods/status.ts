@@ -22,9 +22,10 @@ export async function modLibrary(): Promise<ModLibraryEntry[]> {
   const worlds = await listWorlds();
   const detections = await Promise.all(worlds.map(async (world) => ({ world, ue4ss: await detectUe4ss(world) })));
   return Promise.all(MOD_CATALOG.map(async (artifact) => {
-    const { id, kind, name, variant, version, project, projectUrl, license, sizeBytes, sha256 } = artifact;
-    const downloaded = await stat(artifactPath(artifact)).then((info) => info.isFile(), () => false);
+    const { id, kind, name, variant, version, project, projectUrl, license, sizeBytes, sha256, url } = artifact;
+    const downloaded = await stat(artifactPath(artifact)).then((info) => info.isFile() && info.size === artifact.sizeBytes, () => false);
+    const downloading = globalThis.__psmModDownloads?.has(artifact.id) ?? false;
     const detectedIn = detections.filter(({ ue4ss }) => ue4ss.installed && ue4ss.variant === artifact.variant).map(({ world }) => ({ worldId: world.id, displayName: world.displayName }));
-    return { id, kind, name, variant, version, project, projectUrl, license, sizeBytes, sha256, downloaded, detectedIn };
+    return { id, kind, name, variant, version, project, projectUrl, license, sizeBytes, sha256, url, downloaded, downloading, detectedIn };
   }));
 }

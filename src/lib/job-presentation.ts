@@ -19,6 +19,7 @@ const jobLabels: Record<string, string> = {
   "scheduled-onscreen-notice": "Scheduled on-screen notice",
   "scheduled-custom-http": "Scheduled HTTP request",
   "scheduled-idle-stop": "Scheduled stop when empty",
+  "mod-download": "Download to Mods library",
 };
 
 const startingMessages: Record<string, string> = {
@@ -40,6 +41,7 @@ const startingMessages: Record<string, string> = {
   "scheduled-onscreen-notice": "Sending scheduled on-screen notice",
   "scheduled-custom-http": "Sending scheduled HTTP request",
   "scheduled-idle-stop": "Stopping empty server",
+  "mod-download": "Downloading to the Mods library",
 };
 
 const successMessages: Record<string, string> = {
@@ -61,6 +63,7 @@ const successMessages: Record<string, string> = {
   "scheduled-onscreen-notice": "Scheduled on-screen notice sent",
   "scheduled-custom-http": "Scheduled HTTP request completed",
   "scheduled-idle-stop": "Empty server stopped successfully",
+  "mod-download": "Download verified and added to the Mods library",
 };
 
 const stateLabels: Record<JobState, string> = {

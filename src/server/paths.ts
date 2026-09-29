@@ -14,4 +14,6 @@ export const paths = {
   imports: () => ensure(path.join(/* turbopackIgnore: true */ dataDirectory(), "imports")),
   languagePacks: () => ensure(path.join(/* turbopackIgnore: true */ dataDirectory(), "language-packs")),
   modCache: () => ensure(path.join(/* turbopackIgnore: true */ dataDirectory(), "mod-library")),
+  // Inside the library so a verified download is moved into place by same-filesystem rename.
+  modStaging: () => ensure(path.join(/* turbopackIgnore: true */ dataDirectory(), "mod-library", ".staging")),
 };

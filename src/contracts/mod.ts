@@ -59,5 +59,8 @@ export interface ModLibraryEntry {
   sizeBytes: number;
   sha256: string;
   downloaded: boolean;
+  downloading: boolean;
+  /** Where the file comes from; shown in the consent dialog before anything is fetched. */
+  url: string;
   detectedIn: Array<{ worldId: string; displayName: string }>;
 }

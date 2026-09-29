@@ -18,21 +18,24 @@ export interface CatalogArtifact {
 
 // Pinned, tested releases. Moving a pin is a code change made after the new
 // build has been exercised; upstream updates are never picked up implicitly.
-// experimental-latest is a rolling tag, so the asset name and digest are the pin.
+// Release tags can be republished in place, so the asset name and digest are the pin.
 export const MOD_CATALOG: readonly CatalogArtifact[] = [
   {
+    // Palworld build of RE-UE4SS experimental: identical to upstream apart from the
+    // MemberVariableLayout.ini Palworld needs (the generic release omits it, and without it
+    // hooked events can crash the server). Synced with the Steam Workshop UE4SS release.
     id: "ue4ss-windows",
     kind: "ue4ss",
-    name: "UE4SS",
+    name: "UE4SS for Palworld",
     variant: "windows",
-    version: "3.0.1-1151-g03dbd5c0",
-    project: "UE4SS-RE/RE-UE4SS",
-    projectUrl: "https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest",
+    version: "experimental-palworld-2026-08-28",
+    project: "Okaetsu/RE-UE4SS",
+    projectUrl: "https://github.com/Okaetsu/RE-UE4SS/releases/tag/experimental-palworld",
     license: "MIT",
-    url: "https://github.com/UE4SS-RE/RE-UE4SS/releases/download/experimental-latest/UE4SS_v3.0.1-1151-g03dbd5c0.zip",
-    fileName: "UE4SS_v3.0.1-1151-g03dbd5c0.zip",
-    sizeBytes: 8_731_381,
-    sha256: "d9e3f109c6417ab6488806922eeaeb4c521fe1234538914eb1d4b302af2325a7",
+    url: "https://github.com/Okaetsu/RE-UE4SS/releases/download/experimental-palworld/UE4SS-Palworld.zip",
+    fileName: "UE4SS-Palworld.zip",
+    sizeBytes: 8_513_965,
+    sha256: "110061ace044842f2af2d3ff4b6dae578c5f4c7e27ce5ae5c99a8ed963cd9b77",
   },
   {
     // BlackBookOfficial/ue4ss-linux-palworld v1.0.2 crash-loops (SettingsManager::deserialize,
@@ -46,9 +49,11 @@ export const MOD_CATALOG: readonly CatalogArtifact[] = [
     project: "Qiiks/ue4ss-linux-palworld",
     projectUrl: "https://github.com/Qiiks/ue4ss-linux-palworld/releases/tag/v1.0.4-palworld-linux",
     license: "MIT",
-    url: "https://github.com/Qiiks/ue4ss-linux-palworld/releases/download/v1.0.4-palworld-linux/ue4ss-linux-palworld-v1.0.4-palworld-linux.tar.gz",
-    fileName: "ue4ss-linux-palworld-v1.0.4-palworld-linux.tar.gz",
-    sizeBytes: 10_504_803,
-    sha256: "a360b169bd501bf73d3a22502e4e44e9515ab233241aa83c84d0b701a2bb6c8e",
+    // The release's zip carries the same files as its tarball (verified), so both builds
+    // go through the same zip handling.
+    url: "https://github.com/Qiiks/ue4ss-linux-palworld/releases/download/v1.0.4-palworld-linux/ue4ss-linux-palworld-v1.0.4-palworld-linux.zip",
+    fileName: "ue4ss-linux-palworld-v1.0.4-palworld-linux.zip",
+    sizeBytes: 10_512_396,
+    sha256: "f8e7a5d6dbb0004de564cdf18946c3c4dc8e3d35f497aa1134eb892a10b9bf1d",
   },
 ];

@@ -1,5 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { prepareTestDatabase } from "./prepare-database";
@@ -92,12 +93,72 @@ describe("mod library", () => {
   it("lists pinned builds with download state and the worlds where each is detected", async () => {
     const { modLibrary, artifactPath } = await import("@/server/mods/status"); const { MOD_CATALOG } = await import("@/server/mods/catalog");
     const linux = MOD_CATALOG.find((artifact) => artifact.variant === "linux")!;
-    await put(artifactPath(linux), "cached");
+    await put(artifactPath(linux), "x".repeat(linux.sizeBytes));
     const entries = await modLibrary();
     expect(entries.map((entry) => entry.id)).toEqual(MOD_CATALOG.map((artifact) => artifact.id));
-    expect(entries.every((entry) => /^[0-9a-f]{64}$/.test(entry.sha256) && entry.sizeBytes > 0 && !("url" in entry))).toBe(true);
+    expect(entries.every((entry) => /^[0-9a-f]{64}$/.test(entry.sha256) && entry.sizeBytes > 0 && entry.url.startsWith("https://github.com/"))).toBe(true);
     const byVariant = Object.fromEntries(entries.map((entry) => [entry.variant, entry]));
     expect(byVariant.linux).toMatchObject({ downloaded: true, detectedIn: [{ displayName: "Linux" }] });
     expect(byVariant.windows).toMatchObject({ downloaded: false, detectedIn: [{ displayName: "Windows" }] });
+  });
+});
+
+describe("verified downloads", () => {
+  const payload = new TextEncoder().encode("pinned artifact bytes");
+  const digest = createHash("sha256").update(payload).digest("hex");
+  function context() { const updates: string[] = []; const logs: string[] = []; return { updates, logs, value: { signal: new AbortController().signal, update: async (_progress: number, message: string) => { updates.push(message); }, log: (message: string) => { logs.push(message); } } }; }
+  function respond(body: Uint8Array<ArrayBuffer>, status = 200) { return vi.fn(async () => new Response(body, { status })); }
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("keeps a file only when its size and SHA-256 match", async () => {
+    const { downloadVerified } = await import("@/server/services/archive");
+    const staging = path.join(directory, "dl-staging"); const destination = path.join(directory, "dl", "ok.bin");
+    vi.stubGlobal("fetch", respond(payload)); const run = context();
+    await downloadVerified({ url: "https://example.test/ok.bin", sha256: digest, sizeBytes: payload.byteLength, destination, staging }, run.value);
+    expect(await readFile(destination, "utf8")).toBe("pinned artifact bytes");
+    expect(await readdir(staging)).toEqual([]);
+    expect(run.logs.some((line) => line.includes(digest))).toBe(true);
+  });
+
+  it("discards a download whose checksum, length, or status is wrong", async () => {
+    const { downloadVerified } = await import("@/server/services/archive");
+    const staging = path.join(directory, "dl-staging-bad"); const destination = path.join(directory, "dl", "bad.bin");
+    const cases: Array<[Uint8Array<ArrayBuffer>, number, string, number]> = [
+      [payload, payload.byteLength, "0".repeat(64), 200],
+      [payload, payload.byteLength - 1, digest, 200],
+      [payload.slice(0, 5), payload.byteLength, digest, 200],
+      [payload, payload.byteLength, digest, 404],
+    ];
+    for (const [body, sizeBytes, sha256, status] of cases) {
+      vi.stubGlobal("fetch", respond(body, status));
+      await expect(downloadVerified({ url: "https://example.test/bad.bin", sha256, sizeBytes, destination, staging }, context().value)).rejects.toThrow();
+    }
+    await expect(readFile(destination)).rejects.toThrow();
+    expect(await readdir(staging)).toEqual([]);
+  });
+});
+
+describe("library downloads", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+  it("downloads a catalog entry as an operation, refuses duplicates, and removes only the library copy", async () => {
+    const { MOD_CATALOG: catalog } = await import("@/server/mods/catalog"); const MOD_CATALOG = catalog as import("@/server/mods/catalog").CatalogArtifact[]; const { artifactPath } = await import("@/server/mods/status");
+    const { downloadArtifact, removeArtifact } = await import("@/server/mods/library"); const { getJob } = await import("@/server/services/jobs");
+    const windows = MOD_CATALOG.find((artifact) => artifact.variant === "windows")!;
+    const body = new Uint8Array(windows.sizeBytes);
+    const realDigest = createHash("sha256").update(body).digest("hex");
+    const pinned = { ...windows, sha256: realDigest };
+    MOD_CATALOG.splice(MOD_CATALOG.indexOf(windows), 1, pinned);
+    try {
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(body)));
+      const jobId = await downloadArtifact(pinned.id);
+      await expect(downloadArtifact(pinned.id)).rejects.toThrow("already downloading");
+      await vi.waitFor(async () => { expect((await getJob(jobId))?.state).toBe("succeeded"); });
+      expect((await getJob(jobId))?.worldId).toBeNull();
+      await expect(downloadArtifact(pinned.id)).rejects.toThrow("already in the library");
+      expect((await readFile(artifactPath(pinned))).byteLength).toBe(pinned.sizeBytes);
+      await removeArtifact(pinned.id);
+      await expect(readFile(artifactPath(pinned))).rejects.toThrow();
+      await expect(downloadArtifact("unknown")).rejects.toThrow("not found");
+    } finally { MOD_CATALOG.splice(MOD_CATALOG.indexOf(pinned), 1, windows); }
   });
 });
