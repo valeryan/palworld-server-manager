@@ -3,15 +3,17 @@ import { z } from "zod";
 export const platformSchema = z.enum(["linux", "windows"]);
 export const worldStatusSchema = z.enum(["stopped", "starting", "running", "stopping", "crashed", "unknown"]);
 const port = z.coerce.number().int().min(1).max(65535);
+export const defaultWorldPorts = { gamePort: 8211, queryPort: 27015, restApiPort: 8212, rconPort: 25575 } as const;
+export type WorldPorts = { gamePort: number; queryPort: number; restApiPort: number; rconPort: number };
 
 export const createWorldSchema = z.object({
   displayName: z.string().trim().min(1).max(80),
   installDir: z.string().trim().min(1),
   platform: platformSchema.default("linux"),
-  gamePort: port.default(8211),
-  queryPort: port.default(27015),
-  restApiPort: port.default(8212),
-  rconPort: port.default(25575),
+  gamePort: port.default(defaultWorldPorts.gamePort),
+  queryPort: port.default(defaultWorldPorts.queryPort),
+  restApiPort: port.default(defaultWorldPorts.restApiPort),
+  rconPort: port.default(defaultWorldPorts.rconPort),
   adminPassword: z.string().max(256).default(""),
   serverPassword: z.string().max(256).default(""),
   restApiEnabled: z.boolean().default(true),

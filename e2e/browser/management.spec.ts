@@ -26,6 +26,7 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await page.getByRole("button", { name: /Use existing server/ }).click();
   await page.getByLabel("Name").fill("Automated World");
   await page.getByLabel("Existing PalServer directory").fill(worldDirectory);
+  await expect(page.getByLabel("Game port")).toHaveValue(/^\d+$/);
   await page.getByLabel("Game port").fill("39611");
   await page.getByLabel("Query port").fill("39612");
   await page.getByLabel("REST API port").fill("39613");

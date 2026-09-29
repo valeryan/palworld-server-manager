@@ -3,8 +3,8 @@ import path from "node:path";
 import { access, realpath } from "node:fs/promises";
 import { and, eq, ne } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import type { CreateWorldInput, WorldRegistration, WorldView } from "@/contracts/world";
-import { createWorldSchema, managedWorldSettingsSchema, parseWorldUpdate, worldRegistrationSchema } from "@/contracts/world";
+import type { CreateWorldInput, WorldPorts, WorldRegistration, WorldView } from "@/contracts/world";
+import { createWorldSchema, defaultWorldPorts, managedWorldSettingsSchema, parseWorldUpdate, worldRegistrationSchema } from "@/contracts/world";
 import { database } from "@/server/db";
 import { worlds, worldSettings } from "@/server/db/schema";
 import { eventBus } from "./events";
@@ -48,14 +48,44 @@ export function pathsOverlap(left: string, right: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative)) || (!reverse.startsWith("..") && !path.isAbsolute(reverse));
 }
 
-async function validateIsolation(input: CreateWorldInput, excludingId?: string): Promise<CreateWorldInput> {
-  const installDir = await canonicalInstallDir(input.installDir);
+async function reservations(excludingId?: string): Promise<Array<{ row: WorldRow; reserved: Array<Pick<CreateWorldInput, "installDir" | (typeof PORT_FIELDS)[number]>> }>> {
   const existing = await database().select().from(worlds);
   const desiredRows = await database().select().from(worldSettings);
   const desiredByWorld = new Map(desiredRows.map((row) => [row.worldId, managedWorldSettingsSchema.parse(row.desiredManager)]));
-  for (const row of existing) {
-    if (row.id === excludingId) continue;
-    for (const reservation of [row, desiredByWorld.get(row.id)].filter(Boolean) as Array<typeof row | NonNullable<ReturnType<typeof desiredByWorld.get>>>) {
+  return existing.filter((row) => row.id !== excludingId).map((row) => ({ row, reserved: [row, desiredByWorld.get(row.id)].filter((entry) => entry !== undefined) }));
+}
+
+// Development profiles shift the first-world defaults (8211 -> 9211, …) so a
+// disposable world never collides with production servers on the same host.
+function portOffset(): number {
+  const raw = process.env.PALWORLD_MANAGER_WORLD_PORT_OFFSET;
+  if (!raw) return 0;
+  const offset = Number(raw);
+  if (!Number.isInteger(offset) || PORT_FIELDS.some((field) => defaultWorldPorts[field] + offset < 1 || defaultWorldPorts[field] + offset > 65535)) throw new Error("PALWORLD_MANAGER_WORLD_PORT_OFFSET must keep every default port between 1 and 65535.");
+  return offset;
+}
+
+// Each service continues from the highest port any world uses or has reserved
+// for it, skipping numbers another service already occupies.
+export async function suggestWorldPorts(): Promise<WorldPorts> {
+  const reserved = (await reservations()).flatMap((entry) => entry.reserved);
+  const taken = new Set(reserved.flatMap((entry) => PORT_FIELDS.map((field) => entry[field])));
+  const offset = portOffset();
+  const suggestion = {} as WorldPorts;
+  for (const field of PORT_FIELDS) {
+    const used = reserved.map((entry) => entry[field]);
+    let candidate = used.length ? Math.max(...used) + 1 : defaultWorldPorts[field] + offset;
+    while (taken.has(candidate)) candidate += 1;
+    if (candidate > 65535) throw new Error(`No free ${field} remains above the highest registered port.`);
+    taken.add(candidate); suggestion[field] = candidate;
+  }
+  return suggestion;
+}
+
+async function validateIsolation(input: CreateWorldInput, excludingId?: string): Promise<CreateWorldInput> {
+  const installDir = await canonicalInstallDir(input.installDir);
+  for (const { row, reserved } of await reservations(excludingId)) {
+    for (const reservation of reserved) {
       if (pathsOverlap(installDir, await canonicalInstallDir(reservation.installDir))) {
         throw new Error(`Install directory overlaps with ${row.displayName}: ${reservation.installDir}`);
       }
@@ -82,8 +112,11 @@ export async function getWorld(id: string): Promise<WorldView | null> {
 }
 
 export async function createWorld(raw: unknown): Promise<WorldView> {
-  const parsed = createWorldSchema.parse(raw);
   const row = await withReservationLock(async () => {
+    // Omitted ports are allocated under the reservation lock so concurrent
+    // registrations cannot be handed the same suggestion.
+    const provided = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+    const parsed = createWorldSchema.parse(PORT_FIELDS.some((field) => provided[field] == null) ? { ...await suggestWorldPorts(), ...Object.fromEntries(Object.entries(provided).filter(([, value]) => value != null)) } : raw);
     const input = await validateIsolation(parsed); const now = Date.now();
     const candidate: typeof worlds.$inferInsert = {
       id: randomUUID(), displayName: input.displayName, installDir: input.installDir, platform: input.platform,
@@ -105,7 +138,7 @@ export async function adoptWorld(raw: unknown): Promise<WorldView> {
   const executable = input.platform === "windows" ? "PalServer.exe" : "PalServer.sh";
   try { await access(path.join(input.installDir, executable)); }
   catch { throw new Error(`Existing installation is missing ${executable}.`); }
-  return createWorld(input);
+  return createWorld(raw);
 }
 
 export async function updateWorld(id: string, raw: unknown): Promise<WorldView> {
