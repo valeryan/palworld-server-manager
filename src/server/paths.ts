@@ -3,7 +3,7 @@ import path from "node:path";
 import { mkdirSync } from "node:fs";
 
 function ensure(directory: string): string { mkdirSync(directory, { recursive: true }); return directory; }
-export function dataDirectory(): string { return ensure(path.resolve(/* turbopackIgnore: true */ process.env.PALWORLD_MANAGER_DATA_DIR || path.join(process.cwd(), ".data-next"))); }
+export function dataDirectory(): string { return ensure(path.resolve(/* turbopackIgnore: true */ process.env.PALWORLD_MANAGER_DATA_DIR || path.join(/* turbopackIgnore: true */ process.cwd(), ".data-next"))); }
 export const paths = {
   data: dataDirectory,
   database: () => process.env.PALWORLD_MANAGER_DB || path.join(/* turbopackIgnore: true */ dataDirectory(), "registry-v3.sqlite"),

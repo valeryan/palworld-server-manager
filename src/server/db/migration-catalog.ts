@@ -18,11 +18,11 @@ export function migrationDigest(): string { return createHash("sha256").update(r
 
 export function verifyMigrationFiles(migrationsFolder: string): void {
   const names = readdirSync(migrationsFolder).filter((name) => {
-    try { return readFileSync(path.join(migrationsFolder, name, "migration.sql")).length > 0; } catch { return false; }
+    try { return readFileSync(path.join(/* turbopackIgnore: true */ migrationsFolder, name, "migration.sql")).length > 0; } catch { return false; }
   }).sort();
   if (names.join("\n") !== releasedMigrations.map((item) => item.name).join("\n")) throw new Error("The bundled migration set does not match the immutable release catalog.");
   for (const migration of releasedMigrations) {
-    const actual = createHash("sha256").update(readFileSync(path.join(migrationsFolder, migration.name, "migration.sql"))).digest("hex");
+    const actual = createHash("sha256").update(readFileSync(path.join(/* turbopackIgnore: true */ migrationsFolder, migration.name, "migration.sql"))).digest("hex");
     if (actual !== migration.hash) throw new Error(`Released migration ${migration.name} was modified.`);
   }
 }

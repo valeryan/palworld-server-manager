@@ -7,6 +7,8 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Build output can carry copies of the repository; only the source tests run.
+    include: ["tests/**/*.test.ts"],
     exclude: ["e2e/**", "node_modules/**"],
     coverage: {
       provider: "v8",

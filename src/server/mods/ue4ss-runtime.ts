@@ -32,7 +32,7 @@ const EARLY_CRASH_LIMIT = 2;
 
 function destination(world: Pick<WorldView, "installDir" | "platform">): string { return ue4ssLayout(world).variant === "windows" ? ue4ssLayout(world).binaries : world.installDir; }
 function relativeToInstall(world: Pick<WorldView, "installDir">, absolute: string): string { return path.relative(world.installDir, absolute).split(path.sep).join("/"); }
-function absolute(world: Pick<WorldView, "installDir">, relative: string): string { return path.join(world.installDir, ...relative.split("/")); }
+function absolute(world: Pick<WorldView, "installDir">, relative: string): string { return path.join(/* turbopackIgnore: true */ world.installDir, ...relative.split("/")); }
 async function exists(target: string): Promise<boolean> { try { await stat(target); return true; } catch { return false; } }
 
 export async function runtimeRow(worldId: string): Promise<RuntimeRow | null> {
@@ -77,13 +77,13 @@ export function withConsoleDisabled(content: string): string {
 }
 
 async function pruneEmptyDirectories(world: RuntimeWorld, relativeFiles: string[]): Promise<void> {
-  const root = path.resolve(world.installDir);
+  const root = path.resolve(/* turbopackIgnore: true */ world.installDir);
   const directories = [...new Set(relativeFiles.flatMap((file) => {
     const parts = file.split("/").slice(0, -1); return parts.map((_, index) => parts.slice(0, index + 1).join("/"));
   }))].sort((a, b) => b.length - a.length);
   for (const directory of directories) {
     const target = absolute(world, directory);
-    if (path.resolve(target) === root) continue;
+    if (path.resolve(/* turbopackIgnore: true */ target) === root) continue;
     if ((await readdir(target).catch(() => ["keep"])).length === 0) await rmdir(target).catch(() => undefined);
   }
 }
@@ -100,16 +100,16 @@ export async function installUe4ss(world: RuntimeWorld, options: { replace: bool
   if (!safeEntries(zip)) throw new Error("The UE4SS archive contains unsafe paths.");
   const plan = installPlan(zip, layout.variant);
   const base = destination(world);
-  const targets = plan.map((entry) => ({ ...entry, file: relativeToInstall(world, path.join(base, ...entry.relative.split("/"))) }));
+  const targets = plan.map((entry) => ({ ...entry, file: relativeToInstall(world, path.join(/* turbopackIgnore: true */ base, ...entry.relative.split("/"))) }));
   const previous = await runtimeRow(world.id);
   const owned = new Set(previous?.installedFiles ?? []);
   const spec = PACKAGES[layout.variant];
-  const disabledLoader = relativeToInstall(world, path.join(base, `${spec.loader}${DISABLED_SUFFIX}`));
+  const disabledLoader = relativeToInstall(world, path.join(/* turbopackIgnore: true */ base, `${spec.loader}${DISABLED_SUFFIX}`));
   const conflicts = (await Promise.all(targets.map(async (target) => !owned.has(target.file) && await exists(absolute(world, target.file)) ? target.file : null))).filter((file): file is string => file !== null);
   if (conflicts.length && !options.replace) throw new Error(`This world already has UE4SS files that PSM did not install (${conflicts.slice(0, 3).join(", ")}${conflicts.length > 3 ? ", …" : ""}). Use "Replace with library version" to move them aside and install the library build.`);
   if (conflicts.length) {
-    const trash = path.join(paths.modTrash(world.id), `ue4ss-${Date.now()}`);
-    for (const file of conflicts) { const moved = path.join(trash, ...file.split("/")); await mkdir(path.dirname(moved), { recursive: true }); await rename(absolute(world, file), moved); }
+    const trash = path.join(/* turbopackIgnore: true */ paths.modTrash(world.id), `ue4ss-${Date.now()}`);
+    for (const file of conflicts) { const moved = path.join(/* turbopackIgnore: true */ trash, ...file.split("/")); await mkdir(path.dirname(moved), { recursive: true }); await rename(absolute(world, file), moved); }
     context.log(`Moved ${conflicts.length} existing UE4SS file(s) to ${trash}`);
   }
   await context.update(20, `Installing ${artifact.name} ${artifact.version}`);
@@ -138,7 +138,7 @@ export async function setUe4ssEnabled(world: RuntimeWorld, enabled: boolean): Pr
   const row = await runtimeRow(world.id); if (!row) throw new Error("UE4SS was not installed by PSM in this world.");
   if (row.variant === "windows") {
     // Native Windows loads dwmapi.dll from the game folder unconditionally, so disabling moves it aside.
-    const base = destination(world); const loader = path.join(base, PACKAGES.windows.loader); const parked = `${loader}${DISABLED_SUFFIX}`;
+    const base = destination(world); const loader = path.join(/* turbopackIgnore: true */ base, PACKAGES.windows.loader); const parked = `${loader}${DISABLED_SUFFIX}`;
     if (enabled && await exists(parked)) await rename(parked, loader);
     if (!enabled && await exists(loader)) await rename(loader, parked);
   }
@@ -163,11 +163,11 @@ export async function removeUe4ss(world: RuntimeWorld, context: JobContext): Pro
 export async function applyUe4ssLaunch(world: Pick<WorldView, "id" | "installDir" | "platform">, env: NodeJS.ProcessEnv): Promise<void> {
   const row = await runtimeRow(world.id); if (!row?.enabled) return;
   const spec = PACKAGES[row.variant]; const base = destination(world);
-  const loader = path.join(base, spec.loader);
-  const settings = await readFile(path.join(base, ...spec.settings.split("/")), "utf8").catch(() => null);
+  const loader = path.join(/* turbopackIgnore: true */ base, spec.loader);
+  const settings = await readFile(path.join(/* turbopackIgnore: true */ base, ...spec.settings.split("/")), "utf8").catch(() => null);
   const problems = [
     !await exists(loader) && `${spec.loader} is missing`,
-    !await exists(path.join(base, ...spec.memberLayout.split("/"))) && "MemberVariableLayout.ini is missing, and hooked game events would crash the server",
+    !await exists(path.join(/* turbopackIgnore: true */ base, ...spec.memberLayout.split("/"))) && "MemberVariableLayout.ini is missing, and hooked game events would crash the server",
     settings === null && "UE4SS-settings.ini is missing",
     settings !== null && CONSOLE_KEYS.some((key) => !new RegExp(`^\\s*${key}\\s*=\\s*0\\s*$`, "m").test(settings)) && "the UE4SS console is enabled in UE4SS-settings.ini",
   ].filter((problem): problem is string => Boolean(problem));
