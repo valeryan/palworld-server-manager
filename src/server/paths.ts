@@ -16,6 +16,8 @@ export const paths = {
   // Not created eagerly: wineboot must initialize an absent prefix itself.
   winePrefix: (worldId: string) => path.join(/* turbopackIgnore: true */ dataDirectory(), "wine-prefixes", worldId),
   modCache: () => ensure(path.join(/* turbopackIgnore: true */ dataDirectory(), "mod-library")),
+  // Files moved aside when PSM takes over or removes a mod; never deleted automatically.
+  modTrash: (worldId: string) => ensure(path.join(/* turbopackIgnore: true */ dataDirectory(), "mod-trash", worldId)),
   // Inside the library so a verified download is moved into place by same-filesystem rename.
   modStaging: () => ensure(path.join(/* turbopackIgnore: true */ dataDirectory(), "mod-library", ".staging")),
 };

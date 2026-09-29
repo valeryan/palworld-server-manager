@@ -28,7 +28,8 @@ export function ue4ssLayout(world: Pick<WorldView, "installDir" | "platform">): 
     const runtime = path.join(win64, "ue4ss");
     return {
       variant: "windows", layoutVerified: true, binaries: win64, loader: path.join(win64, "dwmapi.dll"),
-      runtimeMarkers: [runtime, path.join(win64, "UE4SS.dll")],
+      // The runtime DLL, not the ue4ss folder: UE4SS's own log keeps the folder after removal.
+      runtimeMarkers: [path.join(runtime, "UE4SS.dll"), path.join(win64, "UE4SS.dll")],
       settingsCandidates: [path.join(runtime, "UE4SS-settings.ini"), path.join(win64, "UE4SS-settings.ini")],
       memberLayoutCandidates: [path.join(runtime, "MemberVariableLayout.ini"), path.join(win64, "MemberVariableLayout.ini")],
       // UE4SS 3.x keeps mods under ue4ss/Mods; 2.x used Win64/Mods.
@@ -71,5 +72,5 @@ export async function detectUe4ss(world: Pick<WorldView, "installDir" | "platfor
   if (installed && !memberLayoutPath) warnings.push("member-layout-missing");
   if (installed && guiConsole === "visible") warnings.push("gui-console-visible");
   if (installed && guiConsole === "unknown") warnings.push("gui-console-unknown");
-  return { variant: layout.variant, layoutVerified: layout.layoutVerified, binariesPresent, installed, loader, memberLayout: memberLayoutPath !== null, guiConsole, modsDirectory, warnings };
+  return { variant: layout.variant, layoutVerified: layout.layoutVerified, binariesPresent, installed, loader, memberLayout: memberLayoutPath !== null, guiConsole, modsDirectory, managed: null, active: installed ? null : false, warnings };
 }

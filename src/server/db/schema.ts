@@ -99,6 +99,17 @@ export const mods = sqliteTable("mods", {
   serverOnly: integer("server_only", { mode: "boolean" }).notNull().default(true), enabled: integer("enabled", { mode: "boolean" }).notNull().default(true), createdAt: integer("created_at").notNull(),
 }, (table) => [index("mods_world_idx").on(table.worldId)]);
 
+// UE4SS installed into a world by the manager. installedFiles (paths relative to the install
+// directory) limits removal and repair to files the manager wrote.
+export const modRuntimes = sqliteTable("mod_runtimes", {
+  worldId: text("world_id").primaryKey().references(() => worlds.id, { onDelete: "cascade" }),
+  artifactId: text("artifact_id").notNull(), variant: text("variant", { enum: ["windows", "linux"] }).notNull(), version: text("version").notNull(), sha256: text("sha256").notNull(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  installedFiles: text("installed_files", { mode: "json" }).$type<string[]>().notNull(),
+  earlyCrashes: integer("early_crashes").notNull().default(0), recoveryPaused: integer("recovery_paused", { mode: "boolean" }).notNull().default(false),
+  installedAt: integer("installed_at").notNull(), updatedAt: integer("updated_at").notNull(),
+});
+
 export const appSettings = sqliteTable("app_settings", { key: text("key").primaryKey(), value: text("value", { mode: "json" }).$type<unknown>() });
 
 export const remoteAccessCodes = sqliteTable("remote_access_codes", {

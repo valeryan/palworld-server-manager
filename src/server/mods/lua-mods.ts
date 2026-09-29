@@ -37,7 +37,7 @@ export async function listLuaMods(world: Pick<WorldView, "installDir" | "platfor
     ]);
     // enabled.txt force-loads a mod regardless of its mods.txt entry.
     const enabledBy: LuaModView["enabledBy"] = forced ? "enabled-txt" : listed.get(entry.name) ? "mods-txt" : null;
-    return { name: entry.name, enabled: enabledBy !== null, enabledBy, hasScript: upperScript || lowerScript, managed };
+    return { name: entry.name, enabled: enabledBy !== null, active: null, enabledBy, hasScript: upperScript || lowerScript, managed };
   }));
   return mods.sort((left, right) => left.name.localeCompare(right.name));
 }

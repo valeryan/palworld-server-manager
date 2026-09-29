@@ -13,6 +13,7 @@ import { getWorld, listWorlds, setRuntimeState } from "./worlds";
 import { applyDesiredSettings, prepareWorldStart } from "./configuration";
 import { palworldRest } from "./rest";
 import { effectiveWinePrefix, prepareWinePrefix, runsUnderWine, serverWineOverrides } from "./wine";
+import { applyUe4ssLaunch, recordHealthyExit, recordUnexpectedExit } from "@/server/mods/ue4ss-runtime";
 
 declare global { var __psmChildren: Map<string, ChildProcess> | undefined; }
 const children = () => (globalThis.__psmChildren ??= new Map<string, ChildProcess>());
@@ -67,6 +68,7 @@ export async function startWorld(worldId: string): Promise<void> {
   const { world, command, args, env } = await prepareWorldStart(worldId, async (world) => {
     const prepared = commandFor(world);
     if (!executableAvailable(prepared.command, prepared.env)) throw new Error(`Server executable is not available: ${prepared.command}`);
+    await applyUe4ssLaunch(world, prepared.env);
     await setRuntimeState(worldId, "starting", null);
     return { world, ...prepared };
   });
@@ -90,7 +92,10 @@ export async function startWorld(worldId: string): Promise<void> {
       await setRuntimeState(worldId, code === 0 ? "stopped" : "crashed", null);
       await applyDesiredSettings(worldId).catch(() => undefined);
     }
-    if (!expected && code !== 0 && latest?.crashGuard) {
+    const uptimeMs = latest?.lastStartedAt ? Date.now() - latest.lastStartedAt : null;
+    if (expected || code === 0) await recordHealthyExit(worldId).catch(() => undefined);
+    const pauseRecovery = !expected && code !== 0 ? await recordUnexpectedExit(worldId, { code, uptimeMs }).catch(() => false) : false;
+    if (!expected && code !== 0 && latest?.crashGuard && !pauseRecovery) {
       await database().update(worlds).set({ crashCount: sql`${worlds.crashCount} + 1` }).where(eq(worlds.id, worldId));
       setTimeout(() => void import("./jobs").then(({ startJob }) => startJob(worldId, "crash-recovery", async () => startWorld(worldId))).catch(() => undefined), 5_000);
     }

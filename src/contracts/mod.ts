@@ -10,12 +10,18 @@ export interface Ue4ssRuntimeStatus {
   memberLayout: boolean;
   guiConsole: "hidden" | "visible" | "unknown";
   modsDirectory: string;
+  /** Present when PSM installed this UE4SS from the library. */
+  managed: { artifactId: string; version: string; enabled: boolean; updateAvailable: boolean; recoveryPaused: boolean } | null;
+  /** Whether UE4SS loads on the next start; null when PSM did not install it and cannot tell. */
+  active: boolean | null;
   warnings: Array<"member-layout-missing" | "gui-console-visible" | "gui-console-unknown">;
 }
 
 export interface LuaModView {
   name: string;
   enabled: boolean;
+  /** Enabled and UE4SS will load it; false while UE4SS is disabled or absent, null when unknown. */
+  active: boolean | null;
   enabledBy: "mods-txt" | "enabled-txt" | null;
   hasScript: boolean;
   /** Installed from the manager's library (a psm-mod.json marker is present). */

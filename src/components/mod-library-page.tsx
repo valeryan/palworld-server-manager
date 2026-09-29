@@ -2,12 +2,11 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useEffect, useEffectEvent, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { JobView } from "@/contracts/job";
 import type { ModLibraryEntry } from "@/contracts/mod";
-import { useJobPresentation } from "@/lib/use-job-presentation";
 import { AppShell } from "./app-shell";
+import { JobProgress } from "./job-progress";
 import { Toast } from "./toast";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> { const response = await fetch(url, init); const body = await response.json(); if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`); return body; }
@@ -36,7 +35,7 @@ export function ModLibraryPage() {
         <small><a href={entry.projectUrl} target="_blank" rel="noreferrer">{entry.project}</a></small>
         <small title={entry.sha256}>{t("modLibrary.checksum", { sha256: entry.sha256 })}</small>
         <small>{entry.detectedIn.length ? <>{t("modLibrary.detectedIn")} {entry.detectedIn.map((world, index) => <span key={world.worldId}>{index > 0 && ", "}<Link href={`/worlds/${world.worldId}`}>{world.displayName}</Link></span>)}</> : t("modLibrary.notDetected")}</small>
-        {jobs[entry.id] && <DownloadProgress jobId={jobs[entry.id]!} onFinished={(job) => { setJobs((current) => Object.fromEntries(Object.entries(current).filter(([id]) => id !== entry.id))); setNotice(job.state === "succeeded" ? t("modLibrary.downloadComplete", { name: `${entry.name} ${entry.version}` }) : t("modLibrary.downloadFailed", { error: job.error ?? job.message })); void client.invalidateQueries({ queryKey: ["mod-library"] }); }} />}
+        {jobs[entry.id] && <JobProgress jobId={jobs[entry.id]!} onFinished={(job) => { setJobs((current) => Object.fromEntries(Object.entries(current).filter(([id]) => id !== entry.id))); setNotice(job.state === "succeeded" ? t("modLibrary.downloadComplete", { name: `${entry.name} ${entry.version}` }) : t("modLibrary.downloadFailed", { error: job.error ?? job.message })); void client.invalidateQueries({ queryKey: ["mod-library"] }); }} />}
       </span><span className="backup-actions">{entry.downloaded ? <button className="danger" disabled={remove.isPending} onClick={() => confirmRemove(entry)}>{t("modLibrary.remove")}</button> : <button disabled={entry.downloading || Boolean(jobs[entry.id])} onClick={() => setConfirming(entry)}>{t("modLibrary.download")}</button>}</span></div>)}</div>}
     </section>
     <Dialog.Root open={confirming !== null} onOpenChange={(open) => { if (!open) setConfirming(null); }}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" /><Dialog.Content className="dialog">{confirming && <>
@@ -53,14 +52,4 @@ export function ModLibraryPage() {
       <div className="dialog-actions"><Dialog.Close asChild><button type="button" className="button ghost">{t("common.cancel")}</button></Dialog.Close><button className="button primary" disabled={download.isPending} onClick={() => download.mutate(confirming)}>{t("modLibrary.confirmDownload")}</button></div>
     </>}</Dialog.Content></Dialog.Portal></Dialog.Root>
   </AppShell>;
-}
-
-function DownloadProgress({ jobId, onFinished }: { jobId: string; onFinished(job: JobView): void }) {
-  const presentation = useJobPresentation();
-  const job = useQuery({ queryKey: ["job", jobId], queryFn: async () => (await request<{ job: JobView }>(`/api/jobs/${jobId}`)).job, refetchInterval: (state) => state.state.data && state.state.data.state !== "running" && state.state.data.state !== "queued" ? false : 1_000 });
-  const finish = useEffectEvent(onFinished);
-  const finished = job.data && job.data.state !== "running" && job.data.state !== "queued" ? job.data : null;
-  useEffect(() => { if (finished) finish(finished); }, [finished]);
-  if (!job.data) return null;
-  return <><span className="progress"><i style={{ width: `${job.data.progress}%` }} /></span><small>{presentation.displayMessage(job.data)}</small></>;
 }

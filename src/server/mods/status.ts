@@ -1,24 +1,28 @@
 import "server-only";
-import path from "node:path";
 import { stat } from "node:fs/promises";
 import type { ModLibraryEntry, WorldModsView } from "@/contracts/mod";
-import { paths } from "@/server/paths";
 import { getWorld, listWorlds } from "@/server/services/worlds";
-import { MOD_CATALOG, type CatalogArtifact } from "./catalog";
+import { MOD_CATALOG, artifactPath, type CatalogArtifact } from "./catalog";
+
+export { artifactPath };
 import { listLuaMods } from "./lua-mods";
 import { detectUe4ss } from "./ue4ss";
+import { runtimeRow } from "./ue4ss-runtime";
 import { workshopStatus } from "./workshop-mods";
 
 // Read-only health views. Nothing here downloads or changes server files.
 export async function worldModStatus(worldId: string): Promise<WorldModsView> {
   const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
-  const [ue4ss, luaMods, workshop] = await Promise.all([detectUe4ss(world), listLuaMods(world), workshopStatus(world)]);
-  const artifact = MOD_CATALOG.find((entry) => entry.kind === "ue4ss" && entry.variant === ue4ss.variant);
+  const [detected, luaMods, workshop, runtime] = await Promise.all([detectUe4ss(world), listLuaMods(world), workshopStatus(world), runtimeRow(world.id)]);
+  const artifact = MOD_CATALOG.find((entry) => entry.kind === "ue4ss" && entry.variant === detected.variant);
+  const managed = runtime ? { artifactId: runtime.artifactId, version: runtime.version, enabled: runtime.enabled, updateAvailable: Boolean(artifact && artifact.sha256 !== runtime.sha256), recoveryPaused: runtime.recoveryPaused } : null;
+  const ue4ss = { ...detected, installed: detected.installed || Boolean(runtime), managed, active: runtime ? runtime.enabled : detected.active };
+  // Lua mods only run while UE4SS loads; a mod's own mods.txt choice is kept either way.
+  for (const mod of luaMods) mod.active = mod.enabled ? ue4ss.active : false;
   const library = artifact ? { id: artifact.id, name: artifact.name, version: artifact.version, downloaded: await artifactCached(artifact) } : null;
   return { ue4ss, library, luaMods, workshop };
 }
 
-export function artifactPath(artifact: CatalogArtifact): string { return path.join(paths.modCache(), artifact.id, artifact.version, artifact.fileName); }
 
 async function artifactCached(artifact: CatalogArtifact): Promise<boolean> { return stat(artifactPath(artifact)).then((info) => info.isFile() && info.size === artifact.sizeBytes, () => false); }
 

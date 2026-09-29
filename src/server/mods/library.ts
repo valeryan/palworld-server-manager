@@ -3,8 +3,7 @@ import { rm, stat } from "node:fs/promises";
 import { paths } from "@/server/paths";
 import { downloadVerified } from "@/server/services/archive";
 import { startJob } from "@/server/services/jobs";
-import { MOD_CATALOG, type CatalogArtifact } from "./catalog";
-import { artifactPath } from "./status";
+import { MOD_CATALOG, artifactPath, type CatalogArtifact } from "./catalog";
 
 declare global { var __psmModDownloads: Set<string> | undefined }
 const active = () => (globalThis.__psmModDownloads ??= new Set<string>());

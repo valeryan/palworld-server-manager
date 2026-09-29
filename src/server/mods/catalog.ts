@@ -1,5 +1,7 @@
 import "server-only";
+import path from "node:path";
 import type { ModVariant } from "@/contracts/mod";
+import { paths } from "@/server/paths";
 
 export interface CatalogArtifact {
   id: string;
@@ -57,3 +59,5 @@ export const MOD_CATALOG: readonly CatalogArtifact[] = [
     sha256: "f8e7a5d6dbb0004de564cdf18946c3c4dc8e3d35f497aa1134eb892a10b9bf1d",
   },
 ];
+
+export function artifactPath(artifact: CatalogArtifact): string { return path.join(paths.modCache(), artifact.id, artifact.version, artifact.fileName); }
