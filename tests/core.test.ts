@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { prepareTestDatabase } from "./prepare-database";
 import { adoptWorld, exportWorldRegistration, pathsOverlap } from "@/server/services/worlds";
 import { commandFor, parseArguments } from "@/server/services/processes";
 import { createWorldSchema, parseWorldUpdate, worldRegistrationSchema } from "@/contracts/world";
@@ -311,6 +312,7 @@ describe("legacy import", () => {
     const before = await readFile(sourcePath);
     process.env.PALWORLD_MANAGER_DATA_DIR = path.join(directory, "next-data");
     process.env.PALWORLD_MANAGER_DB = path.join(directory, "next-data", "registry-v3.sqlite");
+    await prepareTestDatabase(process.env.PALWORLD_MANAGER_DATA_DIR, process.env.PALWORLD_MANAGER_DB);
     const { importLegacyDatabase } = await import("@/server/services/legacy-import");
     const { getWorld } = await import("@/server/services/worlds");
     const report = await importLegacyDatabase(sourcePath);

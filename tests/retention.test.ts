@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { defaultRetentionSettings } from "@/contracts/retention";
+import { prepareTestDatabase } from "./prepare-database";
 
 describe("persistent history retention", () => {
   let directory: string | undefined;
@@ -15,6 +16,7 @@ describe("persistent history retention", () => {
     directory = await mkdtemp(path.join(tmpdir(), "psm-retention-test-"));
     process.env.PALWORLD_MANAGER_DATA_DIR = directory;
     process.env.PALWORLD_MANAGER_DB = path.join(directory, "registry-v3.sqlite");
+    await prepareTestDatabase(directory, process.env.PALWORLD_MANAGER_DB);
     const [{ sqliteClient }, { applyRetentionPolicy }] = await Promise.all([import("@/server/db"), import("@/server/services/retention")]);
     const client = sqliteClient(); const now = Date.now();
     client.prepare("INSERT INTO worlds (id,display_name,install_dir,game_port,query_port,rest_api_port,rcon_port,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)").run("world", "World", path.join(directory, "server"), 8211, 8212, 8213, 25575, now, now);

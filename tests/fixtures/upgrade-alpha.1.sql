@@ -1,0 +1,10 @@
+INSERT INTO worlds (id,display_name,install_dir,game_port,query_port,rest_api_port,rcon_port,autostart,status,created_at,updated_at) VALUES ('fixture-world','Upgrade Fixture','/srv/palworld/fixture',8211,27015,8212,25575,0,'stopped',1700000000000,1700000000000);
+INSERT INTO events (world_id,kind,message,created_at) VALUES ('fixture-world','fixture','Preserved event',1700000000001);
+INSERT INTO jobs (id,world_id,kind,state,progress,message,created_at,finished_at) VALUES ('fixture-job','fixture-world','backup','succeeded',100,'Complete',1700000000002,1700000000003);
+INSERT INTO job_logs (job_id,message,created_at) VALUES ('fixture-job','Preserved output',1700000000003);
+INSERT INTO schedules (id,world_id,action,mode,interval_hours,enabled,created_at) VALUES ('fixture-schedule','fixture-world','backup','interval',6,1,1700000000004);
+INSERT INTO config_versions (id,world_id,file_name,content,note,created_at) VALUES ('fixture-config','fixture-world','PalWorldSettings.ini','[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(ServerName="Upgrade Fixture")\n','fixture',1700000000005);
+INSERT INTO remote_access_codes (id,code_hash,code_hint,label,scope,world_id,permissions,enabled,created_at) VALUES ('fixture-code','hash','1234','Fixture operator','world','fixture-world','["world.view"]',1,1700000000006);
+INSERT INTO remote_sessions (id,token_hash,code_id,created_at,last_seen_at,expires_at) VALUES ('fixture-session','token-hash','fixture-code',1700000000007,1700000000007,2700000000000);
+INSERT INTO remote_audit (code_id,principal_label,action,world_id,detail,created_at) VALUES ('fixture-code','Fixture operator','view','fixture-world','Preserved audit',1700000000008);
+INSERT INTO backups (id,world_id,file_path,size_bytes,reason,verified,created_at) VALUES ('fixture-backup','fixture-world','/srv/backups/fixture.zip',42,'fixture',1,1700000000009);

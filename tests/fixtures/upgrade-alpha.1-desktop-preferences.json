@@ -1,0 +1,10 @@
+{
+  "closeToTray": false,
+  "managerPort": 4338,
+  "launchOptions": {
+    "startHidden": true,
+    "disableGpu": false,
+    "forceX11": false,
+    "customFlags": ""
+  }
+}

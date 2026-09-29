@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer, type Server } from "node:net";
 import type { JobContext } from "@/server/services/jobs";
+import { prepareTestDatabase } from "./prepare-database";
 
 const waitFor = async (predicate: () => Promise<boolean>, message: string) => {
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -24,6 +25,7 @@ describe("service boundaries with isolated fakes", () => {
     root = await mkdtemp(path.join(tmpdir(), "psm-service-fakes-"));
     process.env.PALWORLD_MANAGER_DATA_DIR = path.join(root, "manager-data");
     process.env.PALWORLD_MANAGER_DB = path.join(root, "manager-data", "registry-v3.sqlite");
+    await prepareTestDatabase(process.env.PALWORLD_MANAGER_DATA_DIR, process.env.PALWORLD_MANAGER_DB);
   });
 
   afterAll(async () => {

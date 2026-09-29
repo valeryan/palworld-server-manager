@@ -29,6 +29,7 @@ Development uses port `4319` and the isolated `../psm-next-development/manager-d
 - Operations are serialized per world and represented as persistent jobs.
 - Persistent operation, activity, server-log, and configuration history has configurable age/count retention in Application Settings; active operations are never removed.
 - Backups are verified before use, restores require a stopped server, and restores create a pre-restore backup.
+- Pending manager-database migrations run before background work and create verified WAL-safe backups with automatic failure recovery.
 - API responses never include server passwords, admin passwords, or process environment variables.
 - English is the protected fallback language. Additional PSM Next JSON packs can be installed from Application Settings and are stored under the manager data directory; incomplete packs fall back to English. See [language packs](./docs/LANGUAGE-PACKS.md) for the pack format.
 
@@ -54,12 +55,15 @@ npm run test:e2e
 npm run build
 npm run prepare:standalone
 npm run dist:linux
+npm run release:linux
 npm run audit:settings-fixture -- /path/to/PalServer/DefaultPalWorldSettings.ini
 ```
 
 `npm test` runs the deterministic service suite. `npm run test:e2e` builds a packaged Electron directory and runs the production-browser and packaged-desktop workflows against disposable data.
 
 The settings audit compares an installed server template with the reviewed fixture without printing complete INIs or credential values. It reports key additions/removals, changed defaults, codec mismatches, and manager-owned keys. Refresh both fixture files only after reviewing a server update; the provenance record includes the Palworld version, Steam build ID, capture date, and checksum.
+
+See the [release process](./docs/RELEASING.md) for alpha versioning, migration safety, manual AppImage updates, and future tagged releases.
 
 ## Documentation
 

@@ -3,11 +3,12 @@ import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { drizzle } from "drizzle-orm/node-sqlite";
-import { migrate } from "drizzle-orm/node-sqlite/migrator";
 import { paths } from "@/server/paths";
+import { databaseWasPrepared } from "./upgrade";
 
 function createDatabase() {
   const databasePath = paths.database();
+  if (!databaseWasPrepared(databasePath)) throw new Error("Database startup preflight has not completed.");
   mkdirSync(path.dirname(databasePath), { recursive: true });
   const client = new DatabaseSync(databasePath, { timeout: 5_000 });
   chmodSync(databasePath, 0o600);
@@ -16,7 +17,6 @@ function createDatabase() {
     if (existsSync(/* turbopackIgnore: true */ relatedPath)) chmodSync(/* turbopackIgnore: true */ relatedPath, 0o600);
   }
   const database = drizzle({ client });
-  migrate(database, { migrationsFolder: path.join(/* turbopackIgnore: true */ process.cwd(), "drizzle") });
   return { database, client, databasePath };
 }
 type DatabaseBundle = ReturnType<typeof createDatabase>;
