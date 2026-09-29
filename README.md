@@ -21,6 +21,8 @@ npm run dev
 
 Development uses port `4319` and the isolated `../psm-next-development/manager-data` directory. `npm run dev`, `npm run dev:web`, and `npm run dev:electron` resolve the same profile, so the web and Electron commands can also be launched in separate terminals. Override `PSM_PORT`, `ELECTRON_START_URL`, or `PALWORLD_MANAGER_DATA_DIR` explicitly when a different disposable profile is needed.
 
+The development profile is a self-contained sandbox and needs no setup: on first launch the manager creates its own database, SteamCMD copy, logs, and desktop state under `manager-data/`. It never reads the production manager data. Worlds for testing are installed or adopted from the development app itself. Keep them next to the data directory, for example `../psm-next-development/<world>/`, so the whole profile can be deleted or reset in one place. Worlds registered here use the ports you give them; give them ports that don't collide with running production servers before starting them.
+
 ## Safety model
 
 - The new registry is `registry-v3.sqlite`; the legacy `registry.sqlite` is only opened read-only by the importer.
@@ -33,7 +35,7 @@ Development uses port `4319` and the isolated `../psm-next-development/manager-d
 - API responses never include server passwords, admin passwords, or process environment variables.
 - English is the protected fallback language. Additional PSM Next JSON packs can be installed from Application Settings and are stored under the manager data directory; incomplete packs fall back to English. See [language packs](./docs/LANGUAGE-PACKS.md) for the pack format.
 
-Create a disposable development sandbox with explicit paths:
+To test against copies of existing production worlds rather than the development profile's own worlds, clone them into a separate disposable sandbox with explicit paths:
 
 ```bash
 npm run clone:dev-data -- \
