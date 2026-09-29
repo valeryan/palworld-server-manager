@@ -99,6 +99,14 @@ export const mods = sqliteTable("mods", {
   serverOnly: integer("server_only", { mode: "boolean" }).notNull().default(true), enabled: integer("enabled", { mode: "boolean" }).notNull().default(true), createdAt: integer("created_at").notNull(),
 }, (table) => [index("mods_world_idx").on(table.worldId)]);
 
+// Lua mod archives the user imported into the Mods library. One row per mod name; importing the
+// same mod again replaces the library copy, and worlds see an update.
+export const modArtifacts = sqliteTable("mod_artifacts", {
+  id: text("id").primaryKey(), kind: text("kind", { enum: ["lua"] }).notNull(), name: text("name").notNull(),
+  fileName: text("file_name").notNull(), sha256: text("sha256").notNull(), sizeBytes: integer("size_bytes").notNull(),
+  addedAt: integer("added_at").notNull(),
+}, (table) => [uniqueIndex("mod_artifacts_kind_name_unique").on(table.kind, table.name)]);
+
 // UE4SS installed into a world by the manager. installedFiles (paths relative to the install
 // directory) limits removal and repair to files the manager wrote.
 export const modRuntimes = sqliteTable("mod_runtimes", {

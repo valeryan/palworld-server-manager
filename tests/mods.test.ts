@@ -58,9 +58,9 @@ describe("world mod status", () => {
     expect(status.ue4ss).toMatchObject({ variant: "windows", layoutVerified: true, binariesPresent: true, installed: true, loader: true, memberLayout: false, guiConsole: "visible", modsDirectory: mods });
     expect(status.ue4ss.warnings).toEqual(["member-layout-missing", "gui-console-visible"]);
     expect(status.luaMods).toEqual([
-      { name: "Forced", enabled: true, active: null, enabledBy: "enabled-txt", hasScript: false, managed: false },
-      { name: "Hand", enabled: false, active: false, enabledBy: null, hasScript: true, managed: false },
-      { name: "Library", enabled: true, active: null, enabledBy: "mods-txt", hasScript: true, managed: true },
+      { name: "Forced", enabled: true, active: null, enabledBy: "enabled-txt", hasScript: false, managed: false, artifactId: null, updateAvailable: false },
+      { name: "Hand", enabled: false, active: false, enabledBy: null, hasScript: true, managed: false, artifactId: null, updateAvailable: false },
+      { name: "Library", enabled: true, active: null, enabledBy: "mods-txt", hasScript: true, managed: true, artifactId: null, updateAvailable: false },
     ]);
     expect(status.workshop).toMatchObject({ platformSupported: true, settingsExists: true, globalEnable: true, activeMods: ["pack"] });
     expect(status.workshop.mods.map((mod) => [mod.folder, mod.active, mod.serverCapable, mod.error === null])).toEqual([["123", true, true, true], ["456", false, false, false]]);
@@ -76,7 +76,7 @@ describe("world mod status", () => {
     const world = await createWorld({ displayName: "Linux", installDir: install, platform: "linux" });
     const status = await worldModStatus(world.id);
     expect(status.ue4ss).toMatchObject({ variant: "linux", layoutVerified: true, installed: true, memberLayout: true, guiConsole: "hidden", warnings: [] });
-    expect(status.luaMods).toEqual([{ name: "Relay", enabled: true, active: null, enabledBy: "mods-txt", hasScript: true, managed: false }]);
+    expect(status.luaMods).toEqual([{ name: "Relay", enabled: true, active: null, enabledBy: "mods-txt", hasScript: true, managed: false, artifactId: null, updateAvailable: false }]);
     expect(status.workshop.platformSupported).toBe(false);
     expect(status.workshop.mods.map((mod) => mod.packageName)).toEqual(["linux-pack"]);
   });

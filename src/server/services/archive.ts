@@ -1,7 +1,7 @@
 import "server-only";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, rename, rm } from "node:fs/promises";
+import { cp, mkdir, open, rename, rm } from "node:fs/promises";
 import type AdmZip from "adm-zip";
 import type { JobContext } from "./jobs";
 
@@ -46,5 +46,17 @@ export async function downloadVerified(download: VerifiedDownload, context: JobC
     await file.close().catch(() => undefined);
     await rm(temporary, { force: true });
     throw error;
+  }
+}
+
+// Moves a file or directory, copying and then deleting when source and destination are on
+// different filesystems (world folders and manager data often are).
+export async function movePath(source: string, destination: string): Promise<void> {
+  await mkdir(path.dirname(destination), { recursive: true });
+  try { await rename(source, destination); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error;
+    await cp(source, destination, { recursive: true, errorOnExist: true, force: false, preserveTimestamps: true });
+    await rm(source, { recursive: true, force: true });
   }
 }

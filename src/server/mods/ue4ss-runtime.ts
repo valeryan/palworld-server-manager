@@ -9,7 +9,7 @@ import type { WorldView } from "@/contracts/world";
 import { database } from "@/server/db";
 import { events, modRuntimes } from "@/server/db/schema";
 import { paths } from "@/server/paths";
-import { safeEntries } from "@/server/services/archive";
+import { movePath, safeEntries } from "@/server/services/archive";
 import type { JobContext } from "@/server/services/jobs";
 import { runsUnderWine, withWineOverrides } from "@/server/services/wine";
 import { MOD_CATALOG, artifactPath, type CatalogArtifact } from "./catalog";
@@ -109,7 +109,7 @@ export async function installUe4ss(world: RuntimeWorld, options: { replace: bool
   if (conflicts.length && !options.replace) throw new Error(`This world already has UE4SS files that PSM did not install (${conflicts.slice(0, 3).join(", ")}${conflicts.length > 3 ? ", …" : ""}). Use "Replace with library version" to move them aside and install the library build.`);
   if (conflicts.length) {
     const trash = path.join(/* turbopackIgnore: true */ paths.modTrash(world.id), `ue4ss-${Date.now()}`);
-    for (const file of conflicts) { const moved = path.join(/* turbopackIgnore: true */ trash, ...file.split("/")); await mkdir(path.dirname(moved), { recursive: true }); await rename(absolute(world, file), moved); }
+    for (const file of conflicts) await movePath(absolute(world, file), path.join(/* turbopackIgnore: true */ trash, ...file.split("/")));
     context.log(`Moved ${conflicts.length} existing UE4SS file(s) to ${trash}`);
   }
   await context.update(20, `Installing ${artifact.name} ${artifact.version}`);

@@ -26,6 +26,9 @@ export interface LuaModView {
   hasScript: boolean;
   /** Installed from the manager's library (a psm-mod.json marker is present). */
   managed: boolean;
+  artifactId: string | null;
+  /** The library holds a different copy of this mod than the world. */
+  updateAvailable: boolean;
 }
 
 export interface WorkshopModView {
@@ -52,7 +55,19 @@ export interface WorldModsView {
   /** The library build that matches this world's server platform. */
   library: { id: string; name: string; version: string; downloaded: boolean } | null;
   luaMods: LuaModView[];
+  /** Library Lua mods not yet installed in this world. */
+  availableLuaMods: Array<{ id: string; name: string }>;
   workshop: WorkshopStatus;
+}
+
+export interface LibraryLuaMod {
+  id: string;
+  name: string;
+  fileName: string;
+  sizeBytes: number;
+  sha256: string;
+  addedAt: number;
+  usedIn: Array<{ worldId: string; displayName: string }>;
 }
 
 export interface ModLibraryEntry {

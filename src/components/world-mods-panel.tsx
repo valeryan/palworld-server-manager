@@ -18,6 +18,18 @@ export function WorldModsPanel({ worldId, running, onNotice }: { worldId: string
     onSuccess: ({ jobId: started }, action) => { if (started) setJobId(started); else onNotice(t(action === "enable" ? "mods.ue4ss.enabledNotice" : "mods.ue4ss.disabledNotice")); void client.invalidateQueries({ queryKey: ["world-mods", worldId] }); void client.invalidateQueries({ queryKey: ["jobs"] }); },
     onError: (error) => onNotice(error.message),
   });
+  const change = useMutation({
+    mutationFn: ({ area, body }: { area: "lua" | "workshop"; body: Record<string, string> }) => request(`/api/worlds/${worldId}/mods/${area}`, { method: "POST", body: JSON.stringify(body) }),
+    onSuccess: () => { onNotice(t("mods.changedNotice")); void client.invalidateQueries({ queryKey: ["world-mods", worldId] }); },
+    onError: (error) => onNotice(error.message),
+  });
+  const lua = (body: Record<string, string>) => {
+    if (body.action === "remove" && !window.confirm(t("mods.lua.removeConfirm", { name: body.name }))) return;
+    if (body.action === "replace" && !window.confirm(t("mods.lua.replaceConfirm"))) return;
+    change.mutate({ area: "lua", body });
+  };
+  const workshop = (body: Record<string, string>) => change.mutate({ area: "workshop", body });
+  const locked = running || act.isPending || change.isPending || jobId !== null;
   const run = (action: Ue4ssAction) => {
     if (action === "remove" && !window.confirm(t("mods.ue4ss.removeConfirm"))) return;
     if (action === "replace" && !window.confirm(t("mods.ue4ss.replaceConfirm"))) return;
@@ -30,8 +42,9 @@ export function WorldModsPanel({ worldId, running, onNotice }: { worldId: string
       <Ue4ssSection status={mods.ue4ss} library={mods.library} locked={running || act.isPending || jobId !== null} running={running} onAction={run}>
         {jobId && <JobProgress jobId={jobId} onFinished={(job) => { setJobId(null); onNotice(job.state === "succeeded" ? job.message : job.error ?? job.message); void client.invalidateQueries({ queryKey: ["world-mods", worldId] }); }} />}
       </Ue4ssSection>
-      <LuaSection mods={mods.luaMods} ue4ss={mods.ue4ss} />
-      <WorkshopSection workshop={mods.workshop} />
+      <LuaSection mods={mods.luaMods} available={mods.availableLuaMods} ue4ss={mods.ue4ss} locked={locked} onAction={lua} />
+      <WorkshopSection workshop={mods.workshop} locked={locked} onAction={workshop} />
+      {running && <p className="muted">{t("mods.stopToChange")}</p>}
     </>}
   </div>;
 }
@@ -60,28 +73,39 @@ function Ue4ssSection({ status, library, locked, running, onAction, children }: 
   </section>;
 }
 
-function LuaSection({ mods, ue4ss }: { mods: LuaModView[]; ue4ss: WorldModsView["ue4ss"] }) {
+function LuaSection({ mods, available, ue4ss, locked, onAction }: { mods: LuaModView[]; available: WorldModsView["availableLuaMods"]; ue4ss: WorldModsView["ue4ss"]; locked: boolean; onAction(body: Record<string, string>): void }) {
   const { t } = useTranslation();
   const managed = mods.filter((mod) => mod.managed); const unmanaged = mods.filter((mod) => !mod.managed);
+  const libraryByName = new Map(available.map((entry) => [entry.name, entry]));
   return <section className="mod-section"><h3>{t("mods.lua.title")}</h3>
     {mods.length > 0 && ue4ss.active === false && <div className="settings-compatibility-warning">{t(ue4ss.installed ? "mods.lua.inactiveDisabled" : "mods.lua.inactiveMissing")}</div>}
-    {!mods.length ? <p className="muted">{t(ue4ss.installed ? "mods.lua.empty" : "mods.lua.needsUe4ss")}</p> : <>
-      {managed.length > 0 && <div className="record-list">{managed.map((mod) => <LuaRow key={mod.name} mod={mod} />)}</div>}
-      {unmanaged.length > 0 && <><h4>{t("mods.lua.unmanaged")}</h4><p className="muted">{t("mods.lua.unmanagedHelp")}</p><div className="record-list">{unmanaged.map((mod) => <LuaRow key={mod.name} mod={mod} />)}</div></>}
-    </>}
+    {!mods.length && !available.length && <p className="muted">{t(ue4ss.installed ? "mods.lua.empty" : "mods.lua.needsUe4ss")}</p>}
+    {managed.length > 0 && <div className="record-list">{managed.map((mod) => <LuaRow key={mod.name} mod={mod}>
+      {mod.updateAvailable && mod.artifactId && <button disabled={locked} onClick={() => onAction({ action: "install", artifactId: mod.artifactId! })}>{t("mods.lua.update")}</button>}
+      <button disabled={locked} onClick={() => onAction({ action: mod.enabled ? "disable" : "enable", name: mod.name })}>{t(mod.enabled ? "mods.lua.disable" : "mods.lua.enable")}</button>
+      <button className="danger" disabled={locked} onClick={() => onAction({ action: "remove", name: mod.name })}>{t("mods.lua.remove")}</button>
+    </LuaRow>)}</div>}
+    {unmanaged.length > 0 && <><h4>{t("mods.lua.unmanaged")}</h4><p className="muted">{t("mods.lua.unmanagedHelp")}</p><div className="record-list">{unmanaged.map((mod) => <LuaRow key={mod.name} mod={mod}>
+      {libraryByName.get(mod.name) && <button disabled={locked} onClick={() => onAction({ action: "replace", artifactId: libraryByName.get(mod.name)!.id })}>{t("mods.lua.replace")}</button>}
+      <button className="danger" disabled={locked} onClick={() => onAction({ action: "remove", name: mod.name })}>{t("mods.lua.remove")}</button>
+    </LuaRow>)}</div></>}
+    {available.filter((entry) => !mods.some((mod) => mod.name === entry.name)).length > 0 && <><h4>{t("mods.lua.available")}</h4><div className="record-list">{available.filter((entry) => !mods.some((mod) => mod.name === entry.name)).map((entry) => <div key={entry.id}><span><strong>{entry.name}</strong><small>{t("mods.lua.availableHelp")}</small></span><span className="backup-actions"><button disabled={locked} onClick={() => onAction({ action: "install", artifactId: entry.id })}>{t("mods.lua.install")}</button></span></div>)}</div></>}
   </section>;
 }
 
-function LuaRow({ mod }: { mod: LuaModView }) {
+function LuaRow({ mod, children }: { mod: LuaModView; children?: ReactNode }) {
   const { t } = useTranslation();
-  return <div><span><strong>{mod.name}</strong><small>{t(mod.enabled ? "mods.state.enabled" : "mods.state.disabled")}{mod.enabled && mod.active === false ? ` · ${t("mods.lua.inactive")}` : ""}{mod.enabledBy === "enabled-txt" ? ` · ${t("mods.lua.forced")}` : ""}{mod.hasScript ? "" : ` · ${t("mods.lua.noScript")}`}</small></span></div>;
+  return <div><span><strong>{mod.name}</strong><small>{t(mod.enabled ? "mods.state.enabled" : "mods.state.disabled")}{mod.enabled && mod.active === false ? ` · ${t("mods.lua.inactive")}` : ""}{mod.updateAvailable ? ` · ${t("mods.lua.updateAvailable")}` : ""}{mod.enabledBy === "enabled-txt" ? ` · ${t("mods.lua.forced")}` : ""}{mod.hasScript ? "" : ` · ${t("mods.lua.noScript")}`}</small></span><span className="backup-actions">{children}</span></div>;
 }
 
-function WorkshopSection({ workshop }: { workshop: WorldModsView["workshop"] }) {
+function WorkshopSection({ workshop, locked, onAction }: { workshop: WorldModsView["workshop"]; locked: boolean; onAction(body: Record<string, string>): void }) {
   const { t } = useTranslation();
+  const editable = workshop.platformSupported;
   return <section className="mod-section"><h3>{t("mods.workshop.title")}</h3>
     {!workshop.platformSupported && <div className="settings-compatibility-warning">{t("mods.workshop.windowsOnly")}</div>}
-    {workshop.settingsExists && <p className="muted">{t(workshop.globalEnable ? "mods.workshop.globalOn" : "mods.workshop.globalOff")}</p>}
-    {!workshop.mods.length ? <p className="muted">{t("mods.workshop.empty")}</p> : <div className="record-list">{workshop.mods.map((mod) => <div key={mod.folder}><span><strong>{mod.displayName ?? mod.folder}</strong><small>{mod.error ? t("mods.workshop.invalid", { error: mod.error }) : [mod.version && t("mods.workshop.version", { version: mod.version }), t(mod.active ? "mods.state.enabled" : "mods.state.disabled"), !mod.serverCapable && t("mods.workshop.clientOnly")].filter(Boolean).join(" · ")}</small><small>{mod.packageName ?? mod.folder}</small></span></div>)}</div>}
+    {editable ? <div className="record-list"><div><span><strong>{t(workshop.globalEnable ? "mods.workshop.globalOn" : "mods.workshop.globalOff")}</strong><small>{t("mods.workshop.globalHelp")}</small></span><span className="backup-actions"><button disabled={locked} onClick={() => onAction({ action: workshop.globalEnable ? "disable-all" : "enable-all" })}>{t(workshop.globalEnable ? "mods.workshop.turnOff" : "mods.workshop.turnOn")}</button></span></div></div>
+      : workshop.settingsExists && <p className="muted">{t(workshop.globalEnable ? "mods.workshop.globalOn" : "mods.workshop.globalOff")}</p>}
+    {!workshop.mods.length ? <p className="muted">{t("mods.workshop.empty")}</p> : <div className="record-list">{workshop.mods.map((mod) => <div key={mod.folder}><span><strong>{mod.displayName ?? mod.folder}</strong><small>{mod.error ? t("mods.workshop.invalid", { error: mod.error }) : [mod.version && t("mods.workshop.version", { version: mod.version }), t(mod.active ? "mods.state.enabled" : "mods.state.disabled"), mod.active && !workshop.globalEnable && t("mods.workshop.inactiveGlobal"), !mod.serverCapable && t("mods.workshop.clientOnly")].filter(Boolean).join(" · ")}</small><small>{mod.packageName ?? mod.folder}</small></span>
+      {editable && mod.packageName && <span className="backup-actions"><button disabled={locked} onClick={() => onAction({ action: mod.active ? "deactivate" : "activate", packageName: mod.packageName! })}>{t(mod.active ? "mods.lua.disable" : "mods.lua.enable")}</button></span>}</div>)}</div>}
   </section>;
 }
