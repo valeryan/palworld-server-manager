@@ -236,7 +236,7 @@
     "dashboard.platform": "Platform",
     "platform.linux": "Linux",
     "platform.windows": "Windows",
-    "platform.windowsWine": "Windows (Wine)",
+    "platform.windowsWine": "Wine",
     "dashboard.emptyDirectory": "Empty installation directory",
     "dashboard.existingDirectory": "Existing PalServer directory",
     "dashboard.browse": "Browse…",
