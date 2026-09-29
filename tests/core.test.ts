@@ -179,6 +179,11 @@ describe("PalWorldSettings transformations", () => {
     expect(managedConfigurationChanges(world)).not.toHaveProperty("AdminPassword");
     expect(managedConfigurationChanges(world)).not.toHaveProperty("ServerPassword");
   });
+  it("always writes the server password as a quoted string, including an open server", () => {
+    expect(validateAndEncodeSettingChanges({ ServerPassword: "" }).ServerPassword).toBe('""');
+    expect(validateAndEncodeSettingChanges({ ServerPassword: "secret" }).ServerPassword).toBe('"secret"');
+    expect(applyConfigurationOptions('[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(ServerPassword="old",PublicPort=8211)\n', validateAndEncodeSettingChanges({ ServerPassword: "" }))).toContain('ServerPassword="",');
+  });
   it("preserves an explicitly advertised public port during routine synchronization", () => {
     const world = { ...createWorldSchema.parse({ displayName: "Test", installDir: "/tmp/test", gamePort: 8211 }), id: "world", status: "stopped" as const, processId: null, buildId: null, latestBuildId: null, lastStartedAt: null, createdAt: 1, updatedAt: 1 };
     const content = applyConfigurationOptions("[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(PublicPort=49000)\n", managedConfigurationChanges(world));
