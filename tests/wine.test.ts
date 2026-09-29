@@ -34,7 +34,7 @@ describe("headless Wine prefixes", () => {
     expect(prefix).toBe(path.join(directory, "data", "wine-prefixes", "wine-world"));
     const recorded = (await readFile(calls, "utf8")).trim().split("\n");
     expect(recorded).toHaveLength(3);
-    expect(recorded[0]).toBe(`wineboot -i | prefix=${prefix} display=unset wayland=unset overrides=dwmapi=n,b;mscoree,mshtml=;winemenubuilder.exe=d debug=-all`);
+    expect(recorded[0]).toBe(`wineboot -i | prefix=${prefix} display=unset wayland=psm-headless-no-display overrides=dwmapi=n,b;mscoree,mshtml=;winemenubuilder.exe=d debug=-all`);
     expect(recorded[1]).toContain("reg add HKCU\\Software\\Wine\\Drivers /v Graphics /d null /f");
     expect(recorded[2]).toBe(`wineserver -w | prefix=${prefix}`);
     expect(log.some((line) => line.includes("first start only"))).toBe(true);

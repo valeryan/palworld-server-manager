@@ -44,7 +44,9 @@ export async function prepareWinePrefix(world: WineWorld, env: NodeJS.ProcessEnv
   const prefix = effectiveWinePrefix(world); const managed = managesWinePrefix(world);
   let changed = false;
   const quiet: NodeJS.ProcessEnv = { ...env, WINEPREFIX: prefix, WINEDEBUG: env.WINEDEBUG ?? "-all", WINEDLLOVERRIDES: withWineOverrides(env.WINEDLLOVERRIDES, "mscoree,mshtml=", NO_DESKTOP_INTEGRATION) };
-  delete quiet.DISPLAY; delete quiet.WAYLAND_DISPLAY;
+  // Removing WAYLAND_DISPLAY is not enough: Wayland clients then fall back to the default
+  // "wayland-0" socket and wineboot's "configuration is being updated" window still appears.
+  delete quiet.DISPLAY; quiet.WAYLAND_DISPLAY = "psm-headless-no-display";
   if (!await exists(path.join(prefix, "system.reg"))) {
     if (!managed) log(`[manager] Wine prefix ${prefix} does not exist yet; creating it without installer prompts.`);
     else log(`[manager] Creating the Wine prefix for this world at ${prefix} (first start only).`);
