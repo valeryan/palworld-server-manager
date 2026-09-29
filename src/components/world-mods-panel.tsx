@@ -13,19 +13,19 @@ export function WorldModsPanel({ worldId }: { worldId: string }) {
   return <div>
     <div className="panel-heading"><div><h2>{t("mods.title")}</h2><p>{t("mods.description")}</p></div><button className="button ghost" onClick={() => void query.refetch()}>{t("common.refresh")}</button></div>
     {query.isLoading ? <p className="muted">{t("mods.loading")}</p> : query.error ? <div className="settings-compatibility-warning">{query.error.message}</div> : mods && <>
-      <Ue4ssSection status={mods.ue4ss} />
+      <Ue4ssSection status={mods.ue4ss} library={mods.library} />
       <LuaSection mods={mods.luaMods} ue4ssInstalled={mods.ue4ss.installed} />
       <WorkshopSection workshop={mods.workshop} />
     </>}
   </div>;
 }
 
-function Ue4ssSection({ status }: { status: WorldModsView["ue4ss"] }) {
+function Ue4ssSection({ status, library }: { status: WorldModsView["ue4ss"]; library: WorldModsView["library"] }) {
   const { t } = useTranslation();
   return <section className="mod-section"><h3>{t("mods.ue4ss.title")}</h3>
     {!status.layoutVerified && <div className="settings-compatibility-warning">{t("mods.ue4ss.linuxExperimental")}</div>}
     {status.warnings.map((warning) => <div key={warning} className="settings-compatibility-warning">{t(`mods.ue4ss.warning.${warning}`)}</div>)}
-    <div className="record-list"><div><span><strong>{t(status.installed ? "mods.ue4ss.installed" : "mods.ue4ss.notInstalled")}</strong><small>{t(`mods.variant.${status.variant}`)}</small>{status.installed && <small title={status.modsDirectory}>{t("mods.ue4ss.modsDirectory", { path: status.modsDirectory })}</small>}{!status.binariesPresent && <small>{t("mods.ue4ss.binariesMissing")}</small>}</span>{!status.installed && <Link className="button ghost" href="/mods">{t("mods.openLibrary")}</Link>}</div></div>
+    <div className="record-list"><div><span><strong>{t(status.installed ? "mods.ue4ss.installed" : "mods.ue4ss.notInstalled")}</strong><small>{t(`mods.variant.${status.variant}`)}</small>{status.installed && <small title={status.modsDirectory}>{t("mods.ue4ss.modsDirectory", { path: status.modsDirectory })}</small>}{!status.binariesPresent && <small>{t("mods.ue4ss.binariesMissing")}</small>}{!status.installed && library && <small>{t(library.downloaded ? "mods.ue4ss.libraryReady" : "mods.ue4ss.libraryMissing", { name: library.name, version: library.version })}</small>}</span>{!status.installed && <Link className="button ghost" href="/mods">{t("mods.openLibrary")}</Link>}</div></div>
   </section>;
 }
 

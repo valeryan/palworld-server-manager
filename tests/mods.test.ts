@@ -85,7 +85,7 @@ describe("world mod status", () => {
     const install = path.join(directory, "empty-world"); await mkdir(install, { recursive: true });
     const { createWorld } = await import("@/server/services/worlds"); const { worldModStatus } = await import("@/server/mods/status");
     const status = await worldModStatus((await createWorld({ displayName: "Empty", installDir: install, platform: "linux" })).id);
-    expect(status).toMatchObject({ ue4ss: { installed: false, binariesPresent: false, warnings: [] }, luaMods: [], workshop: { settingsExists: false, mods: [] } });
+    expect(status).toMatchObject({ ue4ss: { installed: false, binariesPresent: false, warnings: [] }, library: { id: "ue4ss-linux", downloaded: false }, luaMods: [], workshop: { settingsExists: false, mods: [] } });
   });
 });
 

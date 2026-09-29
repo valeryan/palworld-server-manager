@@ -13,17 +13,21 @@ import { workshopStatus } from "./workshop-mods";
 export async function worldModStatus(worldId: string): Promise<WorldModsView> {
   const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
   const [ue4ss, luaMods, workshop] = await Promise.all([detectUe4ss(world), listLuaMods(world), workshopStatus(world)]);
-  return { ue4ss, luaMods, workshop };
+  const artifact = MOD_CATALOG.find((entry) => entry.kind === "ue4ss" && entry.variant === ue4ss.variant);
+  const library = artifact ? { id: artifact.id, name: artifact.name, version: artifact.version, downloaded: await artifactCached(artifact) } : null;
+  return { ue4ss, library, luaMods, workshop };
 }
 
 export function artifactPath(artifact: CatalogArtifact): string { return path.join(paths.modCache(), artifact.id, artifact.version, artifact.fileName); }
+
+async function artifactCached(artifact: CatalogArtifact): Promise<boolean> { return stat(artifactPath(artifact)).then((info) => info.isFile() && info.size === artifact.sizeBytes, () => false); }
 
 export async function modLibrary(): Promise<ModLibraryEntry[]> {
   const worlds = await listWorlds();
   const detections = await Promise.all(worlds.map(async (world) => ({ world, ue4ss: await detectUe4ss(world) })));
   return Promise.all(MOD_CATALOG.map(async (artifact) => {
     const { id, kind, name, variant, version, project, projectUrl, license, sizeBytes, sha256, url } = artifact;
-    const downloaded = await stat(artifactPath(artifact)).then((info) => info.isFile() && info.size === artifact.sizeBytes, () => false);
+    const downloaded = await artifactCached(artifact);
     const downloading = globalThis.__psmModDownloads?.has(artifact.id) ?? false;
     const detectedIn = detections.filter(({ ue4ss }) => ue4ss.installed && ue4ss.variant === artifact.variant).map(({ world }) => ({ worldId: world.id, displayName: world.displayName }));
     return { id, kind, name, variant, version, project, projectUrl, license, sizeBytes, sha256, url, downloaded, downloading, detectedIn };

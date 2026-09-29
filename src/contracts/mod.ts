@@ -43,6 +43,8 @@ export interface WorkshopStatus {
 
 export interface WorldModsView {
   ue4ss: Ue4ssRuntimeStatus;
+  /** The library build that matches this world's server platform. */
+  library: { id: string; name: string; version: string; downloaded: boolean } | null;
   luaMods: LuaModView[];
   workshop: WorkshopStatus;
 }
