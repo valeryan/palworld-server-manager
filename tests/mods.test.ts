@@ -69,12 +69,12 @@ describe("world mod status", () => {
     const install = path.join(directory, "linux-world");
     await mkdir(path.join(install, "Pal", "Binaries", "Linux"), { recursive: true });
     await put(path.join(install, "libUE4SS.so")); await put(path.join(install, "MemberVariableLayout.ini")); await put(path.join(install, "UE4SS-settings.ini"), "GuiConsoleVisible=0\n");
-    await put(path.join(install, "Mods", "mods.txt"), "Relay : 1\n"); await put(path.join(install, "Mods", "Relay", "scripts", "main.lua"));
+    await put(path.join(install, "Mods", "mods.txt"), "Relay : 1\n\nUE4SSStatus : 1\n"); await put(path.join(install, "Mods", "Relay", "scripts", "main.lua")); await put(path.join(install, "Mods", "UE4SSStatus", "scripts", "main.lua"));
     await put(path.join(install, "Mods", "Workshop", "789", "Info.json"), JSON.stringify({ PackageName: "linux-pack" }));
     const { createWorld } = await import("@/server/services/worlds"); const { worldModStatus } = await import("@/server/mods/status");
     const world = await createWorld({ displayName: "Linux", installDir: install, platform: "linux" });
     const status = await worldModStatus(world.id);
-    expect(status.ue4ss).toMatchObject({ variant: "linux", layoutVerified: false, installed: true, memberLayout: true, guiConsole: "hidden", warnings: [] });
+    expect(status.ue4ss).toMatchObject({ variant: "linux", layoutVerified: true, installed: true, memberLayout: true, guiConsole: "hidden", warnings: [] });
     expect(status.luaMods).toEqual([{ name: "Relay", enabled: true, enabledBy: "mods-txt", hasScript: true, managed: false }]);
     expect(status.workshop.platformSupported).toBe(false);
     expect(status.workshop.mods.map((mod) => mod.packageName)).toEqual(["linux-pack"]);

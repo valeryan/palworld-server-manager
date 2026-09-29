@@ -282,7 +282,7 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await expect(page.getByText("Stopped", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "Mods", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Mods library", level: 1 })).toBeVisible();
-  await expect(page.getByText("UE4SS for Linux 1.0.2-palworld-linux")).toBeVisible();
+  await expect(page.getByText("UE4SS for Linux 1.0.4-palworld-linux")).toBeVisible();
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
   for (const setting of ["Close to system tray", "Launch at login", "Manager web port", "History and log retention", "Authenticated remote administration", "Language", "Manager data"]) {

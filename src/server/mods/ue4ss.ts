@@ -13,7 +13,7 @@ export interface Ue4ssLayout {
   settingsCandidates: string[];
   memberLayoutCandidates: string[];
   modsCandidates: string[];
-  /** Entries in the mods directory that are not UE4SS mods. */
+  /** Mods-directory entries that belong to UE4SS itself or to Palworld, not to the user. UE4SS creates UE4SSStatus on start. */
   reserved: ReadonlySet<string>;
 }
 
@@ -33,19 +33,19 @@ export function ue4ssLayout(world: Pick<WorldView, "installDir" | "platform">): 
       memberLayoutCandidates: [path.join(runtime, "MemberVariableLayout.ini"), path.join(win64, "MemberVariableLayout.ini")],
       // UE4SS 3.x keeps mods under ue4ss/Mods; 2.x used Win64/Mods.
       modsCandidates: [path.join(runtime, "Mods"), path.join(win64, "Mods")],
-      reserved: new Set(["shared", "BPModLoaderMod"]),
+      reserved: new Set(["shared", "BPModLoaderMod", "UE4SSStatus"]),
     };
   }
-  // Native Linux port: files sit next to PalServer.sh, per the port's README. Not yet
-  // confirmed on a running server. Its Mods/ is also Palworld's official mod folder.
+  // Native Linux port: files sit next to PalServer.sh (confirmed on Palworld v1.0.5 with
+  // the pinned build). Its Mods/ is also Palworld's official mod folder.
   const root = world.installDir;
   return {
-    variant: "linux", layoutVerified: false, binaries: path.join(root, "Pal", "Binaries", "Linux"), loader: path.join(root, "libUE4SS.so"),
+    variant: "linux", layoutVerified: true, binaries: path.join(root, "Pal", "Binaries", "Linux"), loader: path.join(root, "libUE4SS.so"),
     runtimeMarkers: [],
     settingsCandidates: [path.join(root, "UE4SS-settings.ini")],
     memberLayoutCandidates: [path.join(root, "MemberVariableLayout.ini")],
     modsCandidates: [path.join(root, "Mods")],
-    reserved: new Set(["shared", "BPModLoaderMod", "Workshop", "NativeMods"]),
+    reserved: new Set(["shared", "BPModLoaderMod", "UE4SSStatus", "Workshop", "NativeMods"]),
   };
 }
 
