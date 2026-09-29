@@ -10,6 +10,7 @@ export const releasedMigrations = [
   { name: "20260921012446_acoustic_loki", hash: "9ef05fd6f984b28c14e4d0c8a60622cae328c3d48a25e1aa2364b2083773ae1a" },
   { name: "20260922014643_freezing_victor_mancha", hash: "5406d2d4abf52e42ce735ae4e14c5a1a597834b44685621241665803e3d82fd7" },
   { name: "20260926210400_lean_sage", hash: "2dfc544e4d224279a5b65a68d5a7a3cc024eb743af7ce5764f07c2a3c2ad2e11" },
+  { name: "20260929043011_drop_legacy_imports", hash: "939685d3970b05028e74fe41a065a55720ba7c3acbe2b61743a0384f8f4a2210" },
 ] as const;
 
 export function migrationDigest(): string { return createHash("sha256").update(releasedMigrations.map((item) => `${item.name}:${item.hash}`).join("\n")).digest("hex"); }

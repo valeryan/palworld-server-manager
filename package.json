@@ -24,10 +24,8 @@
     "test:e2e:browser": "npm run build:web && playwright test --project=browser",
     "test:e2e:electron": "npm run pack && playwright test --project=packaged-electron",
     "test:guarded": "tsx scripts/guard-source-trees.ts",
-    "rehearse:import": "tsx scripts/rehearse-production-import.ts",
     "audit:settings-fixture": "tsx scripts/audit-palworld-settings.ts",
     "db:generate": "drizzle-kit generate",
-    "clone:dev-data": "tsx scripts/clone-development-data.ts",
     "pack": "npm run build && npm run prepare:standalone && electron-builder --dir",
     "dist:linux": "npm run build && npm run prepare:standalone && electron-builder --linux AppImage",
     "release:linux": "node scripts/release-linux.mjs"

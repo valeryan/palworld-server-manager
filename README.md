@@ -25,7 +25,7 @@ The development profile is a self-contained sandbox and needs no setup: on first
 
 ## Safety model
 
-- The new registry is `registry-v3.sqlite`; the legacy `registry.sqlite` is only opened read-only by the importer.
+- The manager's registry is `registry-v3.sqlite` in its own data directory. Existing servers are brought in with **New world → Use existing server**, which registers the installation in place; the manager never reads another manager's data.
 - A registered world may not share or nest its installation directory with another world.
 - Ports must be unique within and across worlds.
 - Operations are serialized per world and represented as persistent jobs.
@@ -35,17 +35,7 @@ The development profile is a self-contained sandbox and needs no setup: on first
 - API responses never include server passwords, admin passwords, or process environment variables.
 - English is the protected fallback language. Additional PSM Next JSON packs can be installed from Application Settings and are stored under the manager data directory; incomplete packs fall back to English. See [language packs](./docs/LANGUAGE-PACKS.md) for the pack format.
 
-To test against copies of existing production worlds rather than the development profile's own worlds, clone them into a separate disposable sandbox with explicit paths:
-
-```bash
-npm run clone:dev-data -- \
-  --source-db /path/to/registry.sqlite \
-  --destination /path/to/psm-next-sandbox \
-  --world family=/path/to/original/family \
-  --world valhilworld1=/path/to/original/valhilworld1
-```
-
-The command refuses existing or overlapping destinations, uses SQLite's backup API, resets runtime state, and disables schedules and external integrations in the copied database.
+To test against a copy of an existing server, copy its installation folder into the development profile (for example `../psm-next-development/<world>/`) and add it with **New world → Use existing server** in the development app. The copy gets development ports, so it can run alongside the original.
 
 ## Verification and packaging
 

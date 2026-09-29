@@ -83,7 +83,7 @@
     "settings.retention.removedNotice_other": "Retention policy saved. Cleanup removed {{count}} expired records or log files.",
     "settings.retention.emptyNotice": "Retention policy saved. Nothing currently needs cleanup.",
     "settings.data.title": "Manager data",
-    "settings.data.description": "The rewrite keeps its database, SteamCMD, logs, and backups separate from the legacy manager.",
+    "settings.data.description": "The manager keeps its database, SteamCMD, logs, and backups in its own data directory.",
     "settings.data.directory": "Data directory",
     "settings.data.database": "Database",
     "settings.data.steamcmd": "SteamCMD",

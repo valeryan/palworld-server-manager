@@ -137,7 +137,3 @@ export const remoteAudit = sqliteTable("remote_audit", {
   createdAt: integer("created_at").notNull(),
 }, (table) => [index("remote_audit_created_idx").on(table.createdAt), index("remote_audit_code_idx").on(table.codeId)]);
 
-export const legacyImports = sqliteTable("legacy_imports", {
-  id: text("id").primaryKey(), sourcePath: text("source_path").notNull(), sourceHash: text("source_hash").notNull(),
-  snapshot: text("snapshot", { mode: "json" }).$type<Record<string, unknown>>().notNull(), report: text("report", { mode: "json" }).$type<Record<string, unknown>>().notNull(), createdAt: integer("created_at").notNull(),
-});
