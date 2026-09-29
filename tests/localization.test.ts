@@ -60,6 +60,7 @@ describe("language packs", () => {
       ...["stopped", "starting", "running", "stopping", "crashed", "unknown"].map((value) => `status.${value}`),
       ...["overview", "players", "deaths", "console", "settings", "mods", "backups", "schedule"].map((value) => `world.tab.${value}`),
       ...["windows", "linux"].map((value) => `mods.variant.${value}`),
+      "platform.linux", "platform.windows", "platform.windowsWine",
       ...["member-layout-missing", "gui-console-visible", "gui-console-unknown"].map((value) => `mods.ue4ss.warning.${value}`),
       ...["mods.ue4ss.installed", "mods.ue4ss.notInstalled", "mods.ue4ss.libraryReady", "mods.ue4ss.libraryMissing", "mods.lua.empty", "mods.lua.needsUe4ss", "mods.state.enabled", "mods.state.disabled", "mods.workshop.globalOn", "mods.workshop.globalOff", "modLibrary.downloaded", "modLibrary.notDownloaded", "modLibrary.downloading", "modLibrary.removeConfirm", "modLibrary.removeConfirmInUse"],
       ...["view", "lifecycle", "players", "messages"].map((value) => `remoteSettings.permission.${value}`),
