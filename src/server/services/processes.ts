@@ -12,6 +12,7 @@ import { eventBus } from "./events";
 import { getWorld, listWorlds, setRuntimeState } from "./worlds";
 import { applyDesiredSettings, prepareWorldStart } from "./configuration";
 import { palworldRest } from "./rest";
+import { effectiveWinePrefix, prepareWinePrefix, runsUnderWine, serverWineOverrides } from "./wine";
 
 declare global { var __psmChildren: Map<string, ChildProcess> | undefined; }
 const children = () => (globalThis.__psmChildren ??= new Map<string, ChildProcess>());
@@ -52,8 +53,11 @@ export function commandFor(world: WorldView): { command: string; args: string[];
     ...parseArguments(world.extraArgs),
   ].filter(Boolean);
   const env: NodeJS.ProcessEnv = { ...process.env, ...world.env };
-  if (world.platform === "windows" && process.platform !== "win32") {
-    if (world.winePrefix) env.WINEPREFIX = world.winePrefix;
+  if (runsUnderWine(world)) {
+    // World environment values win so a prefix or debug channel can still be set deliberately.
+    env.WINEPREFIX = world.env.WINEPREFIX ?? effectiveWinePrefix(world);
+    env.WINEDEBUG = world.env.WINEDEBUG ?? "-all";
+    env.WINEDLLOVERRIDES = serverWineOverrides(env.WINEDLLOVERRIDES);
     return { command: world.wineBinary, args: [...parseArguments(world.wineLaunchFlags), path.join(world.installDir, "PalServer.exe"), ...serverArgs], env };
   }
   return { command: world.platform === "windows" ? path.join(world.installDir, "PalServer.exe") : path.join(world.installDir, "PalServer.sh"), args: serverArgs, env };
@@ -68,6 +72,12 @@ export async function startWorld(worldId: string): Promise<void> {
   });
   const logPath = path.join(paths.worldLogs(worldId), `server-${new Date().toISOString().replace(/[:.]/g, "-")}.log`);
   const stream = createWriteStream(logPath, { flags: "a" });
+  try { await prepareWinePrefix({ ...world, winePrefix: env.WINEPREFIX ?? world.winePrefix }, env, (line) => stream.write(`${line}\n`)); }
+  catch (error) {
+    stream.end(`[manager] Wine prefix preparation failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    await setRuntimeState(worldId, "stopped", null);
+    throw new Error(`Wine prefix preparation failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
   const child = spawn(command, args, { cwd: world.installDir, env, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   child.stdout?.pipe(stream); child.stderr?.pipe(stream);
   child.on("error", async (error) => { stream.write(`\n[manager] ${error.message}\n`); await setRuntimeState(worldId, "crashed", null); });

@@ -13,6 +13,8 @@ export const paths = {
   backups: (worldId: string) => ensure(path.join(/* turbopackIgnore: true */ dataDirectory(), "backups", worldId)),
   imports: () => ensure(path.join(/* turbopackIgnore: true */ dataDirectory(), "imports")),
   languagePacks: () => ensure(path.join(/* turbopackIgnore: true */ dataDirectory(), "language-packs")),
+  // Not created eagerly: wineboot must initialize an absent prefix itself.
+  winePrefix: (worldId: string) => path.join(/* turbopackIgnore: true */ dataDirectory(), "wine-prefixes", worldId),
   modCache: () => ensure(path.join(/* turbopackIgnore: true */ dataDirectory(), "mod-library")),
   // Inside the library so a verified download is moved into place by same-filesystem rename.
   modStaging: () => ensure(path.join(/* turbopackIgnore: true */ dataDirectory(), "mod-library", ".staging")),
