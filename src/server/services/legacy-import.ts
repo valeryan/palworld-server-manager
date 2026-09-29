@@ -36,6 +36,9 @@ function mappedPath(value: unknown, mappings: Record<string, string>): string {
   const prefix = Object.entries(mappings).find(([source]) => original === source || original.startsWith(`${source}${path.sep}`));
   return prefix ? path.join(prefix[1], path.relative(prefix[0], original)) : original;
 }
+// Settings for fork features psm-next deliberately does not carry forward (chat
+// capture and the DailyLoginRewards mirror). The raw snapshot keeps them.
+function discardedSetting(key: string): boolean { return key === "chatCaptureEnabled" || key === "discordRelayChat" || key.startsWith("loginRewardsPath:"); }
 function rows(snapshot: Record<string, unknown>, table: string): LegacyRow[] { return Array.isArray(snapshot[table]) ? snapshot[table] as LegacyRow[] : []; }
 
 function quotedIniValue(content: string, key: string): string | null {
@@ -124,7 +127,7 @@ export async function importLegacyDatabase(sourcePath: string, pathMappings: Rec
       report.imported.push(id);
     }
 
-    const tableImporters: Record<string, (row: LegacyRow) => void> = {
+    const tableImporters: Record<string, (row: LegacyRow) => unknown> = {
       events: (row) => client.prepare("INSERT INTO events (id,world_id,kind,message,metadata,created_at) VALUES (?,?,?,?,NULL,?)").run(num(row.id, 0), nullableText(row.world_id), text(row.kind, "legacy"), text(row.message), num(row.created_at, Date.now())),
       backups: (row) => client.prepare("INSERT INTO backups (id,world_id,file_path,size_bytes,reason,verified,created_at) VALUES (?,?,?,?,?,?,?)").run(text(row.id), text(row.world_id), mappedPath(row.file_path, pathMappings), num(row.size_bytes, 0), text(row.reason, "legacy"), Number(backupVerification.get(text(row.id)) ?? false), num(row.created_at, Date.now())),
       schedules: (row) => client.prepare("INSERT INTO schedules (id,world_id,action,mode,interval_hours,interval_minutes,time_of_day,message,join_match,join_delay_seconds,enabled,skip_next,last_run_at,next_run_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?)").run(text(row.id), text(row.world_id), text(row.job_type), text(row.mode), nullableNum(row.interval_hours), nullableNum(row.interval_minutes), nullableText(row.time_of_day), nullableText(row.message), nullableText(row.join_match), nullableNum(row.join_delay_seconds), 0, Number(bool(row.skip_next)), nullableNum(row.last_run), num(row.created_at, Date.now())),
@@ -132,12 +135,14 @@ export async function importLegacyDatabase(sourcePath: string, pathMappings: Rec
       deaths: (row) => client.prepare("INSERT INTO deaths (id,world_id,victim,cause,killer,killer_raw,killer_kind,created_at) VALUES (?,?,?,?,?,?,?,?)").run(num(row.id, 0), text(row.world_id), text(row.victim), nullableText(row.cause), nullableText(row.killer), nullableText(row.killer_raw), nullableText(row.killer_kind), num(row.created_at, Date.now())),
       ini_versions: (row) => client.prepare("INSERT INTO config_versions (id,world_id,file_name,content,note,created_at) VALUES (?,?,?,?,?,?)").run(`legacy-${num(row.id, 0)}`, text(row.world_id), "PalWorldSettings.ini", text(row.content), nullableText(row.note), num(row.created_at, Date.now())),
       mods: (row) => client.prepare("INSERT INTO mods (id,world_id,package_name,display_name,workshop_id,version,source,folder,server_only,enabled,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)").run(text(row.id), text(row.world_id), text(row.package_name), nullableText(row.display_name), nullableText(row.workshop_id), nullableText(row.version), nullableText(row.source), nullableText(row.folder), Number(bool(row.is_server, true)), Number(bool(row.enabled, true)), num(row.created_at, Date.now())),
-      app_settings: (row) => client.prepare("INSERT INTO app_settings (key,value) VALUES (?,?)").run(text(row.key), JSON.stringify(settingValue(row.value))),
+      app_settings: (row) => {
+        if (discardedSetting(text(row.key))) { report.skipped.push(`app_settings.${text(row.key)}`); return false; }
+        client.prepare("INSERT INTO app_settings (key,value) VALUES (?,?)").run(text(row.key), JSON.stringify(settingValue(row.value)));
+      },
     };
     for (const [table, importer] of Object.entries(tableImporters)) {
       const tableRows = rows(snapshot, table);
-      for (const row of tableRows) importer(row);
-      report.counts[table] = tableRows.length;
+      report.counts[table] = tableRows.filter((row) => importer(row) !== false).length;
     }
     report.counts.worlds = preparedWorlds.length;
     report.verification.worldCount = (client.prepare("SELECT count(*) count FROM worlds").get() as { count: number }).count;

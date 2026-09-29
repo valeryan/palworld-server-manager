@@ -25,7 +25,7 @@ const copied = new DatabaseSync(copiedDb); const mappings: Record<string, string
 try {
   for (const item of sources) { const target = path.join(destination, "servers", item.name); await copyTree(item.source, target); mappings[item.source] = target; copied.prepare("UPDATE worlds SET install_dir=?, process_id=NULL, status='stopped', autostart=0 WHERE install_dir=?").run(target, item.source); }
   const copiedAppData = path.join(destination, "manager-data");
-  for (const name of ["backups", "logs", "steamcmd", "languagepacks", "loginrewards"]) {
+  for (const name of ["backups", "logs", "steamcmd", "languagepacks"]) {
     const sourcePath = path.join(sourceAppData, name);
     if (await exists(sourcePath)) await copyTree(sourcePath, path.join(copiedAppData, name));
   }

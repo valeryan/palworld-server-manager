@@ -305,6 +305,8 @@ describe("legacy import", () => {
     legacy.prepare("INSERT INTO events VALUES (1, 'legacy-world', 'start', 'Started', ?)").run(Date.now());
     legacy.prepare("INSERT INTO sessions VALUES (1, 'legacy-world', 'player-1', 'Tester', 'join', ?)").run(Date.now());
     legacy.prepare("INSERT INTO app_settings VALUES ('language', '\"en\"')").run();
+    legacy.prepare("INSERT INTO app_settings VALUES ('chatCaptureEnabled', 'true')").run();
+    legacy.prepare("INSERT INTO app_settings VALUES ('loginRewardsPath:legacy-world', '\"/tmp/players.json\"')").run();
     legacy.close();
     const configDirectory = path.join(directory, "server", "Pal", "Saved", "Config", "LinuxServer");
     await mkdir(configDirectory, { recursive: true });
@@ -318,6 +320,7 @@ describe("legacy import", () => {
     const report = await importLegacyDatabase(sourcePath);
     expect(report.imported).toEqual(["legacy-world"]);
     expect(report.counts).toMatchObject({ worlds: 1, events: 1, sessions: 1, app_settings: 1 });
+    expect(report.skipped).toEqual(["app_settings.chatCaptureEnabled", "app_settings.loginRewardsPath:legacy-world"]);
     expect(report.verification).toEqual({ worldCount: 1, relationshipErrors: 0, criticalFieldsPresent: true });
     expect((await getWorld("legacy-world"))?.displayName).toBe("Legacy");
     expect((await getWorld("legacy-world"))?.adminPassword).toBe("from-ini");
