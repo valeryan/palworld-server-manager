@@ -8,6 +8,8 @@ describe("desktop authentication proxy", () => {
   it("protects manager pages and APIs but leaves the remote entry and API reachable", () => {
     expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url: "/settings" })).toBe(true);
     expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url: "/api/worlds" })).toBe(true);
+    expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url: "/mods" })).toBe(true);
+    expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url: "/api/mods" })).toBe(true);
     expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url: "/remote" })).toBe(false);
     expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url: "/api/remote/login" })).toBe(false);
     expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url: "/api/i18n/current" })).toBe(false);

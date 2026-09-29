@@ -13,4 +13,5 @@ export const paths = {
   backups: (worldId: string) => ensure(path.join(/* turbopackIgnore: true */ dataDirectory(), "backups", worldId)),
   imports: () => ensure(path.join(/* turbopackIgnore: true */ dataDirectory(), "imports")),
   languagePacks: () => ensure(path.join(/* turbopackIgnore: true */ dataDirectory(), "language-packs")),
+  modCache: () => ensure(path.join(/* turbopackIgnore: true */ dataDirectory(), "mod-library")),
 };

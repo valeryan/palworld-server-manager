@@ -127,6 +127,10 @@ test("adopts and manages an isolated world through critical browser workflows", 
     return ((await response.json()) as { configuration: { options: Record<string, string> } }).configuration.options.DenyTechnologyList;
   }).toBe('(TechnologyA,"Technology B")');
 
+  await page.getByRole("button", { name: "Mods", exact: true }).click();
+  await expect(page.getByText("UE4SS is not installed")).toBeVisible();
+  await expect(page.getByText("No Workshop mods are installed.")).toBeVisible();
+
   await page.getByRole("button", { name: "Backups", exact: true }).click();
   await page.getByLabel("Keep newest backups").fill("3");
   await page.getByRole("button", { name: "Save backup settings" }).click();
@@ -276,6 +280,9 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await waitForLatestJob(page, "stop");
   await page.reload();
   await expect(page.getByText("Stopped", { exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "Mods", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Mods library", level: 1 })).toBeVisible();
+  await expect(page.getByText("UE4SS for Linux 1.0.2-palworld-linux")).toBeVisible();
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
   for (const setting of ["Close to system tray", "Launch at login", "Manager web port", "History and log retention", "Authenticated remote administration", "Language", "Manager data"]) {
