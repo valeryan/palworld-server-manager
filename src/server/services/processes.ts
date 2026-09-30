@@ -14,6 +14,7 @@ import { applyDesiredSettings, prepareWorldStart } from "./configuration";
 import { palworldRest } from "./rest";
 import { effectiveWinePrefix, prepareWinePrefix, runsUnderWine, serverWineOverrides } from "./wine";
 import { applyUe4ssLaunch, recordHealthyExit, recordUnexpectedExit } from "@/server/mods/ue4ss-runtime";
+import { startDeathCapture, stopDeathCapture } from "@/server/mods/relays";
 
 declare global { var __psmChildren: Map<string, ChildProcess> | undefined; }
 const children = () => (globalThis.__psmChildren ??= new Map<string, ChildProcess>());
@@ -85,6 +86,7 @@ export async function startWorld(worldId: string): Promise<void> {
   child.on("error", async (error) => { stream.write(`\n[manager] ${error.message}\n`); await setRuntimeState(worldId, "crashed", null); });
   child.on("exit", async (code, signal) => {
     children().delete(worldId); stream.end(`\n[manager] exited code=${code ?? "null"} signal=${signal ?? "none"}\n`);
+    await stopDeathCapture(world).catch(() => undefined);
     const latest = await getWorld(worldId); const expected = latest?.status === "stopping";
     // A controlled stop remains transitional until stopWorld has projected the
     // latest desired revision after the process is confirmed gone.
@@ -101,6 +103,7 @@ export async function startWorld(worldId: string): Promise<void> {
     }
   });
   children().set(worldId, child);
+  startDeathCapture(world);
   await new Promise((resolve) => setTimeout(resolve, 500));
   if (!processIsAlive(child.pid ?? null)) throw new Error("Server process exited during startup; inspect the world log for details.");
   await database().update(worlds).set({ lastStartedAt: Date.now(), updatedAt: Date.now() }).where(eq(worlds.id, worldId));
@@ -141,6 +144,8 @@ export async function reconcileProcesses(): Promise<void> {
   for (const world of await listWorlds()) {
     const alive = processIsAlive(world.processId);
     if (alive && world.status !== "running") await setRuntimeState(world.id, "running", world.processId);
+    // Resume death capture for servers that kept running while the manager was closed.
+    if (alive) startDeathCapture(world);
     if (!alive && (world.processId || world.status !== "stopped")) await setRuntimeState(world.id, world.status === "running" ? "crashed" : "stopped", null);
   }
   eventBus().publish({ type: "system", data: { action: "processes-reconciled" } });

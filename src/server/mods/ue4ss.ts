@@ -13,7 +13,7 @@ export interface Ue4ssLayout {
   settingsCandidates: string[];
   memberLayoutCandidates: string[];
   modsCandidates: string[];
-  /** Mods-directory entries that belong to UE4SS itself or to Palworld, not to the user. UE4SS creates UE4SSStatus on start. */
+  /** Mods-directory entries that belong to UE4SS, Palworld, or the manager's own relays, not to the user. UE4SS creates UE4SSStatus on start. */
   reserved: ReadonlySet<string>;
 }
 
@@ -34,7 +34,7 @@ export function ue4ssLayout(world: Pick<WorldView, "installDir" | "platform">): 
       memberLayoutCandidates: [path.join(/* turbopackIgnore: true */ runtime, "MemberVariableLayout.ini"), path.join(/* turbopackIgnore: true */ win64, "MemberVariableLayout.ini")],
       // UE4SS 3.x keeps mods under ue4ss/Mods; 2.x used Win64/Mods.
       modsCandidates: [path.join(/* turbopackIgnore: true */ runtime, "Mods"), path.join(/* turbopackIgnore: true */ win64, "Mods")],
-      reserved: new Set(["shared", "BPModLoaderMod", "UE4SSStatus"]),
+      reserved: new Set(["shared", "BPModLoaderMod", "UE4SSStatus", "PSMDeathRelay", "PSMBroadcast"]),
     };
   }
   // Native Linux port: files sit next to PalServer.sh (confirmed on Palworld v1.0.5 with
@@ -46,7 +46,7 @@ export function ue4ssLayout(world: Pick<WorldView, "installDir" | "platform">): 
     settingsCandidates: [path.join(/* turbopackIgnore: true */ root, "UE4SS-settings.ini")],
     memberLayoutCandidates: [path.join(/* turbopackIgnore: true */ root, "MemberVariableLayout.ini")],
     modsCandidates: [path.join(/* turbopackIgnore: true */ root, "Mods")],
-    reserved: new Set(["shared", "BPModLoaderMod", "UE4SSStatus", "Workshop", "NativeMods"]),
+    reserved: new Set(["shared", "BPModLoaderMod", "UE4SSStatus", "PSMDeathRelay", "PSMBroadcast", "Workshop", "NativeMods"]),
   };
 }
 

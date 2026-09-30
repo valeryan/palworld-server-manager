@@ -70,7 +70,7 @@ interface ManagedMarker { artifactId: string; name: string; sha256: string; file
 function assertStopped(world: LuaWorld): void { if (world.status !== "stopped" && world.status !== "crashed") throw new Error("Stop the server before changing Lua mods."); }
 function safeName(name: string): string { if (!/^[A-Za-z0-9_.-]{1,64}$/.test(name) || name.startsWith(".")) throw new Error("Invalid mod name."); return name; }
 
-async function editModsTxt(directory: string, name: string, value: boolean | null): Promise<void> {
+export async function editModsTxt(directory: string, name: string, value: boolean | null): Promise<void> {
   const file = path.join(/* turbopackIgnore: true */ directory, "mods.txt");
   const current = await readFile(file, "utf8").catch(() => "");
   await mkdir(directory, { recursive: true });

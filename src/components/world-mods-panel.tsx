@@ -19,7 +19,7 @@ export function WorldModsPanel({ worldId, running, onNotice }: { worldId: string
     onError: (error) => onNotice(error.message),
   });
   const change = useMutation({
-    mutationFn: ({ area, body }: { area: "lua" | "workshop"; body: Record<string, string> }) => request(`/api/worlds/${worldId}/mods/${area}`, { method: "POST", body: JSON.stringify(body) }),
+    mutationFn: ({ area, body }: { area: "lua" | "workshop" | "relays"; body: Record<string, string> }) => request(`/api/worlds/${worldId}/mods/${area}`, { method: "POST", body: JSON.stringify(body) }),
     onSuccess: () => { onNotice(t("mods.changedNotice")); void client.invalidateQueries({ queryKey: ["world-mods", worldId] }); },
     onError: (error) => onNotice(error.message),
   });
@@ -29,6 +29,11 @@ export function WorldModsPanel({ worldId, running, onNotice }: { worldId: string
     change.mutate({ area: "lua", body });
   };
   const workshop = (body: Record<string, string>) => change.mutate({ area: "workshop", body });
+  const relay = (body: Record<string, string>) => {
+    if (body.action === "remove" && !window.confirm(t("mods.relays.removeConfirm"))) return;
+    if (body.action === "replace" && !window.confirm(t("mods.relays.replaceConfirm"))) return;
+    change.mutate({ area: "relays", body });
+  };
   const locked = running || act.isPending || change.isPending || jobId !== null;
   const run = (action: Ue4ssAction) => {
     if (action === "remove" && !window.confirm(t("mods.ue4ss.removeConfirm"))) return;
@@ -42,6 +47,7 @@ export function WorldModsPanel({ worldId, running, onNotice }: { worldId: string
       <Ue4ssSection status={mods.ue4ss} library={mods.library} locked={running || act.isPending || jobId !== null} running={running} onAction={run}>
         {jobId && <JobProgress jobId={jobId} onFinished={(job) => { setJobId(null); onNotice(job.state === "succeeded" ? job.message : job.error ?? job.message); void client.invalidateQueries({ queryKey: ["world-mods", worldId] }); }} />}
       </Ue4ssSection>
+      <RelaySection relays={mods.relays} ue4ss={mods.ue4ss} locked={locked} onAction={relay} />
       <LuaSection mods={mods.luaMods} available={mods.availableLuaMods} ue4ss={mods.ue4ss} locked={locked} onAction={lua} />
       <WorkshopSection workshop={mods.workshop} locked={locked} onAction={workshop} />
       {running && <p className="muted">{t("mods.stopToChange")}</p>}
@@ -70,6 +76,20 @@ function Ue4ssSection({ status, library, locked, running, onAction, children }: 
       {running && <small>{t("mods.ue4ss.stopToChange")}</small>}
       {children}
     </span><span className="backup-actions">{actions}</span></div></div>
+  </section>;
+}
+
+function RelaySection({ relays, ue4ss, locked, onAction }: { relays: WorldModsView["relays"]; ue4ss: WorldModsView["ue4ss"]; locked: boolean; onAction(body: Record<string, string>): void }) {
+  const { t } = useTranslation();
+  return <section className="mod-section"><h3>{t("mods.relays.title")}</h3><p className="muted">{t("mods.relays.help")}</p>
+    {!ue4ss.managed && <div className="settings-compatibility-warning">{t("mods.relays.needsUe4ss")}</div>}
+    <div className="record-list">{relays.map((relay) => {
+      const state = !relay.installed ? t("mods.relays.notInstalled") : !relay.managed ? t("mods.relays.unmanaged") : relay.active ? t("mods.relays.active") : relay.enabled ? t("mods.relays.inactive") : t("mods.state.disabled");
+      return <div key={relay.id}><span><strong>{t(`mods.relays.name.${relay.id}`)}</strong><small>{t(`mods.relays.purpose.${relay.id}`)}</small><small>{state}{relay.managed && relay.version !== null ? ` · ${t("mods.relays.version", { version: relay.version })}` : ""}{relay.updateAvailable ? ` · ${t("mods.relays.updateAvailable", { version: relay.bundledVersion })}` : ""}</small></span>
+        <span className="backup-actions">{!relay.installed ? <button disabled={locked} onClick={() => onAction({ action: "install", relay: relay.id })}>{t("mods.relays.install")}</button>
+          : !relay.managed ? <><button disabled={locked} onClick={() => onAction({ action: "replace", relay: relay.id })}>{t("mods.lua.replace")}</button><button className="danger" disabled={locked} onClick={() => onAction({ action: "remove", relay: relay.id })}>{t("mods.lua.remove")}</button></>
+          : <>{relay.updateAvailable && <button disabled={locked} onClick={() => onAction({ action: "install", relay: relay.id })}>{t("mods.relays.update")}</button>}<button disabled={locked} onClick={() => onAction({ action: relay.enabled ? "disable" : "enable", relay: relay.id })}>{t(relay.enabled ? "mods.lua.disable" : "mods.lua.enable")}</button><button className="danger" disabled={locked} onClick={() => onAction({ action: "remove", relay: relay.id })}>{t("mods.lua.remove")}</button></>}</span></div>;
+    })}</div>
   </section>;
 }
 

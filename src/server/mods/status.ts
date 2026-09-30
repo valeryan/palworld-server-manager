@@ -1,6 +1,6 @@
 import "server-only";
 import { stat } from "node:fs/promises";
-import type { LibraryLuaMod, ModLibraryEntry, WorldModsView } from "@/contracts/mod";
+import type { LibraryLuaMod, LibraryRelay, ModLibraryEntry, RelayId, WorldModsView } from "@/contracts/mod";
 import { getWorld, listWorlds } from "@/server/services/worlds";
 import { MOD_CATALOG, artifactPath, type CatalogArtifact } from "./catalog";
 
@@ -9,6 +9,7 @@ import { listLuaMods } from "./lua-mods";
 import { detectUe4ss } from "./ue4ss";
 import { runtimeRow } from "./ue4ss-runtime";
 import { listLuaArtifacts } from "./lua-library";
+import { RELAYS, relayStatus } from "./relays";
 import { workshopStatus } from "./workshop-mods";
 
 // Read-only health views. Nothing here downloads or changes server files.
@@ -27,7 +28,7 @@ export async function worldModStatus(worldId: string): Promise<WorldModsView> {
   const installed = new Set(luaMods.map((mod) => mod.name));
   const availableLuaMods = artifacts.filter((entry) => !installed.has(entry.name)).map((entry) => ({ id: entry.id, name: entry.name }));
   const library = artifact ? { id: artifact.id, name: artifact.name, version: artifact.version, downloaded: await artifactCached(artifact) } : null;
-  return { ue4ss, library, luaMods: views, availableLuaMods, workshop };
+  return { ue4ss, library, relays: await relayStatus(world), luaMods: views, availableLuaMods, workshop };
 }
 
 
@@ -50,4 +51,12 @@ export async function libraryLuaMods(): Promise<LibraryLuaMod[]> {
   const installs = await Promise.all(worlds.map(async (world) => ({ world, mods: await listLuaMods(world) })));
   return artifacts.map((entry) => ({ id: entry.id, name: entry.name, fileName: entry.fileName, sizeBytes: entry.sizeBytes, sha256: entry.sha256, addedAt: entry.addedAt,
     usedIn: installs.filter(({ mods }) => mods.some((mod) => mod.artifactId === entry.id)).map(({ world }) => ({ worldId: world.id, displayName: world.displayName })) }));
+}
+
+export async function libraryRelays(): Promise<LibraryRelay[]> {
+  const worlds = await listWorlds();
+  const statuses = await Promise.all(worlds.map(async (world) => ({ world, relays: await relayStatus(world) })));
+  return (Object.keys(RELAYS) as RelayId[]).map((id) => ({ id, folder: RELAYS[id].folder,
+    bundledVersion: statuses[0]?.relays.find((relay) => relay.id === id)?.bundledVersion ?? null,
+    usedIn: statuses.filter(({ relays }) => relays.some((relay) => relay.id === id && relay.managed)).map(({ world }) => ({ worldId: world.id, displayName: world.displayName })) }));
 }

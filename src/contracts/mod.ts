@@ -50,10 +50,27 @@ export interface WorkshopStatus {
   mods: WorkshopModView[];
 }
 
+export type RelayId = "death-relay" | "broadcast";
+
+export interface RelayView {
+  id: RelayId;
+  folder: string;
+  installed: boolean;
+  /** Installed by PSM from its bundled copy. */
+  managed: boolean;
+  enabled: boolean;
+  /** Enabled and UE4SS (installed by PSM) will load it. */
+  active: boolean;
+  version: number | null;
+  bundledVersion: number;
+  updateAvailable: boolean;
+}
+
 export interface WorldModsView {
   ue4ss: Ue4ssRuntimeStatus;
   /** The library build that matches this world's server platform. */
   library: { id: string; name: string; version: string; downloaded: boolean } | null;
+  relays: RelayView[];
   luaMods: LuaModView[];
   /** Library Lua mods not yet installed in this world. */
   availableLuaMods: Array<{ id: string; name: string }>;
@@ -87,3 +104,5 @@ export interface ModLibraryEntry {
   url: string;
   detectedIn: Array<{ worldId: string; displayName: string }>;
 }
+
+export interface LibraryRelay { id: RelayId; folder: string; bundledVersion: number | null; usedIn: Array<{ worldId: string; displayName: string }> }

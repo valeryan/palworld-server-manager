@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRef, useState, type ChangeEvent } from "react";
 import { useTranslation } from "react-i18next";
-import type { LibraryLuaMod, ModLibraryEntry } from "@/contracts/mod";
+import type { LibraryLuaMod, LibraryRelay, ModLibraryEntry } from "@/contracts/mod";
 import { useLocaleDateTime } from "@/lib/use-locale-format";
 import { AppShell } from "./app-shell";
 import { JobProgress } from "./job-progress";
@@ -18,9 +18,9 @@ const sizeValue = (bytes: number) => bytes < 1_048_576 ? String(Math.max(1, Math
 export function ModLibraryPage() {
   const { t } = useTranslation(); const client = useQueryClient(); const dateTime = useLocaleDateTime();
   const [notice, setNotice] = useState<string | null>(null); const [confirming, setConfirming] = useState<ModLibraryEntry | null>(null); const [jobs, setJobs] = useState<Record<string, string>>({});
-  const libraryQuery = useQuery({ queryKey: ["mod-library"], queryFn: () => request<{ library: ModLibraryEntry[]; luaMods: LibraryLuaMod[] }>("/api/mods"), refetchInterval: (state) => state.state.data?.library.some((entry) => entry.downloading) ? 2_000 : false });
+  const libraryQuery = useQuery({ queryKey: ["mod-library"], queryFn: () => request<{ library: ModLibraryEntry[]; luaMods: LibraryLuaMod[]; relays: LibraryRelay[] }>("/api/mods"), refetchInterval: (state) => state.state.data?.library.some((entry) => entry.downloading) ? 2_000 : false });
   const query = { ...libraryQuery, data: libraryQuery.data?.library };
-  const luaMods = libraryQuery.data?.luaMods ?? [];
+  const luaMods = libraryQuery.data?.luaMods ?? []; const relays = libraryQuery.data?.relays ?? [];
   const archiveInput = useRef<HTMLInputElement>(null);
   const importArchive = useMutation({
     mutationFn: (file: File) => request<{ mod: { name: string } }>("/api/mods/import", { method: "POST", body: file, headers: { "content-type": "application/zip", "x-file-name": encodeURIComponent(file.name) } }),
@@ -55,6 +55,10 @@ export function ModLibraryPage() {
         <small>{entry.detectedIn.length ? <>{t("modLibrary.detectedIn")} {entry.detectedIn.map((world, index) => <span key={world.worldId}>{index > 0 && ", "}<Link href={`/worlds/${world.worldId}`}>{world.displayName}</Link></span>)}</> : t("modLibrary.notDetected")}</small>
         {jobs[entry.id] && <JobProgress jobId={jobs[entry.id]!} onFinished={(job) => { setJobs((current) => Object.fromEntries(Object.entries(current).filter(([id]) => id !== entry.id))); setNotice(job.state === "succeeded" ? t("modLibrary.downloadComplete", { name: `${entry.name} ${entry.version}` }) : t("modLibrary.downloadFailed", { error: job.error ?? job.message })); void client.invalidateQueries({ queryKey: ["mod-library"] }); }} />}
       </span><span className="backup-actions">{entry.downloaded ? <button className="danger" disabled={remove.isPending} onClick={() => confirmRemove(entry)}>{t("modLibrary.remove")}</button> : <button disabled={entry.downloading || Boolean(jobs[entry.id])} onClick={() => setConfirming(entry)}>{t("modLibrary.download")}</button>}</span></div>)}</div>}
+    </section>
+    <section className="mod-section"><h3>{t("modLibrary.relays.title")}</h3><p className="muted">{t("modLibrary.relays.help")}</p>
+      <div className="record-list">{relays.map((relay) => <div key={relay.id}><span><strong>{t(`mods.relays.name.${relay.id}`)}</strong><small>{t(`mods.relays.purpose.${relay.id}`)}{relay.bundledVersion !== null ? ` · ${t("mods.relays.version", { version: relay.bundledVersion })}` : ""}</small>
+        <small>{relay.usedIn.length ? <>{t("modLibrary.lua.usedIn")} {relay.usedIn.map((world, index) => <span key={world.worldId}>{index > 0 && ", "}<Link href={`/worlds/${world.worldId}`}>{world.displayName}</Link></span>)}</> : t("modLibrary.lua.notUsed")}</small></span></div>)}</div>
     </section>
     <section className="mod-section"><div className="panel-heading"><div><h3>{t("modLibrary.lua.title")}</h3><p className="muted">{t("modLibrary.lua.help")}</p></div><span><input ref={archiveInput} type="file" accept=".zip,application/zip" hidden onChange={chooseArchive} /><button className="button ghost" disabled={importArchive.isPending} onClick={() => archiveInput.current?.click()}>{t(importArchive.isPending ? "modLibrary.lua.importing" : "modLibrary.lua.import")}</button></span></div>
       {!luaMods.length ? <p className="muted">{t("modLibrary.lua.empty")}</p> : <div className="record-list">{luaMods.map((mod) => <div key={mod.id}><span>
