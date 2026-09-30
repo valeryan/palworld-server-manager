@@ -13,6 +13,11 @@ export function WorldModsPanel({ worldId, running, onNotice }: { worldId: string
   const { t } = useTranslation(); const client = useQueryClient();
   const [jobId, setJobId] = useState<string | null>(null);
   const query = useQuery({ queryKey: ["world-mods", worldId], queryFn: async () => (await request<{ mods: WorldModsView }>(`/api/worlds/${worldId}/mods`)).mods });
+  const repair = useMutation({
+    mutationFn: () => request<{ jobId: string }>(`/api/worlds/${worldId}/mods/repair`, { method: "POST", body: "{}" }),
+    onSuccess: ({ jobId: started }) => { setJobId(started); void client.invalidateQueries({ queryKey: ["jobs"] }); },
+    onError: (error) => onNotice(error.message),
+  });
   const act = useMutation({
     mutationFn: (action: Ue4ssAction) => request<{ jobId?: string }>(`/api/worlds/${worldId}/mods/ue4ss`, { method: "POST", body: JSON.stringify({ action }) }),
     onSuccess: ({ jobId: started }, action) => { if (started) setJobId(started); else onNotice(t(action === "enable" ? "mods.ue4ss.enabledNotice" : "mods.ue4ss.disabledNotice")); void client.invalidateQueries({ queryKey: ["world-mods", worldId] }); void client.invalidateQueries({ queryKey: ["jobs"] }); },
@@ -44,6 +49,8 @@ export function WorldModsPanel({ worldId, running, onNotice }: { worldId: string
   return <div>
     <div className="panel-heading"><div><h2>{t("mods.title")}</h2><p>{t("mods.description")}</p></div><button className="button ghost" onClick={() => void query.refetch()}>{t("common.refresh")}</button></div>
     {query.isLoading ? <p className="muted">{t("mods.loading")}</p> : query.error ? <div className="settings-compatibility-warning">{query.error.message}</div> : mods && <>
+      {mods.integrity.needsRepair && <div className="settings-compatibility-warning mod-repair"><span><strong>{t("mods.repair.title")}</strong> {mods.integrity.problems.map((problem) => t("mods.repair.problem", { name: problem.kind === "relay" ? t(`mods.relays.name.${problem.name}`) : problem.name, missing: problem.missing, changed: problem.changed })).join(" · ")}{mods.integrity.problems.some((problem) => !problem.repairable) ? ` ${t("mods.repair.needsLibrary")}` : ""}</span>
+        <button className="button primary" disabled={running || jobId !== null || repair.isPending || mods.integrity.problems.some((problem) => !problem.repairable)} onClick={() => repair.mutate()}>{t("mods.repair.action")}</button></div>}
       <Ue4ssSection status={mods.ue4ss} library={mods.library} locked={running || act.isPending || jobId !== null} running={running} onAction={run}>
         {jobId && <JobProgress jobId={jobId} onFinished={(job) => { setJobId(null); onNotice(job.state === "succeeded" ? job.message : job.error ?? job.message); void client.invalidateQueries({ queryKey: ["world-mods", worldId] }); }} />}
       </Ue4ssSection>

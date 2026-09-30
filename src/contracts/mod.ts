@@ -67,6 +67,7 @@ export interface RelayView {
 }
 
 export interface WorldModsView {
+  integrity: ModIntegrity;
   ue4ss: Ue4ssRuntimeStatus;
   /** The library build that matches this world's server platform. */
   library: { id: string; name: string; version: string; downloaded: boolean } | null;
@@ -106,3 +107,10 @@ export interface ModLibraryEntry {
 }
 
 export interface LibraryRelay { id: RelayId; folder: string; bundledVersion: number | null; usedIn: Array<{ worldId: string; displayName: string }> }
+
+export interface ModIntegrity {
+  /** Mod installations PSM manages in this world (UE4SS, relays, library Lua mods). */
+  checked: number;
+  needsRepair: boolean;
+  problems: Array<{ kind: "ue4ss" | "relay" | "lua"; name: string; missing: number; changed: number; repairable: boolean }>;
+}

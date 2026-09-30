@@ -11,7 +11,7 @@ import { paths } from "@/server/paths";
 import { movePath } from "@/server/services/archive";
 import { palworldRest } from "@/server/services/rest";
 import { runsUnderWine } from "@/server/services/wine";
-import { editModsTxt, MANAGED_MARKER, parseModsTxt } from "./lua-mods";
+import { editModsTxt, MANAGED_MARKER, modsTxtState, parseModsTxt } from "./lua-mods";
 import { resolveModsDirectory, ue4ssLayout } from "./ue4ss";
 import { runtimeRow } from "./ue4ss-runtime";
 
@@ -66,7 +66,8 @@ export async function installRelay(world: RelayWorld, relay: RelayId, options: {
   const source = await readFile(bundledScript(relay), "utf8");
   const { directory, folder } = await folderOf(world, relay);
   const present = await stat(folder).then(() => true, () => false);
-  if (present && !await readMarker(folder)) {
+  const managed = present && await readMarker(folder) !== null;
+  if (present && !managed) {
     if (!options.replace) throw new Error(`${RELAYS[relay].folder} already exists in this world but was not installed by PSM. Use "Replace with library version".`);
     await movePath(folder, path.join(/* turbopackIgnore: true */ paths.modTrash(world.id), `${RELAYS[relay].folder}-${Date.now()}`));
   }
@@ -76,7 +77,8 @@ export async function installRelay(world: RelayWorld, relay: RelayId, options: {
   const marker: RelayMarker = { builtin: relay, version: relayVersion(source), sha256: createHash("sha256").update(script).digest("hex") };
   await writeFile(path.join(/* turbopackIgnore: true */ folder, MANAGED_MARKER), `${JSON.stringify(marker, null, 2)}\n`);
   await mkdir(path.dirname(savedFile(world, relay)), { recursive: true });
-  await editModsTxt(directory, RELAYS[relay].folder, true);
+  // A first install turns the relay on; updating or repairing keeps its current on/off choice.
+  await editModsTxt(directory, RELAYS[relay].folder, managed ? await modsTxtState(directory, RELAYS[relay].folder) : true);
 }
 
 export async function relayActive(world: Pick<WorldView, "id" | "installDir" | "platform">, relay: RelayId): Promise<boolean> {
@@ -155,4 +157,16 @@ export async function stopDeathCapture(world: Pick<WorldView, "id" | "installDir
 
 export async function noteRelayDelivery(worldId: string, route: "broadcast" | "rest", message: string): Promise<void> {
   await database().insert(events).values({ worldId, kind: "notice", message: route === "broadcast" ? `On-screen notice: ${message}` : `Notice sent as a chat message (PSM Broadcast not running): ${message}`, createdAt: Date.now() });
+}
+
+// A managed relay's script must still be the one PSM rendered for this world.
+export async function checkRelayFiles(world: Pick<WorldView, "id" | "installDir" | "platform">): Promise<Array<{ id: RelayId; missing: boolean; changed: boolean }>> {
+  const results: Array<{ id: RelayId; missing: boolean; changed: boolean }> = [];
+  for (const id of Object.keys(RELAYS) as RelayId[]) {
+    const { folder } = await folderOf(world, id);
+    const marker = await readMarker(folder); if (!marker) continue;
+    const script = await readFile(path.join(/* turbopackIgnore: true */ folder, "Scripts", "main.lua")).catch(() => null);
+    results.push({ id, missing: script === null, changed: script !== null && createHash("sha256").update(script).digest("hex") !== marker.sha256 });
+  }
+  return results;
 }

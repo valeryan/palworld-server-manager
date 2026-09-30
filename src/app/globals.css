@@ -91,3 +91,4 @@
 .application-update{display:block;margin:9px 0 0 14px;color:var(--warning-text);font-weight:800;text-decoration:none}.application-update:hover{text-decoration:underline}
 .mod-section{margin-bottom:24px}.mod-section h3{margin:0 0 8px}.mod-section h4{margin:14px 0 4px;font-size:12px}
 .consent-details{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:14px 0;font-size:12px}.consent-details dt{color:var(--muted)}.consent-details dd{margin:0;overflow-wrap:anywhere}.consent-details code{font-size:11px}
+.mod-repair{display:flex;align-items:center;justify-content:space-between;gap:14px}

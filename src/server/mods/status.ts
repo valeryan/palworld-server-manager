@@ -10,6 +10,7 @@ import { detectUe4ss } from "./ue4ss";
 import { runtimeRow } from "./ue4ss-runtime";
 import { listLuaArtifacts } from "./lua-library";
 import { RELAYS, relayStatus } from "./relays";
+import { checkManagedMods } from "./integrity";
 import { workshopStatus } from "./workshop-mods";
 
 // Read-only health views. Nothing here downloads or changes server files.
@@ -28,7 +29,7 @@ export async function worldModStatus(worldId: string): Promise<WorldModsView> {
   const installed = new Set(luaMods.map((mod) => mod.name));
   const availableLuaMods = artifacts.filter((entry) => !installed.has(entry.name)).map((entry) => ({ id: entry.id, name: entry.name }));
   const library = artifact ? { id: artifact.id, name: artifact.name, version: artifact.version, downloaded: await artifactCached(artifact) } : null;
-  return { ue4ss, library, relays: await relayStatus(world), luaMods: views, availableLuaMods, workshop };
+  return { integrity: await checkManagedMods(world), ue4ss, library, relays: await relayStatus(world), luaMods: views, availableLuaMods, workshop };
 }
 
 

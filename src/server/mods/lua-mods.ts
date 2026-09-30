@@ -104,7 +104,8 @@ export async function installLuaMod(world: LuaWorld, artifactId: string, options
   }
   const next: ManagedMarker = { artifactId: artifact.id, name: archive.name, sha256: artifact.sha256, files: written };
   await writeFile(path.join(/* turbopackIgnore: true */ folder, MANAGED_MARKER), `${JSON.stringify(next, null, 2)}\n`);
-  await editModsTxt(directory, archive.name, true);
+  // A first install turns the mod on; updating or repairing keeps its current on/off choice.
+  await editModsTxt(directory, archive.name, marker ? await modsTxtState(directory, archive.name) : true);
 }
 
 export async function setLuaModEnabled(world: LuaWorld, name: string, enabled: boolean): Promise<void> {
@@ -128,4 +129,30 @@ export async function removeLuaMod(world: LuaWorld, name: string): Promise<void>
 
 export async function managedArtifactOf(world: Pick<WorldView, "installDir" | "platform">, name: string): Promise<ManagedMarker | null> {
   return readMarker(path.join(/* turbopackIgnore: true */ await resolveModsDirectory(ue4ssLayout(world)), name));
+}
+
+// Files a library mod installed must still exist, at the library archive's size when that copy
+// is still in the library. Files the mod itself created are not checked.
+export async function checkLuaModFiles(world: Pick<WorldView, "installDir" | "platform">): Promise<Array<{ name: string; artifactId: string; missing: string[]; changed: string[]; libraryAvailable: boolean }>> {
+  const directory = await resolveModsDirectory(ue4ssLayout(world));
+  const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
+  const results = [];
+  for (const entry of entries.filter((item) => item.isDirectory())) {
+    const folder = path.join(/* turbopackIgnore: true */ directory, entry.name);
+    const marker = await readMarker(folder); if (!marker?.artifactId || !Array.isArray(marker.files)) continue;
+    const artifact = await getLuaArtifact(marker.artifactId);
+    const archive = artifact && artifact.sha256 === marker.sha256 ? await loadLuaArtifact(artifact).catch(() => null) : null;
+    const expected = new Map((archive?.files ?? []).map((file) => [file.relative, file.data().byteLength]));
+    const missing: string[] = []; const changed: string[] = [];
+    for (const file of marker.files) {
+      const size = await stat(path.join(/* turbopackIgnore: true */ folder, ...file.split("/"))).then((info) => info.size, () => null);
+      if (size === null) missing.push(file); else if (expected.has(file) && expected.get(file) !== size) changed.push(file);
+    }
+    results.push({ name: entry.name, artifactId: marker.artifactId, missing, changed, libraryAvailable: archive !== null });
+  }
+  return results;
+}
+
+export async function modsTxtState(directory: string, name: string): Promise<boolean> {
+  return parseModsTxt(await readFile(path.join(/* turbopackIgnore: true */ directory, "mods.txt"), "utf8").catch(() => "")).get(name) === true;
 }

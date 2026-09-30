@@ -126,7 +126,10 @@ export async function installUe4ss(world: RuntimeWorld, options: { replace: bool
   for (const file of stale) await rm(absolute(world, file), { force: true });
   await pruneEmptyDirectories(world, stale);
   const now = Date.now();
-  const values = { artifactId: artifact.id, variant: layout.variant, version: artifact.version, sha256: artifact.sha256, enabled: true, installedFiles: installed, earlyCrashes: 0, recoveryPaused: false, updatedAt: now };
+  // Updating or repairing keeps a disabled install disabled, with its Windows loader parked again.
+  const enabled = previous ? previous.enabled : true;
+  if (!enabled && layout.variant === "windows") { const loader = path.join(/* turbopackIgnore: true */ base, spec.loader); await rename(loader, `${loader}${DISABLED_SUFFIX}`).catch(() => undefined); }
+  const values = { artifactId: artifact.id, variant: layout.variant, version: artifact.version, sha256: artifact.sha256, enabled, installedFiles: installed, earlyCrashes: 0, recoveryPaused: false, updatedAt: now };
   if (previous) await database().update(modRuntimes).set(values).where(eq(modRuntimes.worldId, world.id));
   else await database().insert(modRuntimes).values({ worldId: world.id, ...values, installedAt: now });
   context.log(`Installed ${installed.length} files for ${artifact.name} ${artifact.version} (example and cheat mods left out; console disabled).`);
@@ -189,4 +192,29 @@ export async function recordUnexpectedExit(worldId: string, exit: { code: number
 
 export async function recordHealthyExit(worldId: string): Promise<void> {
   await database().update(modRuntimes).set({ earlyCrashes: 0, updatedAt: Date.now() }).where(eq(modRuntimes.worldId, worldId));
+}
+
+export interface FileCheck { missing: string[]; changed: string[]; libraryAvailable: boolean }
+
+// Compares the files PSM installed with the library build they came from. Sizes are enough to
+// catch a file an update deleted or replaced, without hashing 20 MB on every tab refresh.
+export async function checkUe4ssFiles(world: Pick<WorldView, "id" | "installDir" | "platform">): Promise<FileCheck | null> {
+  const row = await runtimeRow(world.id); if (!row) return null;
+  const spec = PACKAGES[row.variant]; const base = destination(world);
+  const artifact = MOD_CATALOG.find((entry) => entry.id === row.artifactId);
+  const archive = artifact && artifact.sha256 === row.sha256 ? await readFile(artifactPath(artifact)).catch(() => null) : null;
+  const expected = new Map<string, number>();
+  if (archive) for (const entry of installPlan(new AdmZip(archive), row.variant)) {
+    const file = relativeToInstall(world, path.join(/* turbopackIgnore: true */ base, ...entry.relative.split("/")));
+    expected.set(file, entry.relative === spec.settings ? Buffer.byteLength(withConsoleDisabled(entry.data().toString("utf8"))) : entry.data().byteLength);
+  }
+  const missing: string[] = []; const changed: string[] = [];
+  for (const file of row.installedFiles) {
+    // A disabled Windows build keeps its loader parked under another name.
+    const parked = !row.enabled && row.variant === "windows" && path.basename(file) === spec.loader;
+    const size = await stat(absolute(world, parked ? `${file}${DISABLED_SUFFIX}` : file)).then((info) => info.size, () => null);
+    if (size === null) missing.push(file);
+    else if (expected.has(file) && expected.get(file) !== size) changed.push(file);
+  }
+  return { missing, changed, libraryAvailable: archive !== null };
 }

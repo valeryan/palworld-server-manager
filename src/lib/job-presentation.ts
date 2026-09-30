@@ -22,6 +22,7 @@ const jobLabels: Record<string, string> = {
   "mod-download": "Download to Mods library",
   "mod-install": "Install UE4SS",
   "mod-remove": "Remove UE4SS",
+  "mod-repair": "Repair mods",
 };
 
 const startingMessages: Record<string, string> = {
@@ -46,6 +47,7 @@ const startingMessages: Record<string, string> = {
   "mod-download": "Downloading to the Mods library",
   "mod-install": "Installing UE4SS",
   "mod-remove": "Removing UE4SS",
+  "mod-repair": "Repairing mods",
 };
 
 const successMessages: Record<string, string> = {
@@ -70,6 +72,7 @@ const successMessages: Record<string, string> = {
   "mod-download": "Download verified and added to the Mods library",
   "mod-install": "UE4SS installed",
   "mod-remove": "UE4SS removed",
+  "mod-repair": "Mods repaired",
 };
 
 const stateLabels: Record<JobState, string> = {
