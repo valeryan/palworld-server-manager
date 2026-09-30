@@ -12,7 +12,7 @@ import { eventBus } from "./events";
 import { getWorld, listWorlds, setRuntimeState } from "./worlds";
 import { applyDesiredSettings, prepareWorldStart } from "./configuration";
 import { palworldRest } from "./rest";
-import { effectiveWinePrefix, prepareWinePrefix, runsUnderWine, serverWineOverrides } from "./wine";
+import { effectiveWinePrefix, prepareWinePrefix, runsUnderWine, serverWineOverrides, stopWineServer } from "./wine";
 import { applyUe4ssLaunch, recordHealthyExit, recordUnexpectedExit } from "@/server/mods/ue4ss-runtime";
 import { startDeathCapture, stopDeathCapture } from "@/server/mods/relays";
 
@@ -113,6 +113,8 @@ export async function startWorld(worldId: string): Promise<void> {
 export async function stopWorld(worldId: string, force = false, options: { waitSeconds?: number; message?: string } = {}): Promise<void> {
   const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
   if (!world.processId || !processIsAlive(world.processId)) {
+    // The launcher is gone, but under Wine the game server can outlive it.
+    await stopWineServer(world, force);
     await setRuntimeState(worldId, "stopped", null);
     const application = await applyDesiredSettings(worldId);
     if (application.pendingApply) throw new Error(`Server stopped; settings remain pending${application.applyError ? `: ${application.applyError}` : "."}`);
@@ -133,6 +135,7 @@ export async function stopWorld(worldId: string, force = false, options: { waitS
   const deadline = Date.now() + (force ? 3_000 : 10_000);
   while (processIsAlive(world.processId) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 250));
   if (processIsAlive(world.processId)) await new Promise<void>((resolve, reject) => killTree(world.processId!, "SIGKILL", (error) => error ? reject(error) : resolve()));
+  await stopWineServer(world, force);
   await setRuntimeState(worldId, "stopped", null);
   const application = await applyDesiredSettings(worldId);
   if (application.pendingApply) throw new Error(`Server stopped; settings remain pending${application.applyError ? `: ${application.applyError}` : "."}`);

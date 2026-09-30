@@ -1,7 +1,7 @@
 import "server-only";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { mkdir, readFile, stat } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat } from "node:fs/promises";
 import type { WorldView } from "@/contracts/world";
 import { paths } from "@/server/paths";
 
@@ -68,4 +68,31 @@ export async function prepareWinePrefix(world: WineWorld, env: NodeJS.ProcessEnv
   // server launches makes the server start fresh with the saved null driver. Otherwise the
   // first start still opens a console window.
   if (changed) await run(wineserverFor(world.wineBinary), ["-w"], quiet, log, 120_000);
+}
+
+// Wine runs the game server outside the launcher's process tree, so signalling the launcher
+// can leave the real server running. Finds this world's server processes by their prefix.
+export async function wineServerProcesses(prefix: string): Promise<number[]> {
+  const found: number[] = [];
+  for (const entry of await readdir("/proc").catch(() => [] as string[])) {
+    if (!/^\d+$/.test(entry)) continue;
+    const command = await readFile(`/proc/${entry}/cmdline`, "utf8").catch(() => "");
+    if (!/PalServer[^\0]*\.exe/i.test(command)) continue;
+    const environment = await readFile(`/proc/${entry}/environ`, "utf8").catch(() => "");
+    if (environment.split("\0").includes(`WINEPREFIX=${prefix}`)) found.push(Number(entry));
+  }
+  return found;
+}
+
+export async function stopWineServer(world: WineWorld & Pick<WorldView, "env">, force: boolean): Promise<number> {
+  if (!runsUnderWine(world)) return 0;
+  const prefix = world.env.WINEPREFIX ?? effectiveWinePrefix(world);
+  const signal = (pids: number[], name: NodeJS.Signals) => { for (const pid of pids) { try { process.kill(pid, name); } catch { /* already gone */ } } };
+  let remaining = await wineServerProcesses(prefix); const initial = remaining.length;
+  if (!initial) return 0;
+  signal(remaining, force ? "SIGKILL" : "SIGTERM");
+  const deadline = Date.now() + (force ? 3_000 : 10_000);
+  while ((remaining = await wineServerProcesses(prefix)).length && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 250));
+  signal(remaining, "SIGKILL");
+  return initial;
 }

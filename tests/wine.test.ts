@@ -73,3 +73,21 @@ describe("headless Wine prefixes", () => {
     expect(commandFor({ ...base, env: { WINEDEBUG: "err+all", WINEPREFIX: "/srv/env-prefix" } }).env).toMatchObject({ WINEDEBUG: "err+all", WINEPREFIX: "/srv/env-prefix" });
   });
 });
+
+describe("stopping Wine servers", () => {
+  it("stops the world's orphaned Wine server by prefix and leaves other prefixes alone", async () => {
+    const { spawn } = await import("node:child_process");
+    const { stopWineServer } = await import("@/server/services/wine");
+    // exec -a gives each fake the name Wine shows for the real server process.
+    const fake = (prefix: string) => spawn("bash", ["-c", 'exec -a "Z:\\\\srv\\\\Pal\\\\Binaries\\\\Win64\\\\PalServer-Win64-Shipping-Cmd.exe" sleep 300'], { env: { ...process.env, WINEPREFIX: prefix }, stdio: "ignore" });
+    const ours = fake(path.join(directory, "data", "wine-prefixes", "wine-world")); const other = fake(path.join(directory, "someone-else"));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    try {
+      const exited = new Promise((resolve) => ours.once("exit", resolve));
+      expect(await stopWineServer({ ...world(), env: {} }, false)).toBe(1);
+      await exited;
+      expect(other.exitCode).toBeNull();
+      expect(await stopWineServer({ ...world(), platform: "linux", env: {} }, false)).toBe(0);
+    } finally { ours.kill("SIGKILL"); other.kill("SIGKILL"); }
+  });
+});
