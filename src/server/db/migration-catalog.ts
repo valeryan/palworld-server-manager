@@ -10,17 +10,20 @@ export const releasedMigrations = [
   { name: "20260921012446_acoustic_loki", hash: "9ef05fd6f984b28c14e4d0c8a60622cae328c3d48a25e1aa2364b2083773ae1a" },
   { name: "20260922014643_freezing_victor_mancha", hash: "5406d2d4abf52e42ce735ae4e14c5a1a597834b44685621241665803e3d82fd7" },
   { name: "20260926210400_lean_sage", hash: "2dfc544e4d224279a5b65a68d5a7a3cc024eb743af7ce5764f07c2a3c2ad2e11" },
+  { name: "20260929043011_drop_legacy_imports", hash: "939685d3970b05028e74fe41a065a55720ba7c3acbe2b61743a0384f8f4a2210" },
+  { name: "20260929044619_mod_runtimes", hash: "2a39d0503b7b70348dd4226ba7bc01f04aeee5fd88240fc63e0f6ba224bf9c37" },
+  { name: "20260929214411_mod_artifacts", hash: "3d89923e50e0aad27f55db085fed7aef38251819e515ea708f4e3cbefbdf0ee2" },
 ] as const;
 
 export function migrationDigest(): string { return createHash("sha256").update(releasedMigrations.map((item) => `${item.name}:${item.hash}`).join("\n")).digest("hex"); }
 
 export function verifyMigrationFiles(migrationsFolder: string): void {
   const names = readdirSync(migrationsFolder).filter((name) => {
-    try { return readFileSync(path.join(migrationsFolder, name, "migration.sql")).length > 0; } catch { return false; }
+    try { return readFileSync(path.join(/* turbopackIgnore: true */ migrationsFolder, name, "migration.sql")).length > 0; } catch { return false; }
   }).sort();
   if (names.join("\n") !== releasedMigrations.map((item) => item.name).join("\n")) throw new Error("The bundled migration set does not match the immutable release catalog.");
   for (const migration of releasedMigrations) {
-    const actual = createHash("sha256").update(readFileSync(path.join(migrationsFolder, migration.name, "migration.sql"))).digest("hex");
+    const actual = createHash("sha256").update(readFileSync(path.join(/* turbopackIgnore: true */ migrationsFolder, migration.name, "migration.sql"))).digest("hex");
     if (actual !== migration.hash) throw new Error(`Released migration ${migration.name} was modified.`);
   }
 }

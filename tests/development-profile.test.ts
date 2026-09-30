@@ -13,6 +13,7 @@ describe("development profile", () => {
     expect(profile.PSM_PORT).toBe("4319");
     expect(profile.ELECTRON_START_URL).toBe("http://127.0.0.1:4319");
     expect(profile.PALWORLD_MANAGER_DATA_DIR).toBe(path.resolve(process.cwd(), "../psm-next-development/manager-data"));
+    expect(profile.PALWORLD_MANAGER_WORLD_PORT_OFFSET).toBe("1000");
   });
 
   it("preserves explicit environment overrides", () => {

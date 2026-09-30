@@ -19,6 +19,10 @@ const jobLabels: Record<string, string> = {
   "scheduled-onscreen-notice": "Scheduled on-screen notice",
   "scheduled-custom-http": "Scheduled HTTP request",
   "scheduled-idle-stop": "Scheduled stop when empty",
+  "mod-download": "Download to Mods library",
+  "mod-install": "Install UE4SS",
+  "mod-remove": "Remove UE4SS",
+  "mod-repair": "Repair mods",
 };
 
 const startingMessages: Record<string, string> = {
@@ -40,6 +44,10 @@ const startingMessages: Record<string, string> = {
   "scheduled-onscreen-notice": "Sending scheduled on-screen notice",
   "scheduled-custom-http": "Sending scheduled HTTP request",
   "scheduled-idle-stop": "Stopping empty server",
+  "mod-download": "Downloading to the Mods library",
+  "mod-install": "Installing UE4SS",
+  "mod-remove": "Removing UE4SS",
+  "mod-repair": "Repairing mods",
 };
 
 const successMessages: Record<string, string> = {
@@ -61,6 +69,10 @@ const successMessages: Record<string, string> = {
   "scheduled-onscreen-notice": "Scheduled on-screen notice sent",
   "scheduled-custom-http": "Scheduled HTTP request completed",
   "scheduled-idle-stop": "Empty server stopped successfully",
+  "mod-download": "Download verified and added to the Mods library",
+  "mod-install": "UE4SS installed",
+  "mod-remove": "UE4SS removed",
+  "mod-repair": "Mods repaired",
 };
 
 const stateLabels: Record<JobState, string> = {

@@ -12,6 +12,9 @@ import { eventBus } from "./events";
 import { getWorld, listWorlds, setRuntimeState } from "./worlds";
 import { applyDesiredSettings, prepareWorldStart } from "./configuration";
 import { palworldRest } from "./rest";
+import { effectiveWinePrefix, prepareWinePrefix, runsUnderWine, serverWineOverrides, stopWineServer } from "./wine";
+import { applyUe4ssLaunch, recordHealthyExit, recordUnexpectedExit } from "@/server/mods/ue4ss-runtime";
+import { startDeathCapture, stopDeathCapture } from "@/server/mods/relays";
 
 declare global { var __psmChildren: Map<string, ChildProcess> | undefined; }
 const children = () => (globalThis.__psmChildren ??= new Map<string, ChildProcess>());
@@ -52,8 +55,11 @@ export function commandFor(world: WorldView): { command: string; args: string[];
     ...parseArguments(world.extraArgs),
   ].filter(Boolean);
   const env: NodeJS.ProcessEnv = { ...process.env, ...world.env };
-  if (world.platform === "windows" && process.platform !== "win32") {
-    if (world.winePrefix) env.WINEPREFIX = world.winePrefix;
+  if (runsUnderWine(world)) {
+    // World environment values win so a prefix or debug channel can still be set deliberately.
+    env.WINEPREFIX = world.env.WINEPREFIX ?? effectiveWinePrefix(world);
+    env.WINEDEBUG = world.env.WINEDEBUG ?? "-all";
+    env.WINEDLLOVERRIDES = serverWineOverrides(env.WINEDLLOVERRIDES);
     return { command: world.wineBinary, args: [...parseArguments(world.wineLaunchFlags), path.join(world.installDir, "PalServer.exe"), ...serverArgs], env };
   }
   return { command: world.platform === "windows" ? path.join(world.installDir, "PalServer.exe") : path.join(world.installDir, "PalServer.sh"), args: serverArgs, env };
@@ -63,16 +69,24 @@ export async function startWorld(worldId: string): Promise<void> {
   const { world, command, args, env } = await prepareWorldStart(worldId, async (world) => {
     const prepared = commandFor(world);
     if (!executableAvailable(prepared.command, prepared.env)) throw new Error(`Server executable is not available: ${prepared.command}`);
+    await applyUe4ssLaunch(world, prepared.env);
     await setRuntimeState(worldId, "starting", null);
     return { world, ...prepared };
   });
   const logPath = path.join(paths.worldLogs(worldId), `server-${new Date().toISOString().replace(/[:.]/g, "-")}.log`);
   const stream = createWriteStream(logPath, { flags: "a" });
+  try { await prepareWinePrefix({ ...world, winePrefix: env.WINEPREFIX ?? world.winePrefix }, env, (line) => stream.write(`${line}\n`)); }
+  catch (error) {
+    stream.end(`[manager] Wine prefix preparation failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    await setRuntimeState(worldId, "stopped", null);
+    throw new Error(`Wine prefix preparation failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
   const child = spawn(command, args, { cwd: world.installDir, env, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   child.stdout?.pipe(stream); child.stderr?.pipe(stream);
   child.on("error", async (error) => { stream.write(`\n[manager] ${error.message}\n`); await setRuntimeState(worldId, "crashed", null); });
   child.on("exit", async (code, signal) => {
     children().delete(worldId); stream.end(`\n[manager] exited code=${code ?? "null"} signal=${signal ?? "none"}\n`);
+    await stopDeathCapture(world).catch(() => undefined);
     const latest = await getWorld(worldId); const expected = latest?.status === "stopping";
     // A controlled stop remains transitional until stopWorld has projected the
     // latest desired revision after the process is confirmed gone.
@@ -80,12 +94,16 @@ export async function startWorld(worldId: string): Promise<void> {
       await setRuntimeState(worldId, code === 0 ? "stopped" : "crashed", null);
       await applyDesiredSettings(worldId).catch(() => undefined);
     }
-    if (!expected && code !== 0 && latest?.crashGuard) {
+    const uptimeMs = latest?.lastStartedAt ? Date.now() - latest.lastStartedAt : null;
+    if (expected || code === 0) await recordHealthyExit(worldId).catch(() => undefined);
+    const pauseRecovery = !expected && code !== 0 ? await recordUnexpectedExit(worldId, { code, uptimeMs }).catch(() => false) : false;
+    if (!expected && code !== 0 && latest?.crashGuard && !pauseRecovery) {
       await database().update(worlds).set({ crashCount: sql`${worlds.crashCount} + 1` }).where(eq(worlds.id, worldId));
       setTimeout(() => void import("./jobs").then(({ startJob }) => startJob(worldId, "crash-recovery", async () => startWorld(worldId))).catch(() => undefined), 5_000);
     }
   });
   children().set(worldId, child);
+  startDeathCapture(world);
   await new Promise((resolve) => setTimeout(resolve, 500));
   if (!processIsAlive(child.pid ?? null)) throw new Error("Server process exited during startup; inspect the world log for details.");
   await database().update(worlds).set({ lastStartedAt: Date.now(), updatedAt: Date.now() }).where(eq(worlds.id, worldId));
@@ -95,6 +113,8 @@ export async function startWorld(worldId: string): Promise<void> {
 export async function stopWorld(worldId: string, force = false, options: { waitSeconds?: number; message?: string } = {}): Promise<void> {
   const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
   if (!world.processId || !processIsAlive(world.processId)) {
+    // The launcher is gone, but under Wine the game server can outlive it.
+    await stopWineServer(world, force);
     await setRuntimeState(worldId, "stopped", null);
     const application = await applyDesiredSettings(worldId);
     if (application.pendingApply) throw new Error(`Server stopped; settings remain pending${application.applyError ? `: ${application.applyError}` : "."}`);
@@ -115,6 +135,7 @@ export async function stopWorld(worldId: string, force = false, options: { waitS
   const deadline = Date.now() + (force ? 3_000 : 10_000);
   while (processIsAlive(world.processId) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 250));
   if (processIsAlive(world.processId)) await new Promise<void>((resolve, reject) => killTree(world.processId!, "SIGKILL", (error) => error ? reject(error) : resolve()));
+  await stopWineServer(world, force);
   await setRuntimeState(worldId, "stopped", null);
   const application = await applyDesiredSettings(worldId);
   if (application.pendingApply) throw new Error(`Server stopped; settings remain pending${application.applyError ? `: ${application.applyError}` : "."}`);
@@ -126,6 +147,8 @@ export async function reconcileProcesses(): Promise<void> {
   for (const world of await listWorlds()) {
     const alive = processIsAlive(world.processId);
     if (alive && world.status !== "running") await setRuntimeState(world.id, "running", world.processId);
+    // Resume death capture for servers that kept running while the manager was closed.
+    if (alive) startDeathCapture(world);
     if (!alive && (world.processId || world.status !== "stopped")) await setRuntimeState(world.id, world.status === "running" ? "crashed" : "stopped", null);
   }
   eventBus().publish({ type: "system", data: { action: "processes-reconciled" } });

@@ -1,4 +1,5 @@
 import "server-only";
+import { checkManagedMods, describeIntegrity } from "@/server/mods/integrity";
 import { existsSync, readFileSync, renameSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -117,5 +118,9 @@ export async function installOrUpdate(world: WorldView, context: JobContext): Pr
   const configuration = await syncManagedConfiguration(world.id, { syncPublicPort: before == null });
   if (!configuration.synchronized) throw new Error(configuration.reason ?? "PalWorldSettings.ini could not be initialized.");
   context.log(configuration.initialized ? "Initialized PalWorldSettings.ini from the shipped defaults." : "Preserved and synchronized the existing PalWorldSettings.ini.");
+  // SteamCMD only repairs files in the game's depot, but a game update can still replace files
+  // around PSM's mods. Report it here; repairing is a separate, user-started operation.
+  const mods = await checkManagedMods(world).catch(() => null);
+  if (mods?.checked) context.log(`Mods: ${describeIntegrity(mods)}`);
   await context.update(100, `Installed build ${buildId}`);
 }

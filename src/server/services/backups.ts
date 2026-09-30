@@ -14,14 +14,9 @@ import { getWorld } from "./worlds";
 import { listWorlds, pathsOverlap } from "./worlds";
 import { worldIsLocked } from "./jobs";
 import { adoptRestoredConfiguration, validateConfiguration } from "./configuration";
+import { safeEntries } from "./archive";
 
 function saveDirectory(installDir: string): string { return path.join(installDir, "Pal", "Saved"); }
-function safeEntries(zip: AdmZip): boolean {
-  return zip.getEntries().every((entry) => {
-    const normalized = path.posix.normalize(entry.entryName.replaceAll("\\", "/"));
-    return normalized !== ".." && !normalized.startsWith("../") && !path.posix.isAbsolute(normalized);
-  });
-}
 
 export async function createBackup(worldId: string, reason: string, context: JobContext): Promise<string> {
   const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
