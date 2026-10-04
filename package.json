@@ -129,11 +129,6 @@
       "allowToChangeInstallationDirectory": true,
       "artifactName": "Palworld-Server-Manager-${version}-Setup-${arch}.${ext}"
     },
-    "publish": {
-      "provider": "github",
-      "owner": "valeryan",
-      "repo": "palworld-server-manager"
-    },
     "portable": {
       "artifactName": "Palworld-Server-Manager-${version}-Portable-${arch}.${ext}"
     }

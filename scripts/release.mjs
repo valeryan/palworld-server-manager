@@ -5,8 +5,8 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 
 // Builds every release artifact from one verified build: the Linux AppImage, the Windows NSIS
-// installer, and the Windows portable exe (both cross-built through Wine), with the update
-// metadata in-app updates read and a local SHA256SUMS.txt.
+// installer, and the Windows portable exe (both cross-built through Wine), with a local
+// SHA256SUMS.txt. Those three files are the release; GitHub adds the source archives.
 //   node scripts/release.mjs [--skip-checks]
 // release/ is emptied first, so every release is built cleanly from source.
 const root = process.cwd(); const release = path.join(root, "release");
@@ -30,6 +30,5 @@ for (const [platform, matches] of Object.entries(artifacts)) {
   if (found.length !== 1) throw new Error(`Expected exactly one ${platform} artifact, found ${found.length}.`);
   sums.push(`${createHash("sha256").update(await readFile(path.join(release, found[0]))).digest("hex")}  ${found[0]}`);
 }
-for (const metadata of ["latest.yml", "latest-linux.yml"]) if (!files.includes(metadata)) throw new Error(`electron-builder did not write ${metadata}; in-app updates need it.`);
 await writeFile(path.join(release, "SHA256SUMS.txt"), `${sums.join("\n")}\n`, { mode: 0o644 });
 console.log(`Release candidate ready in ${release}:\n${sums.join("\n")}`);

@@ -13,8 +13,8 @@ Releases are cut by the **Generate release** workflow (Actions → Generate rele
 The workflow then:
 
 1. Checks the version, generates the release notes with GitHub's automatic notes (merged pull requests since the previous release tag), and writes one release commit on a temporary `release/v<version>` branch: the new version in `package.json` and `package-lock.json`, and the notes added to `CHANGELOG.md`.
-2. Builds that commit: typecheck, lint, unit tests, browser and packaged-Electron workflows, then from the same build the Linux AppImage, the Windows Setup installer, and the Windows portable exe. It also writes `latest-linux.yml`, `latest.yml`, and the installer blockmap, which in-app updates read. The portable exe keeps its data in a `PSM-Data` folder beside it and cannot update itself.
-3. Only when every artifact is built: moves `main` to the release commit (a fast-forward; if `main` moved during the run, it stops and publishes nothing), tags it `v<version>`, creates the GitHub release with the generated notes, and uploads the files. GitHub shows each file's SHA-256 on the release; `SHA256SUMS.txt` stays in the workflow artifact and run summary.
+2. Builds that commit: typecheck, lint, unit tests, browser and packaged-Electron workflows, then from the same build the Linux AppImage, the Windows Setup installer, and the Windows portable exe. The portable exe keeps its data in a `PSM-Data` folder beside it and cannot update itself.
+3. Only when every artifact is built: moves `main` to the release commit (a fast-forward; if `main` moved during the run, it stops and publishes nothing), tags it `v<version>`, creates the GitHub release with the generated notes, and uploads the three files. GitHub adds the source zip and tar.gz to every release and shows each file's SHA-256 (also available as `digest` from the releases API); `SHA256SUMS.txt` stays in the workflow artifact and run summary.
 4. Removes the temporary branch.
 
 Build artifacts are never committed; they live on the GitHub release.
@@ -35,6 +35,6 @@ Installed builds check GitHub Releases on the update channel chosen in Settings 
 
 The check only advertises a newer release. A newly launched AppImage compares its version with the last locally successful version, confirms the transition, and refreshes an existing launch-at-login entry. Before pending database migrations it creates one verified WAL-safe `registry-v3.pre-upgrade.sqlite` backup. Migration failures restore the original database and startup entry before the application exits.
 
-A later milestone will download and verify the applicable release artifact in the application, then restart into it. It will reuse this same local activation flow rather than coupling migrations or launch-at-login changes to GitHub discovery.
+A later milestone will download the applicable release file in the application, verify it against the SHA-256 `digest` GitHub's releases API reports for it, then restart into it. It will reuse this same local activation flow rather than coupling migrations or launch-at-login changes to GitHub discovery.
 
 The manager-data directory remains launcher-owned. A Move manager data wizard is intentionally deferred until this upgrade and recovery process has accumulated operational use.

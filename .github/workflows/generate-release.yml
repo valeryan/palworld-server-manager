@@ -142,8 +142,6 @@ jobs:
             release/*.AppImage
             release/*-Setup-*.exe
             release/*-Portable-*.exe
-            release/*.blockmap
-            release/latest*.yml
             release/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
@@ -229,14 +227,12 @@ jobs:
             }
             core.setOutput("url", release.html_url);
 
-      # GitHub shows each file's SHA-256 on the release, so SHA256SUMS.txt stays in the workflow
-      # artifact and the run summary. The latest*.yml files and the blockmap are for in-app updates.
+      # The release holds the AppImage and the two Windows exes; GitHub adds the source archives
+      # and shows each file's SHA-256, so SHA256SUMS.txt stays in the artifact and run summary.
       - name: Upload the release files
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          shopt -s extglob
-          gh release upload "v$VERSION" release/!(SHA256SUMS.txt) --clobber
+        run: gh release upload "v$VERSION" release/*.AppImage release/*.exe --clobber
 
       - name: Summarize
         env:
