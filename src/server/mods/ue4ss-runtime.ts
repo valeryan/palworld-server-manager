@@ -9,7 +9,7 @@ import type { WorldView } from "@/contracts/world";
 import { database } from "@/server/db";
 import { events, modRuntimes } from "@/server/db/schema";
 import { paths } from "@/server/paths";
-import { movePath, safeEntries } from "@/server/services/archive";
+import { fileMatches, movePath, relativeEntry, safeEntries } from "@/server/services/archive";
 import type { JobContext } from "@/server/services/jobs";
 import { runsUnderWine, withWineOverrides } from "@/server/services/wine";
 import { MOD_CATALOG, artifactPath, type CatalogArtifact } from "./catalog";
@@ -51,7 +51,7 @@ function assertStopped(world: RuntimeWorld): void {
 }
 
 // Entries to install, as paths relative to the world's UE4SS destination.
-export function installPlan(zip: AdmZip, variant: ModVariant): Array<{ relative: string; data: () => Buffer }> {
+export function installPlan(zip: AdmZip, variant: ModVariant): Array<{ relative: string; size: number; data: () => Buffer }> {
   const spec = PACKAGES[variant];
   const names = zip.getEntries().map((entry) => entry.entryName.replaceAll("\\", "/"));
   const marker = names.filter((name) => name === spec.marker || name.endsWith(`/${spec.marker}`)).sort((a, b) => a.length - b.length)[0];
@@ -60,9 +60,9 @@ export function installPlan(zip: AdmZip, variant: ModVariant): Array<{ relative:
   return zip.getEntries().filter((entry) => !entry.isDirectory).flatMap((entry) => {
     const name = entry.entryName.replaceAll("\\", "/");
     if (!name.startsWith(root)) return [];
-    const relative = name.slice(root.length);
+    const relative = relativeEntry(name, root);
     if (relative.startsWith(spec.mods) && !relative.startsWith(`${spec.mods}shared/`)) return [];
-    return [{ relative, data: () => entry.getData() }];
+    return [{ relative, size: entry.header.size, data: () => entry.getData() }];
   });
 }
 
@@ -196,25 +196,26 @@ export async function recordHealthyExit(worldId: string): Promise<void> {
 
 export interface FileCheck { missing: string[]; changed: string[]; libraryAvailable: boolean }
 
-// Compares the files PSM installed with the library build they came from. Sizes are enough to
-// catch a file an update deleted or replaced, without hashing 20 MB on every tab refresh.
+// Compares the files PSM installed with the library build they came from, byte for byte.
 export async function checkUe4ssFiles(world: Pick<WorldView, "id" | "installDir" | "platform">): Promise<FileCheck | null> {
   const row = await runtimeRow(world.id); if (!row) return null;
   const spec = PACKAGES[row.variant]; const base = destination(world);
   const artifact = MOD_CATALOG.find((entry) => entry.id === row.artifactId);
   const archive = artifact && artifact.sha256 === row.sha256 ? await readFile(artifactPath(artifact)).catch(() => null) : null;
-  const expected = new Map<string, number>();
+  const expected = new Map<string, { size: number; data: () => Buffer }>();
   if (archive) for (const entry of installPlan(new AdmZip(archive), row.variant)) {
     const file = relativeToInstall(world, path.join(/* turbopackIgnore: true */ base, ...entry.relative.split("/")));
-    expected.set(file, entry.relative === spec.settings ? Buffer.byteLength(withConsoleDisabled(entry.data().toString("utf8"))) : entry.data().byteLength);
+    if (entry.relative !== spec.settings) { expected.set(file, entry); continue; }
+    const settings = Buffer.from(withConsoleDisabled(entry.data().toString("utf8")));
+    expected.set(file, { size: settings.byteLength, data: () => settings });
   }
   const missing: string[] = []; const changed: string[] = [];
   for (const file of row.installedFiles) {
     // A disabled Windows build keeps its loader parked under another name.
     const parked = !row.enabled && row.variant === "windows" && path.basename(file) === spec.loader;
-    const size = await stat(absolute(world, parked ? `${file}${DISABLED_SUFFIX}` : file)).then((info) => info.size, () => null);
-    if (size === null) missing.push(file);
-    else if (expected.has(file) && expected.get(file) !== size) changed.push(file);
+    const target = absolute(world, parked ? `${file}${DISABLED_SUFFIX}` : file); const wanted = expected.get(file);
+    const matches = wanted ? await fileMatches(target, row.sha256, wanted) : await exists(target) || null;
+    if (matches === null) missing.push(file); else if (!matches) changed.push(file);
   }
   return { missing, changed, libraryAvailable: archive !== null };
 }

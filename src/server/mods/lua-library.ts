@@ -7,15 +7,17 @@ import { and, eq } from "drizzle-orm";
 import { database } from "@/server/db";
 import { modArtifacts } from "@/server/db/schema";
 import { paths } from "@/server/paths";
-import { safeEntries } from "@/server/services/archive";
+import { relativeEntry, safeEntries } from "@/server/services/archive";
 
 export type LuaArtifact = typeof modArtifacts.$inferSelect;
 export const MAX_LUA_ARCHIVE_BYTES = 100 * 1024 * 1024;
+const MAX_LUA_UNPACKED_BYTES = 512 * 1024 * 1024;
+const MAX_LUA_ENTRIES = 10_000;
 // Names UE4SS, Palworld, or the manager own inside a Mods folder.
 const RESERVED = new Set(["shared", "bpmodloadermod", "ue4ssstatus", "workshop", "nativemods", "psmdeathrelay", "psmbroadcast"]);
 const SCRIPT = /(^|\/)[Ss]cripts\/main\.lua$/;
 
-export interface LuaArchive { name: string; files: Array<{ relative: string; data: () => Buffer }> }
+export interface LuaArchive { name: string; files: Array<{ relative: string; size: number; data: () => Buffer }> }
 
 // One mod per archive, found by its Scripts/main.lua. The folder that holds Scripts names the
 // mod; an archive of just Scripts/ is named after the file. enabled.txt is left out so that
@@ -34,9 +36,11 @@ export function readLuaArchive(zip: AdmZip, fileName: string): LuaArchive {
   const files = zip.getEntries().filter((entry) => !entry.isDirectory).flatMap((entry) => {
     const entryName = entry.entryName.replaceAll("\\", "/");
     if (!entryName.startsWith(root)) return [];
-    const relative = entryName.slice(root.length);
-    return relative.toLowerCase() === "enabled.txt" ? [] : [{ relative, data: () => entry.getData() }];
+    const relative = relativeEntry(entryName, root);
+    return relative.toLowerCase() === "enabled.txt" ? [] : [{ relative, size: entry.header.size, data: () => entry.getData() }];
   });
+  if (files.length > MAX_LUA_ENTRIES) throw new Error(`The archive has more than ${MAX_LUA_ENTRIES} files.`);
+  if (files.reduce((total, file) => total + file.size, 0) > MAX_LUA_UNPACKED_BYTES) throw new Error("The archive unpacks to more than 512 MiB.");
   return { name, files };
 }
 

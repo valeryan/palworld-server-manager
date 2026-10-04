@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { prepareTestDatabase } from "./prepare-database";
@@ -128,5 +128,25 @@ describe("UE4SS crash-loop guard", () => {
     await setUe4ssEnabled(target, false);
     expect(await runtimeRow(target.id)).toMatchObject({ recoveryPaused: false });
     expect(await recordUnexpectedExit(target.id, { code: 134, uptimeMs: 1_000 })).toBe(false);
+  });
+
+  it("counts a crash during the first 500 ms of startup as early, even after an old healthy start", async () => {
+    const { installUe4ss, runtimeRow } = await import("@/server/mods/ue4ss-runtime");
+    const { createWorld, getWorld } = await import("@/server/services/worlds"); const { startWorld } = await import("@/server/services/processes");
+    const { database } = await import("@/server/db"); const { worlds } = await import("@/server/db/schema"); const { eq } = await import("drizzle-orm");
+    const installDir = path.join(directory, "linux-instant-crash");
+    await mkdir(path.join(installDir, "Pal", "Binaries", "Linux"), { recursive: true });
+    await put(path.join(installDir, "Pal", "Saved", "Config", "LinuxServer", "PalWorldSettings.ini"), '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(ServerName="Instant crash")\n');
+    await writeFile(path.join(installDir, "PalServer.sh"), "#!/bin/sh\nexit 134\n"); await chmod(path.join(installDir, "PalServer.sh"), 0o700);
+    const target = await createWorld({ displayName: "Instant crash", installDir, platform: "linux", gamePort: 39311, queryPort: 39312, restApiPort: 39313, rconPort: 39314, restApiEnabled: false, crashGuard: false });
+    await installUe4ss(target, { replace: false }, context());
+    // The last successful start was long ago, which used to make every instant crash look late.
+    await database().update(worlds).set({ lastStartedAt: Date.now() - 3_600_000 }).where(eq(worlds.id, target.id));
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await expect(startWorld(target.id)).rejects.toThrow("exited during startup");
+      for (let wait = 0; wait < 50 && (await getWorld(target.id))?.status !== "crashed"; wait += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    for (let wait = 0; wait < 50 && !(await runtimeRow(target.id))?.recoveryPaused; wait += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(await runtimeRow(target.id)).toMatchObject({ earlyCrashes: 2, recoveryPaused: true });
   });
 });

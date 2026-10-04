@@ -39,6 +39,23 @@ describe("managed mod checks", () => {
     expect((await checkManagedMods(target)).needsRepair).toBe(false);
   });
 
+  it("reports a file with the same size but different contents as changed", async () => {
+    const { checkManagedMods } = await import("@/server/mods/integrity");
+    const { installUe4ss } = await import("@/server/mods/ue4ss-runtime"); const { importLuaArchive } = await import("@/server/mods/lua-library"); const { installLuaMod } = await import("@/server/mods/lua-mods");
+    const target = await world("linux-same-size", "linux");
+    await installUe4ss(target, { replace: false }, context());
+    const library = await readFile(path.join(target.installDir, "libUE4SS.so"));
+    await writeFile(path.join(target.installDir, "libUE4SS.so"), Buffer.alloc(library.byteLength, 7));
+    const zip = new AdmZip(); zip.addFile("Same/Scripts/main.lua", Buffer.from("-- mod A"));
+    await installLuaMod(target, (await importLuaArchive(zip.toBuffer(), "same.zip")).id);
+    expect((await checkManagedMods(target)).problems.filter((problem) => problem.kind === "lua")).toEqual([]);
+    await writeFile(path.join(target.installDir, "Mods", "Same", "Scripts", "main.lua"), "-- mod B");
+    expect((await checkManagedMods(target)).problems).toEqual([
+      { kind: "ue4ss", name: "UE4SS", missing: 0, changed: 1, repairable: true },
+      { kind: "lua", name: "Same", missing: 0, changed: 1, repairable: true },
+    ]);
+  });
+
   it("treats a disabled Windows install's parked loader as intact and keeps it disabled through repair", async () => {
     const { checkManagedMods, repairManagedMods } = await import("@/server/mods/integrity");
     const { installUe4ss, runtimeRow, setUe4ssEnabled } = await import("@/server/mods/ue4ss-runtime");

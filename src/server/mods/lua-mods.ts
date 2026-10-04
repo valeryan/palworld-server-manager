@@ -1,10 +1,11 @@
 import "server-only";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import type { LuaModView } from "@/contracts/mod";
 import type { WorldView } from "@/contracts/world";
 import { paths } from "@/server/paths";
-import { movePath } from "@/server/services/archive";
+import { fileMatches, insideFolder, movePath } from "@/server/services/archive";
 import { getLuaArtifact, loadLuaArtifact } from "./lua-library";
 import { resolveModsDirectory, ue4ssLayout } from "./ue4ss";
 
@@ -74,7 +75,7 @@ export async function editModsTxt(directory: string, name: string, value: boolea
   const file = path.join(/* turbopackIgnore: true */ directory, "mods.txt");
   const current = await readFile(file, "utf8").catch(() => "");
   await mkdir(directory, { recursive: true });
-  const temporary = `${file}.psm-${process.pid}`;
+  const temporary = `${file}.psm-${randomUUID()}`;
   await writeFile(temporary, setModsTxtEntry(current, name, value)); await rename(temporary, file);
 }
 
@@ -97,9 +98,9 @@ export async function installLuaMod(world: LuaWorld, artifactId: string, options
     await movePath(folder, path.join(/* turbopackIgnore: true */ paths.modTrash(world.id), `${archive.name}-${Date.now()}`));
   }
   const written = archive.files.map((file) => file.relative);
-  for (const stale of (marker?.files ?? []).filter((file) => !written.includes(file))) await rm(path.join(/* turbopackIgnore: true */ folder, ...stale.split("/")), { force: true });
+  for (const stale of (marker?.files ?? []).filter((file) => !written.includes(file))) await rm(insideFolder(folder, stale), { force: true });
   for (const file of archive.files) {
-    const target = path.join(/* turbopackIgnore: true */ folder, ...file.relative.split("/"));
+    const target = insideFolder(folder, file.relative);
     await mkdir(path.dirname(target), { recursive: true }); await writeFile(target, file.data());
   }
   const next: ManagedMarker = { artifactId: artifact.id, name: archive.name, sha256: artifact.sha256, files: written };
@@ -131,8 +132,8 @@ export async function managedArtifactOf(world: Pick<WorldView, "installDir" | "p
   return readMarker(path.join(/* turbopackIgnore: true */ await resolveModsDirectory(ue4ssLayout(world)), name));
 }
 
-// Files a library mod installed must still exist, at the library archive's size when that copy
-// is still in the library. Files the mod itself created are not checked.
+// Files a library mod installed must still exist and, while that copy is still in the library,
+// hold the same bytes as the archive. Files the mod itself created are not checked.
 export async function checkLuaModFiles(world: Pick<WorldView, "installDir" | "platform">): Promise<Array<{ name: string; artifactId: string; missing: string[]; changed: string[]; libraryAvailable: boolean }>> {
   const directory = await resolveModsDirectory(ue4ssLayout(world));
   const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
@@ -142,11 +143,12 @@ export async function checkLuaModFiles(world: Pick<WorldView, "installDir" | "pl
     const marker = await readMarker(folder); if (!marker?.artifactId || !Array.isArray(marker.files)) continue;
     const artifact = await getLuaArtifact(marker.artifactId);
     const archive = artifact && artifact.sha256 === marker.sha256 ? await loadLuaArtifact(artifact).catch(() => null) : null;
-    const expected = new Map((archive?.files ?? []).map((file) => [file.relative, file.data().byteLength]));
+    const expected = new Map((archive?.files ?? []).map((file) => [file.relative, file]));
     const missing: string[] = []; const changed: string[] = [];
     for (const file of marker.files) {
-      const size = await stat(path.join(/* turbopackIgnore: true */ folder, ...file.split("/"))).then((info) => info.size, () => null);
-      if (size === null) missing.push(file); else if (expected.has(file) && expected.get(file) !== size) changed.push(file);
+      const target = path.join(/* turbopackIgnore: true */ folder, ...file.split("/")); const wanted = expected.get(file);
+      const matches = wanted ? await fileMatches(target, marker.sha256, wanted) : await exists(target) || null;
+      if (matches === null) missing.push(file); else if (!matches) changed.push(file);
     }
     results.push({ name: entry.name, artifactId: marker.artifactId, missing, changed, libraryAvailable: archive !== null });
   }

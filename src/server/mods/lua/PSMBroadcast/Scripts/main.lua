@@ -1,4 +1,4 @@
--- PSM_MOD_VERSION 1
+-- PSM_MOD_VERSION 2
 -- PSMBroadcast: on-screen server notices for Palworld Server Manager.
 --
 -- The manager appends one JSON line per notice to Pal/Saved/psm-broadcast.jsonl:
@@ -6,6 +6,11 @@
 -- This mod reads new lines once a second and shows each message to every player through
 -- PalGameStateInGame:BroadcastServerNotice (a red on-screen banner, not a chat line). The game
 -- decides how long the banner stays up. Base64 keeps quotes, newlines, and Unicode intact.
+--
+-- The manager empties the queue before each server start, so this mod reads it from the top and
+-- a notice queued while the server was still booting is shown once the mod loads. While running,
+-- the mod touches psm-broadcast.alive every few seconds; without it the manager sends notices
+-- as chat messages instead.
 
 -- The manager replaces the placeholder with this world's absolute queue path. The relative
 -- fallback covers a hand install: UE4SS runs with the working directory in Pal/Binaries/<platform>.
@@ -84,16 +89,18 @@ local function poll()
     for line in data:gmatch("[^\r\n]+") do handle_line(line) end
 end
 
--- Start at the end of the queue so a restart never replays old notices.
-do
-    local path = resolve_path()
-    local file = path and io.open(path, "rb")
-    if file then offset = file:seek("end") or 0; file:close() end
+local ticks = 0
+local function heartbeat()
+    local path = resolve_path(); if not path then return end
+    local file = io.open((path:gsub("%.jsonl$", ".alive")), "w")
+    if file then file:write(tostring(os.time())); file:close() end
 end
 
 LoopAsync(1000, function()
     local ok, err = pcall(poll)
     if not ok then print("[PSMBroadcast] poll error: " .. tostring(err) .. "\n") end
+    if ticks % 5 == 0 then pcall(heartbeat) end
+    ticks = ticks + 1
     return false
 end)
 print("[PSMBroadcast] loaded\n")

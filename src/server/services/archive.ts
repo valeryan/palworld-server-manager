@@ -1,7 +1,7 @@
 import "server-only";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { cp, mkdir, open, rename, rm } from "node:fs/promises";
+import { cp, mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
 import type AdmZip from "adm-zip";
 import type { JobContext } from "./jobs";
 
@@ -11,6 +11,34 @@ export function safeEntries(zip: AdmZip): boolean {
     const normalized = path.posix.normalize(entry.entryName.replaceAll("\\", "/"));
     return normalized !== ".." && !normalized.startsWith("../") && !path.posix.isAbsolute(normalized);
   });
+}
+
+// The path of an entry below an archive folder. The check runs again after the folder is removed:
+// "Mod/../../x" is safe as a whole entry but escapes the folder once "Mod/" is gone.
+export function relativeEntry(entryName: string, root: string): string {
+  const relative = path.posix.normalize(entryName.replaceAll("\\", "/").slice(root.length));
+  if (relative === "." || relative === ".." || relative.startsWith("../") || path.posix.isAbsolute(relative)) throw new Error("The archive contains unsafe paths.");
+  return relative;
+}
+
+// Keeps a written path inside the folder it belongs to, whatever the relative path says.
+export function insideFolder(folder: string, relative: string): string {
+  const target = path.resolve(folder, ...relative.split("/"));
+  if (!target.startsWith(`${path.resolve(folder)}${path.sep}`)) throw new Error(`Refusing to write outside ${folder}: ${relative}`);
+  return target;
+}
+
+// Whether a file PSM installed still holds the library's bytes. Results are kept per file until
+// its size or modification time changes, so refreshing the Mods tab does not re-read every file.
+declare global { var __psmFileMatches: Map<string, { size: number; mtimeMs: number; source: string; equal: boolean }> | undefined }
+export async function fileMatches(target: string, source: string, expected: { size: number; data: () => Buffer }): Promise<boolean | null> {
+  const info = await stat(target).catch(() => null); if (!info) return null;
+  if (info.size !== expected.size) return false;
+  const cache = (globalThis.__psmFileMatches ??= new Map()); const cached = cache.get(target);
+  if (cached && cached.size === info.size && cached.mtimeMs === info.mtimeMs && cached.source === source) return cached.equal;
+  const equal = expected.data().equals(await readFile(target));
+  cache.set(target, { size: info.size, mtimeMs: info.mtimeMs, source, equal });
+  return equal;
 }
 
 export interface VerifiedDownload { url: string; sha256: string; sizeBytes: number; destination: string; staging: string }

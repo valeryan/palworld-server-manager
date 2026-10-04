@@ -14,7 +14,7 @@ import { applyDesiredSettings, prepareWorldStart } from "./configuration";
 import { palworldRest } from "./rest";
 import { effectiveWinePrefix, prepareWinePrefix, runsUnderWine, serverWineOverrides, stopWineServer } from "./wine";
 import { applyUe4ssLaunch, recordHealthyExit, recordUnexpectedExit } from "@/server/mods/ue4ss-runtime";
-import { startDeathCapture, stopDeathCapture } from "@/server/mods/relays";
+import { resetBroadcastQueue, startDeathCapture, stopDeathCapture } from "@/server/mods/relays";
 
 declare global { var __psmChildren: Map<string, ChildProcess> | undefined; }
 const children = () => (globalThis.__psmChildren ??= new Map<string, ChildProcess>());
@@ -81,6 +81,8 @@ export async function startWorld(worldId: string): Promise<void> {
     await setRuntimeState(worldId, "stopped", null);
     throw new Error(`Wine prefix preparation failed: ${error instanceof Error ? error.message : String(error)}`);
   }
+  await resetBroadcastQueue(world).catch(() => undefined);
+  const launchedAt = Date.now();
   const child = spawn(command, args, { cwd: world.installDir, env, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   child.stdout?.pipe(stream); child.stderr?.pipe(stream);
   child.on("error", async (error) => { stream.write(`\n[manager] ${error.message}\n`); await setRuntimeState(worldId, "crashed", null); });
@@ -94,7 +96,8 @@ export async function startWorld(worldId: string): Promise<void> {
       await setRuntimeState(worldId, code === 0 ? "stopped" : "crashed", null);
       await applyDesiredSettings(worldId).catch(() => undefined);
     }
-    const uptimeMs = latest?.lastStartedAt ? Date.now() - latest.lastStartedAt : null;
+    // Measured from this launch: lastStartedAt is only written once the server survives startup.
+    const uptimeMs = Date.now() - launchedAt;
     if (expected || code === 0) await recordHealthyExit(worldId).catch(() => undefined);
     const pauseRecovery = !expected && code !== 0 ? await recordUnexpectedExit(worldId, { code, uptimeMs }).catch(() => false) : false;
     if (!expected && code !== 0 && latest?.crashGuard && !pauseRecovery) {

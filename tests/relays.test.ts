@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { appendFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { prepareTestDatabase } from "./prepare-database";
@@ -80,6 +80,17 @@ describe("death capture", () => {
     await writeFile(file, '{"victim":"Cy","cause":"Drown","at":3000}\n');
     expect(await readNewDeaths(target)).toBe(1);
   });
+
+  it("does not record a death twice when reads overlap", async () => {
+    const { readNewDeaths } = await import("@/server/mods/relays");
+    const { database } = await import("@/server/db"); const { deaths } = await import("@/server/db/schema"); const { eq } = await import("drizzle-orm");
+    const target = await world("linux-overlap", "linux"); const file = path.join(target.installDir, "Pal", "Saved", "psm-deaths.jsonl");
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, '{"victim":"Ana","cause":"Attack","at":1}\n{"victim":"Bo","cause":"Drown","at":2}\n');
+    const counts = await Promise.all([readNewDeaths(target), readNewDeaths(target), readNewDeaths(target)]);
+    expect(counts.reduce((total, count) => total + count, 0)).toBe(2);
+    expect(await database().select().from(deaths).where(eq(deaths.worldId, target.id))).toHaveLength(2);
+  });
 });
 
 describe("notices", () => {
@@ -90,10 +101,29 @@ describe("notices", () => {
     expect(await deliverNotice(target, "Restarting soon")).toBe("rest");
     expect(announce).toHaveBeenCalledWith(target, "Restarting soon");
     await installRelay(target, "broadcast"); await enableUe4ss(target.id, "linux");
+    // Installed and enabled, but not yet running in the game: the notice goes out as chat.
+    expect(await deliverNotice(target, "Still booting")).toBe("rest");
+    const alive = path.join(target.installDir, "Pal", "Saved", "psm-broadcast.alive");
+    await writeFile(alive, "1");
     expect(await deliverNotice(target, "Überraschung \"quotes\"\nline")).toBe("broadcast");
     const queued = JSON.parse((await readFile(path.join(target.installDir, "Pal", "Saved", "psm-broadcast.jsonl"), "utf8")).trim());
     expect(Buffer.from(queued.b64, "base64").toString("utf8")).toBe("Überraschung \"quotes\"\nline");
-    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledTimes(2);
     expect(await exists(path.join(target.installDir, "Mods", "PSMBroadcast", "Scripts", "main.lua"))).toBe(true);
+    const stale = new Date(Date.now() - 60_000); await utimes(alive, stale, stale);
+    expect(await deliverNotice(target, "Relay stopped")).toBe("rest");
+  });
+
+  it("empties the queue and drops the old heartbeat before a start, and the relay reads from the top", async () => {
+    const { resetBroadcastQueue } = await import("@/server/mods/relays");
+    const target = await world("linux-reset", "linux"); const saved = path.join(target.installDir, "Pal", "Saved");
+    await mkdir(saved, { recursive: true });
+    await writeFile(path.join(saved, "psm-broadcast.jsonl"), '{"b64":"b2xk","at":1}\n'); await writeFile(path.join(saved, "psm-broadcast.alive"), "1");
+    await resetBroadcastQueue(target);
+    expect(await readFile(path.join(saved, "psm-broadcast.jsonl"), "utf8")).toBe("");
+    expect(await exists(path.join(saved, "psm-broadcast.alive"))).toBe(false);
+    const source = await readFile(path.join(process.cwd(), "src/server/mods/lua/PSMBroadcast/Scripts/main.lua"), "utf8");
+    expect(source).not.toContain('seek("end") or 0; file:close() end');
+    expect(source).toContain("psm-broadcast.alive");
   });
 });

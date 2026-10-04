@@ -1,5 +1,6 @@
 import "server-only";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import type { WorkshopModView, WorkshopStatus } from "@/contracts/mod";
 import type { WorldView } from "@/contracts/world";
@@ -91,7 +92,7 @@ async function changeSettings(world: WorkshopWorld, change: (settings: PalModSet
   const current = await readSmall(file);
   const next = updatePalModSettings(current, change(parsePalModSettings(current)));
   await mkdir(path.dirname(file), { recursive: true });
-  const temporary = `${file}.psm-${process.pid}`;
+  const temporary = `${file}.psm-${randomUUID()}`;
   await writeFile(temporary, next); await rename(temporary, file);
 }
 

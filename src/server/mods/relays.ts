@@ -1,7 +1,7 @@
 import "server-only";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { appendFile, mkdir, open, readFile, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, open, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import type { RelayId, RelayView } from "@/contracts/mod";
 import type { WorldView } from "@/contracts/world";
@@ -85,9 +85,24 @@ export async function relayActive(world: Pick<WorldView, "id" | "installDir" | "
   return (await relayStatus(world)).some((entry) => entry.id === relay && entry.active);
 }
 
-// On-screen when PSM Broadcast will show it; otherwise Palworld's REST announce (a chat line).
+// PSM Broadcast touches this file every few seconds while it runs in the game.
+const HEARTBEAT_MS = 15_000;
+function heartbeatFile(world: Pick<WorldView, "installDir">): string { return savedFile(world, "broadcast").replace(/\.jsonl$/, ".alive"); }
+async function broadcastAlive(world: Pick<WorldView, "installDir">): Promise<boolean> {
+  return stat(heartbeatFile(world)).then((info) => Date.now() - info.mtimeMs < HEARTBEAT_MS, () => false);
+}
+
+// Called before each server start: the relay reads the queue from the top, so it must start empty,
+// and a heartbeat left by the previous run must not count for this one.
+export async function resetBroadcastQueue(world: Pick<WorldView, "installDir">): Promise<void> {
+  if (await stat(savedFile(world, "broadcast")).then(() => true, () => false)) await writeFile(savedFile(world, "broadcast"), "");
+  await rm(heartbeatFile(world), { force: true });
+}
+
+// On-screen when PSM Broadcast is installed, enabled, and running in the game; otherwise
+// Palworld's REST announce (a chat line), including while the server is still booting.
 export async function deliverNotice(world: WorldView, message: string): Promise<"broadcast" | "rest"> {
-  if (await relayActive(world, "broadcast").catch(() => false)) {
+  if (await relayActive(world, "broadcast").catch(() => false) && await broadcastAlive(world)) {
     const line = `${JSON.stringify({ b64: Buffer.from(message, "utf8").toString("base64"), at: Date.now() })}\n`;
     await mkdir(path.dirname(savedFile(world, "broadcast")), { recursive: true });
     await appendFile(savedFile(world, "broadcast"), line);
@@ -108,14 +123,24 @@ async function savedOffset(worldId: string): Promise<number> {
   const [row] = await database().select().from(appSettings).where(eq(appSettings.key, offsetKey(worldId))).limit(1);
   return typeof row?.value === "number" ? row.value : 0;
 }
-async function saveOffset(worldId: string, offset: number): Promise<void> {
-  await database().insert(appSettings).values({ key: offsetKey(worldId), value: offset }).onConflictDoUpdate({ target: appSettings.key, set: { value: offset } });
-}
 
 function text(value: unknown): string | null { return typeof value === "string" && value.trim() ? value.trim() : null; }
 
 // Reads complete lines added since the saved position; a partial last line waits for the next pass.
-export async function readNewDeaths(world: Pick<WorldView, "id" | "installDir">): Promise<number> {
+// One read per world at a time, and the deaths and the new position are saved together, so an
+// overlapping poll or a manager exit mid-read cannot record the same death twice.
+declare global { var __psmDeathReads: Map<string, Promise<number>> | undefined }
+const reads = () => (globalThis.__psmDeathReads ??= new Map<string, Promise<number>>());
+
+export function readNewDeaths(world: Pick<WorldView, "id" | "installDir">): Promise<number> {
+  const previous = reads().get(world.id) ?? Promise.resolve(0);
+  const next = previous.catch(() => 0).then(() => readDeathsOnce(world));
+  reads().set(world.id, next);
+  void next.finally(() => { if (reads().get(world.id) === next) reads().delete(world.id); }).catch(() => undefined);
+  return next;
+}
+
+async function readDeathsOnce(world: Pick<WorldView, "id" | "installDir">): Promise<number> {
   const file = savedFile(world, "death-relay");
   const size = await stat(file).then((info) => info.size, () => null);
   if (size === null) return 0;
@@ -128,19 +153,22 @@ export async function readNewDeaths(world: Pick<WorldView, "id" | "installDir">)
   finally { await handle.close(); }
   const end = chunk.lastIndexOf(0x0a);
   if (end < 0) return 0;
-  let recorded = 0;
+  const rows: Array<typeof deaths.$inferInsert> = [];
   for (const line of chunk.subarray(0, end).toString("utf8").split("\n")) {
     if (!line.trim()) continue;
     try {
       const entry = JSON.parse(line) as Record<string, unknown>;
       const victim = text(entry.victim); if (!victim) continue;
       const killer = text(entry.killer);
-      await database().insert(deaths).values({ worldId: world.id, victim, cause: text(entry.cause), killer, killerRaw: killer, killerKind: text(entry.killerKind), createdAt: typeof entry.at === "number" ? entry.at : Date.now() });
-      recorded += 1;
+      rows.push({ worldId: world.id, victim, cause: text(entry.cause), killer, killerRaw: killer, killerKind: text(entry.killerKind), createdAt: typeof entry.at === "number" ? entry.at : Date.now() });
     } catch { /* A malformed line is skipped rather than blocking the rest. */ }
   }
-  await saveOffset(world.id, offset + end + 1);
-  return recorded;
+  const position = offset + end + 1;
+  database().transaction((tx) => {
+    if (rows.length) tx.insert(deaths).values(rows).run();
+    tx.insert(appSettings).values({ key: offsetKey(world.id), value: position }).onConflictDoUpdate({ target: appSettings.key, set: { value: position } }).run();
+  });
+  return rows.length;
 }
 
 export function startDeathCapture(world: Pick<WorldView, "id" | "installDir">): void {

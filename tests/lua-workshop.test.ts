@@ -53,6 +53,46 @@ describe("Lua mod archives", () => {
     const unsafe = new AdmZip(archive({ "Mod/Scripts/main.lua": "" })); unsafe.getEntries()[0]!.entryName = "../Mod/Scripts/main.lua";
     expect(() => readLuaArchive(unsafe, "x.zip")).toThrow("unsafe paths");
   });
+
+  it("rejects a path that is safe as a whole entry but escapes the mod folder once it is stripped", () => {
+    // AdmZip tidies names it writes, so the raw ".." name is patched into the finished archive.
+    const buffer = archive({ "a/b/c/d/Mod/Scripts/main.lua": "", "a/b/c/d/Mod/QQ/QQ/QQ/QQ/QQ/target": "x" });
+    const from = Buffer.from("Mod/QQ/QQ/QQ/QQ/QQ/"); const to = Buffer.from("Mod/../../../../../");
+    for (let index = buffer.indexOf(from); index >= 0; index = buffer.indexOf(from)) to.copy(buffer, index);
+    const crafted = new AdmZip(buffer);
+    expect(crafted.getEntries().map((entry) => entry.entryName)).toContain("a/b/c/d/Mod/../../../../../target");
+    expect(() => readLuaArchive(crafted, "x.zip")).toThrow("unsafe paths");
+  });
+
+  it("rejects archives with too many files", () => {
+    const zip = new AdmZip(); zip.addFile("Mod/Scripts/main.lua", Buffer.from(""));
+    for (let index = 0; index < 10_000; index += 1) zip.addFile(`Mod/data/${index}.lua`, Buffer.from(""));
+    expect(() => readLuaArchive(zip, "x.zip")).toThrow("more than 10000 files");
+  });
+});
+
+describe("Lua archive upload", () => {
+  it("stops reading a chunked upload with no Content-Length once it passes 100 MiB", async () => {
+    process.env.PSM_ADMIN_TOKEN = "test-token";
+    const { POST } = await import("@/app/api/mods/import/route");
+    let sent = 0; const chunk = new Uint8Array(1024 * 1024);
+    const body = new ReadableStream<Uint8Array>({ pull(controller) { sent += 1; if (sent > 200) controller.close(); else controller.enqueue(chunk); } });
+    const request = new Request("http://localhost/api/mods/import", { method: "POST", body, headers: { cookie: "psm_admin=test-token" }, duplex: "half" } as RequestInit);
+    const response = await POST(request);
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect((await response.json()).error).toContain("larger than 100 MiB");
+    expect(sent).toBeLessThan(110);
+    delete process.env.PSM_ADMIN_TOKEN;
+  });
+});
+
+describe("archive paths", () => {
+  it("keeps writes inside the target folder", async () => {
+    const { insideFolder } = await import("@/server/services/archive");
+    expect(insideFolder("/srv/Mods/Mod", "Scripts/main.lua")).toBe("/srv/Mods/Mod/Scripts/main.lua");
+    expect(() => insideFolder("/srv/Mods/Mod", "../../../target")).toThrow("outside");
+    expect(() => insideFolder("/srv/Mods/Mod", "../ModEvil/x")).toThrow("outside");
+  });
 });
 
 describe("Lua mods in worlds", () => {
