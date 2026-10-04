@@ -53,7 +53,7 @@ async function pruneServerLogs(keep: number): Promise<number> {
     const directory = paths.worldLogs(world.id);
     const files = (await readdir(directory).catch(() => [] as string[])).filter((name) => /^server-.*\.log$/.test(name)).sort().reverse();
     for (const name of files.slice(keep)) {
-      await unlink(path.join(directory, name)).then(() => { removed += 1; }).catch(() => undefined);
+      await unlink(path.join(/* turbopackIgnore: true */ directory, name)).then(() => { removed += 1; }).catch(() => undefined);
     }
   }
   return removed;

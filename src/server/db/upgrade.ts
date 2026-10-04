@@ -28,15 +28,15 @@ export type PreflightResult = {
 };
 
 const readyDatabases = new Set<string>();
-const backupPath = (dataDirectory: string) => path.join(dataDirectory, "registry-v3.pre-upgrade.sqlite");
+const backupPath = (dataDirectory: string) => path.join(/* turbopackIgnore: true */ dataDirectory, "registry-v3.pre-upgrade.sqlite");
 
 export class UpgradePreflightError extends Error {
   constructor(message: string, readonly databasePath: string, readonly backupPath: string | null, readonly causeDetail: string) { super(message); }
 }
 
-export function databaseWasPrepared(databasePath: string): boolean { return readyDatabases.has(path.resolve(databasePath)); }
-export function markDatabasePrepared(databasePath: string): void { readyDatabases.add(path.resolve(databasePath)); }
-export function forgetPreparedDatabase(databasePath?: string): void { if (databasePath) readyDatabases.delete(path.resolve(databasePath)); else readyDatabases.clear(); }
+export function databaseWasPrepared(databasePath: string): boolean { return readyDatabases.has(path.resolve(/* turbopackIgnore: true */ databasePath)); }
+export function markDatabasePrepared(databasePath: string): void { readyDatabases.add(path.resolve(/* turbopackIgnore: true */ databasePath)); }
+export function forgetPreparedDatabase(databasePath?: string): void { if (databasePath) readyDatabases.delete(path.resolve(/* turbopackIgnore: true */ databasePath)); else readyDatabases.clear(); }
 
 function configure(client: DatabaseConnection): void { client.exec("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;"); }
 function tableExists(client: DatabaseConnection, table: string): boolean { return Boolean(client.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table)); }

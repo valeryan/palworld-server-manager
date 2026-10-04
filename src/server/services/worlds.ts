@@ -28,11 +28,11 @@ function toView(row: WorldRow): WorldView {
 }
 
 export async function canonicalInstallDir(candidate: string): Promise<string> {
-  const resolved = path.resolve(candidate);
+  const resolved = path.resolve(/* turbopackIgnore: true */ candidate);
   let ancestor = resolved;
   const missing: string[] = [];
   while (true) {
-    try { return path.join(await realpath(ancestor), ...missing.reverse()); }
+    try { return path.join(/* turbopackIgnore: true */ await realpath(ancestor), ...missing.reverse()); }
     catch {
       const parent = path.dirname(ancestor);
       if (parent === ancestor) return resolved;
@@ -136,7 +136,7 @@ export async function createWorld(raw: unknown): Promise<WorldView> {
 export async function adoptWorld(raw: unknown): Promise<WorldView> {
   const input = createWorldSchema.parse(raw);
   const executable = input.platform === "windows" ? "PalServer.exe" : "PalServer.sh";
-  try { await access(path.join(input.installDir, executable)); }
+  try { await access(path.join(/* turbopackIgnore: true */ input.installDir, executable)); }
   catch { throw new Error(`Existing installation is missing ${executable}.`); }
   return createWorld(raw);
 }
@@ -205,5 +205,5 @@ export async function setRuntimeState(id: string, status: WorldView["status"], p
 
 export async function installationExists(world: WorldView): Promise<boolean> {
   const executable = world.platform === "windows" ? "PalServer.exe" : "PalServer.sh";
-  try { await access(path.join(world.installDir, executable)); return true; } catch { return false; }
+  try { await access(path.join(/* turbopackIgnore: true */ world.installDir, executable)); return true; } catch { return false; }
 }

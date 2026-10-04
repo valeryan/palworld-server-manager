@@ -26,7 +26,7 @@ export function processIsAlive(pid: number | null): boolean {
 
 function executableAvailable(command: string, env: NodeJS.ProcessEnv): boolean {
   if (command.includes(path.sep)) return existsSync(command);
-  return (env.PATH ?? "").split(path.delimiter).some((directory) => existsSync(path.join(directory, command)));
+  return (env.PATH ?? "").split(path.delimiter).some((directory) => existsSync(path.join(/* turbopackIgnore: true */ directory, command)));
 }
 
 export function parseArguments(value: string): string[] {
@@ -60,9 +60,9 @@ export function commandFor(world: WorldView): { command: string; args: string[];
     env.WINEPREFIX = world.env.WINEPREFIX ?? effectiveWinePrefix(world);
     env.WINEDEBUG = world.env.WINEDEBUG ?? "-all";
     env.WINEDLLOVERRIDES = serverWineOverrides(env.WINEDLLOVERRIDES);
-    return { command: world.wineBinary, args: [...parseArguments(world.wineLaunchFlags), path.join(world.installDir, "PalServer.exe"), ...serverArgs], env };
+    return { command: world.wineBinary, args: [...parseArguments(world.wineLaunchFlags), path.join(/* turbopackIgnore: true */ world.installDir, "PalServer.exe"), ...serverArgs], env };
   }
-  return { command: world.platform === "windows" ? path.join(world.installDir, "PalServer.exe") : path.join(world.installDir, "PalServer.sh"), args: serverArgs, env };
+  return { command: world.platform === "windows" ? path.join(/* turbopackIgnore: true */ world.installDir, "PalServer.exe") : path.join(/* turbopackIgnore: true */ world.installDir, "PalServer.sh"), args: serverArgs, env };
 }
 
 export async function startWorld(worldId: string): Promise<void> {
