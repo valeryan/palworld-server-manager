@@ -4,12 +4,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
-// Builds every release artifact from one verified build: the Linux AppImage and the Windows
-// NSIS installer (cross-built through Wine), with their update metadata and one SHA256SUMS.txt.
+// Builds every release artifact from one verified build: the Linux AppImage, the Windows NSIS
+// installer, and the Windows portable exe (both cross-built through Wine), with the update
+// metadata in-app updates read and a local SHA256SUMS.txt.
 //   node scripts/release.mjs [--skip-checks]
 // release/ is emptied first, so every release is built cleanly from source.
 const root = process.cwd(); const release = path.join(root, "release");
-const artifacts = { linux: (name) => name.endsWith(".AppImage"), windows: (name) => /-Setup-.*\.exe$/.test(name) };
+const artifacts = { linux: (name) => name.endsWith(".AppImage"), "windows installer": (name) => /-Setup-.*\.exe$/.test(name), "windows portable": (name) => /-Portable-.*\.exe$/.test(name) };
 
 function run(command, args, env = process.env) { return new Promise((resolve, reject) => { const child = spawn(command, args, { cwd: root, env, stdio: "inherit", windowsHide: true, shell: process.platform === "win32" }); child.once("error", reject); child.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`${command} ${args.join(" ")} exited with ${code}.`))); }); }
 

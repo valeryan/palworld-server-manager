@@ -13,19 +13,19 @@ Releases are cut by the **Generate release** workflow (Actions → Generate rele
 The workflow then:
 
 1. Checks the version, generates the release notes with GitHub's automatic notes (merged pull requests since the previous release tag), and writes one release commit on a temporary `release/v<version>` branch: the new version in `package.json` and `package-lock.json`, and the notes added to `CHANGELOG.md`.
-2. Builds that commit: typecheck, lint, unit tests, browser and packaged-Electron workflows, then the Linux AppImage and the Windows NSIS installer from the same build. It writes `latest-linux.yml`, `latest.yml`, the installer blockmap (needed for in-app updates later), and one `SHA256SUMS.txt`.
-3. Only when both artifacts are built: moves `main` to the release commit (a fast-forward; if `main` moved during the run, it stops and publishes nothing), tags it `v<version>`, creates the GitHub release with the generated notes, and uploads the files.
+2. Builds that commit: typecheck, lint, unit tests, browser and packaged-Electron workflows, then from the same build the Linux AppImage, the Windows Setup installer, and the Windows portable exe. It also writes `latest-linux.yml`, `latest.yml`, and the installer blockmap, which in-app updates read. The portable exe keeps its data in a `PSM-Data` folder beside it and cannot update itself.
+3. Only when every artifact is built: moves `main` to the release commit (a fast-forward; if `main` moved during the run, it stops and publishes nothing), tags it `v<version>`, creates the GitHub release with the generated notes, and uploads the files. GitHub shows each file's SHA-256 on the release; `SHA256SUMS.txt` stays in the workflow artifact and run summary.
 4. Removes the temporary branch.
 
 Build artifacts are never committed; they live on the GitHub release.
 
 If a run fails before publishing, `main`, tags, and releases are untouched; fix the problem and run it again. If it fails after `main` has moved, the branch is kept: use **Re-run failed jobs**. Every publishing step reuses what already exists (the tag, the release) and re-uploads the files, so a re-run finishes the release.
 
-The Windows installer is unsigned and labelled a test build in the release notes until it has been validated on a real Windows machine.
+The Windows builds are unsigned and labelled test builds in the release notes until they have been validated on a real Windows machine.
 
 ## Local builds
 
-`npm run release` runs every check, empties `release/`, and builds both artifacts with `SHA256SUMS.txt`, the same as the workflow. `npm run dist` builds both without the checks; `dist:linux` and `dist:windows` build one platform. On Linux the Windows installer is cross-built through Wine; the release script gives Wine a throwaway prefix with no display and no desktop integration.
+`npm run release` runs every check, empties `release/`, and builds all three artifacts with `SHA256SUMS.txt`, the same as the workflow. `npm run dist` builds them without the checks; `dist:linux` and `dist:windows` build one platform. On Linux the Windows builds are cross-built through Wine; the release script gives Wine a throwaway prefix with no display and no desktop integration.
 
 To rehearse an update locally, quit the current manager, verify the artifact against `SHA256SUMS.txt`, make the versioned AppImage executable, and launch it directly.
 

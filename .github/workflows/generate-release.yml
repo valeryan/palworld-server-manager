@@ -1,8 +1,8 @@
 name: Generate release
 
 # Cuts a release from main: checks the version, writes the release commit (version, lock file,
-# changelog from GitHub's generated notes), builds the Linux AppImage and the Windows installer
-# from that commit, then moves main to it, tags it, and publishes the GitHub release.
+# changelog from GitHub's generated notes), builds the Linux AppImage and the Windows Setup and
+# portable exes from that commit, then moves main to it, tags it, and publishes the GitHub release.
 # Nothing reaches main, tags, or releases until both artifacts are built and verified.
 # A dry run builds everything and keeps the files as workflow artifacts, publishing nothing.
 
@@ -102,7 +102,7 @@ jobs:
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   build:
-    name: Verify and build both artifacts
+    name: Verify and build the artifacts
     needs: prepare
     runs-on: ubuntu-latest
     steps:
@@ -141,6 +141,7 @@ jobs:
           path: |
             release/*.AppImage
             release/*-Setup-*.exe
+            release/*-Portable-*.exe
             release/*.blockmap
             release/latest*.yml
             release/SHA256SUMS.txt
@@ -218,7 +219,7 @@ jobs:
                 owner: context.repo.owner, repo: context.repo.repo, tag_name: tag,
                 ...(process.env.PREVIOUS ? { previous_tag_name: process.env.PREVIOUS } : {}),
               });
-              const windows = "> **Windows installer:** test build, not yet validated on Windows. The Linux AppImage is the supported artifact.";
+              const windows = "> **Windows (Setup and Portable):** test builds, not yet validated on Windows. The Linux AppImage is the supported artifact. The portable exe keeps its data in a PSM-Data folder beside it and is updated by downloading a new release.";
               release = (await github.rest.repos.createRelease({
                 owner: context.repo.owner, repo: context.repo.repo, tag_name: tag, name: tag,
                 prerelease, make_latest: prerelease ? "false" : "true",
@@ -228,10 +229,14 @@ jobs:
             }
             core.setOutput("url", release.html_url);
 
+      # GitHub shows each file's SHA-256 on the release, so SHA256SUMS.txt stays in the workflow
+      # artifact and the run summary. The latest*.yml files and the blockmap are for in-app updates.
       - name: Upload the release files
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "v$VERSION" release/* --clobber
+        run: |
+          shopt -s extglob
+          gh release upload "v$VERSION" release/!(SHA256SUMS.txt) --clobber
 
       - name: Summarize
         env:
