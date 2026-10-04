@@ -10,7 +10,7 @@ import { englishGuidedSettingTranslations } from "@/lib/localization-resources";
 
 const settingKey = "localization-v1";
 const maxPackBytes = 512 * 1024;
-const builtInDirectory = () => path.join(process.cwd(), "public", "locales");
+const builtInDirectory = () => path.join(/* turbopackIgnore: true */ process.cwd(), "public", "locales");
 
 function parsePack(content: string, source: string): LanguagePack {
   if (Buffer.byteLength(content, "utf8") > maxPackBytes) throw new Error(`${source} is larger than 512 KiB.`);

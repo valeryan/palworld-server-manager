@@ -39,8 +39,8 @@ export function managedDisplayNameChange(previousName: string, previousRaw: stri
   if (previous && next && previousName === previous && previous !== next) { if (next.length > 80) throw new Error("Display Name cannot exceed 80 characters; set a shorter Display Name override."); return next; }
   return undefined;
 }
-function configPath(installDir: string, platform: "linux" | "windows") { return path.join(installDir, "Pal", "Saved", "Config", platform === "windows" ? "WindowsServer" : "LinuxServer", "PalWorldSettings.ini"); }
-export function defaultConfigurationPath(installDir: string) { return path.join(installDir, "DefaultPalWorldSettings.ini"); }
+function configPath(installDir: string, platform: "linux" | "windows") { return path.join(/* turbopackIgnore: true */ installDir, "Pal", "Saved", "Config", platform === "windows" ? "WindowsServer" : "LinuxServer", "PalWorldSettings.ini"); }
+export function defaultConfigurationPath(installDir: string) { return path.join(/* turbopackIgnore: true */ installDir, "DefaultPalWorldSettings.ini"); }
 
 export function validateConfiguration(content: string) {
   if (Buffer.byteLength(content) > 2_000_000) throw new Error("Configuration exceeds the 2 MB safety limit.");
@@ -117,7 +117,7 @@ async function applyUnlocked(worldId: string, force = false) {
     const desiredHash = semanticHash(row.desiredContent);
     if (!force && row.drift) return state(row, world);
     if (!force && row.appliedSemanticHash && diskHash !== row.appliedSemanticHash && diskHash !== desiredHash) { const message = "PalWorldSettings.ini was changed outside the manager or removed. Import it or reapply desired settings before starting."; await markFailure(worldId, message, true); return state((await rowUnlocked(worldId))!, world); }
-    if (!force && path.resolve(targetPath) !== path.resolve(currentPath)) {
+    if (!force && path.resolve(/* turbopackIgnore: true */ targetPath) !== path.resolve(/* turbopackIgnore: true */ currentPath)) {
       const targetDisk = await readOptional(targetPath);
       if (targetDisk?.trim()) {
         let targetHash: string;

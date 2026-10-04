@@ -37,7 +37,7 @@ function run(command: string, args: string[], env: NodeJS.ProcessEnv, log: (line
 // driver keeps the server console from opening a window. Only manager-owned prefixes are
 // changed; a user-supplied prefix may be shared with other Wine programs.
 // wineserver ships next to the wine launcher; a bare "wine" means both come from PATH.
-export function wineserverFor(wineBinary: string): string { return wineBinary.includes(path.sep) ? path.join(path.dirname(wineBinary), "wineserver") : "wineserver"; }
+export function wineserverFor(wineBinary: string): string { return wineBinary.includes(path.sep) ? path.join(/* turbopackIgnore: true */ path.dirname(wineBinary), "wineserver") : "wineserver"; }
 
 export async function prepareWinePrefix(world: WineWorld, env: NodeJS.ProcessEnv, log: (line: string) => void): Promise<void> {
   if (!runsUnderWine(world)) return;
@@ -47,7 +47,7 @@ export async function prepareWinePrefix(world: WineWorld, env: NodeJS.ProcessEnv
   // Removing WAYLAND_DISPLAY is not enough: Wayland clients then fall back to the default
   // "wayland-0" socket and wineboot's "configuration is being updated" window still appears.
   delete quiet.DISPLAY; quiet.WAYLAND_DISPLAY = "psm-headless-no-display";
-  if (!await exists(path.join(prefix, "system.reg"))) {
+  if (!await exists(path.join(/* turbopackIgnore: true */ prefix, "system.reg"))) {
     if (!managed) log(`[manager] Wine prefix ${prefix} does not exist yet; creating it without installer prompts.`);
     else log(`[manager] Creating the Wine prefix for this world at ${prefix} (first start only).`);
     // Wine creates the prefix directory itself but not its parents.
@@ -55,7 +55,7 @@ export async function prepareWinePrefix(world: WineWorld, env: NodeJS.ProcessEnv
     await run(world.wineBinary, ["wineboot", "-i"], quiet, log, 300_000);
     changed = true;
   }
-  const userRegistry = await readFile(path.join(prefix, "user.reg"), "utf8").catch(() => "");
+  const userRegistry = await readFile(path.join(/* turbopackIgnore: true */ prefix, "user.reg"), "utf8").catch(() => "");
   if (!HEADLESS_DRIVER.test(userRegistry)) {
     if (!managed) log(`[manager] Wine prefix ${prefix} is not headless; the server console may open a window. Set its graphics driver to "null" to prevent that.`);
     else {

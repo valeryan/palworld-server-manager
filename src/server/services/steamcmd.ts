@@ -63,7 +63,7 @@ export async function ensureSteamCmd(context: JobContext): Promise<void> {
   if (result.code !== 0 || !existsSync(binary())) throw new Error("SteamCMD archive could not be extracted.");
 }
 
-function manifestPath(world: WorldView): string { return path.join(world.installDir, "steamapps", `appmanifest_${APP_ID}.acf`); }
+function manifestPath(world: WorldView): string { return path.join(/* turbopackIgnore: true */ world.installDir, "steamapps", `appmanifest_${APP_ID}.acf`); }
 export function readBuildId(world: WorldView): string | null {
   try { return readFileSync(manifestPath(world), "utf8").match(/"buildid"\s+"([^"\r\n]+)"/i)?.[1] ?? null; }
   catch { return null; }
@@ -109,7 +109,7 @@ export async function installOrUpdate(world: WorldView, context: JobContext): Pr
   }
   const buildId = readBuildId(world);
   const successMarker = /Success! App '2394010' fully installed/i.test(result.output);
-  const executable = path.join(world.installDir, world.platform === "windows" ? "PalServer.exe" : "PalServer.sh");
+  const executable = path.join(/* turbopackIgnore: true */ world.installDir, world.platform === "windows" ? "PalServer.exe" : "PalServer.sh");
   if (!existsSync(executable) || !buildId || (result.code !== 0 && !successMarker && buildId === before)) {
     const reason = result.output.match(/Error![^\r\n]*/i)?.[0] ?? `SteamCMD exited with code ${result.code}`;
     throw new Error(redact(reason));

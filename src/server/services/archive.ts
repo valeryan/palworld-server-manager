@@ -23,8 +23,8 @@ export function relativeEntry(entryName: string, root: string): string {
 
 // Keeps a written path inside the folder it belongs to, whatever the relative path says.
 export function insideFolder(folder: string, relative: string): string {
-  const target = path.resolve(folder, ...relative.split("/"));
-  if (!target.startsWith(`${path.resolve(folder)}${path.sep}`)) throw new Error(`Refusing to write outside ${folder}: ${relative}`);
+  const target = path.resolve(/* turbopackIgnore: true */ folder, ...relative.split("/"));
+  if (!target.startsWith(`${path.resolve(/* turbopackIgnore: true */ folder)}${path.sep}`)) throw new Error(`Refusing to write outside ${folder}: ${relative}`);
   return target;
 }
 
@@ -47,7 +47,7 @@ export interface VerifiedDownload { url: string; sha256: string; sizeBytes: numb
 // moves it into place once size and SHA-256 both match. Nothing partial is ever left behind.
 export async function downloadVerified(download: VerifiedDownload, context: JobContext): Promise<void> {
   await mkdir(download.staging, { recursive: true });
-  const temporary = path.join(download.staging, `${randomUUID()}.part`);
+  const temporary = path.join(/* turbopackIgnore: true */ download.staging, `${randomUUID()}.part`);
   const hash = createHash("sha256");
   const file = await open(temporary, "wx");
   let received = 0;

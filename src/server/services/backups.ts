@@ -16,7 +16,7 @@ import { worldIsLocked } from "./jobs";
 import { adoptRestoredConfiguration, validateConfiguration } from "./configuration";
 import { safeEntries } from "./archive";
 
-function saveDirectory(installDir: string): string { return path.join(installDir, "Pal", "Saved"); }
+function saveDirectory(installDir: string): string { return path.join(/* turbopackIgnore: true */ installDir, "Pal", "Saved"); }
 
 export async function createBackup(worldId: string, reason: string, context: JobContext): Promise<string> {
   const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
@@ -27,7 +27,7 @@ export async function createBackup(worldId: string, reason: string, context: Job
   const settings = await getBackupSettings(worldId);
   const directory = settings.destinationDir ?? paths.backups(worldId);
   await mkdir(directory, { recursive: true });
-  const destination = path.join(directory, `${Date.now()}-${id}.zip`);
+  const destination = path.join(/* turbopackIgnore: true */ directory, `${Date.now()}-${id}.zip`);
   const zip = new AdmZip(); zip.addLocalFolder(source, "Saved"); zip.writeZip(destination);
   await chmod(destination, 0o600);
   const verified = new AdmZip(destination).test();
@@ -54,7 +54,7 @@ export async function restoreBackup(worldId: string, backupId: string, context: 
   await createBackup(worldId, `pre-restore-${backupId}`, { signal: context.signal, update: async () => {}, log: context.log });
   const saved = saveDirectory(world.installDir); const staging = `${saved}.restore-${randomUUID()}`;
   await mkdir(staging, { recursive: true }); zip.extractAllTo(staging, true, false);
-  const extracted = path.join(staging, "Saved");
+  const extracted = path.join(/* turbopackIgnore: true */ staging, "Saved");
   await stat(extracted).catch(() => { throw new Error("Backup does not contain a Saved directory."); });
   const displaced = `${saved}.before-${Date.now()}`;
   try {
@@ -88,9 +88,9 @@ export async function getBackupSettings(worldId: string) {
 async function validateDestination(worldId: string, candidate: string | null): Promise<string | null> {
   if (!candidate) return null;
   if (!path.isAbsolute(candidate)) throw new Error("Custom backup destination must be an absolute path.");
-  const destination = path.resolve(candidate);
+  const destination = path.resolve(/* turbopackIgnore: true */ candidate);
   for (const world of await listWorlds()) {
-    if (pathsOverlap(destination, path.resolve(world.installDir))) {
+    if (pathsOverlap(destination, path.resolve(/* turbopackIgnore: true */ world.installDir))) {
       throw new Error(`Backup destination overlaps the installation for ${world.displayName}.`);
     }
   }
