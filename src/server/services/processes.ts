@@ -84,10 +84,13 @@ export async function startWorld(worldId: string): Promise<void> {
   await resetBroadcastQueue(world).catch(() => undefined);
   const launchedAt = Date.now();
   const child = spawn(command, args, { cwd: world.installDir, env, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-  child.stdout?.pipe(stream); child.stderr?.pipe(stream);
-  child.on("error", async (error) => { stream.write(`\n[manager] ${error.message}\n`); await setRuntimeState(worldId, "crashed", null); });
+  // The log closes once the process's output has fully drained ("close"), not when a pipe ends,
+  // so the exit line and any late output are never written to a closed stream.
+  child.stdout?.pipe(stream, { end: false }); child.stderr?.pipe(stream, { end: false });
+  child.on("close", () => { if (!stream.writableEnded) stream.end(); });
+  child.on("error", async (error) => { if (!stream.writableEnded) stream.write(`\n[manager] ${error.message}\n`); await setRuntimeState(worldId, "crashed", null); });
   child.on("exit", async (code, signal) => {
-    children().delete(worldId); stream.end(`\n[manager] exited code=${code ?? "null"} signal=${signal ?? "none"}\n`);
+    children().delete(worldId); if (!stream.writableEnded) stream.write(`\n[manager] exited code=${code ?? "null"} signal=${signal ?? "none"}\n`);
     await stopDeathCapture(world).catch(() => undefined);
     const latest = await getWorld(worldId); const expected = latest?.status === "stopping";
     // A controlled stop remains transitional until stopWorld has projected the
