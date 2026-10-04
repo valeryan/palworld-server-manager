@@ -1,10 +1,11 @@
 "use client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import Image from "next/image";
 import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import type { LaunchAtLoginOptions } from "../../electron/launch-options";
+import { updateChannels, type UpdateChannel } from "@/contracts/application-update";
 import type { LanguageCatalog } from "@/contracts/localization";
 import { defaultRetentionSettings, type RetentionSettings } from "@/contracts/retention";
 import { AppShell } from "./app-shell";
@@ -14,7 +15,7 @@ import { Toast } from "./toast";
 import { useTheme } from "./theme-provider";
 import { themes } from "@/lib/themes";
 
-type Paths = { dataDirectory: string; database: string; steamCmd: string; logs: string; retention: RetentionSettings; theme: string };
+type Paths = { dataDirectory: string; database: string; steamCmd: string; logs: string; retention: RetentionSettings; theme: string; updateChannel: UpdateChannel; updateChecksDisabled: "development" | null };
 const initialLaunchOptions: LaunchAtLoginOptions = { startHidden: true, disableGpu: false, forceX11: false, customFlags: "" };
 
 async function responseJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
@@ -41,6 +42,13 @@ export function SettingsPage() {
   const [savingRetention, setSavingRetention] = useState(false);
   const [savingTheme, setSavingTheme] = useState(false);
   const [changingLanguage, setChangingLanguage] = useState(false);
+  const [savingChannel, setSavingChannel] = useState(false); const client = useQueryClient();
+  async function chooseUpdateChannel(updateChannel: UpdateChannel) {
+    setSavingChannel(true);
+    try { await responseJson("/api/settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ updateChannel }) }); await Promise.all([query.refetch(), client.invalidateQueries({ queryKey: ["application-update"] })]); setNotice(t(`settings.updates.savedNotice.${updateChannel}`)); }
+    catch (error) { setNotice(error instanceof Error ? error.message : String(error)); }
+    finally { setSavingChannel(false); }
+  }
   const [documentLocale, setDocumentLocale] = useState({ code: "en", direction: "ltr" as "ltr" | "rtl" });
   const [notice, setNotice] = useState<string | null>(null);
   const retention = retentionDraft ?? query.data?.retention ?? defaultRetentionSettings;
@@ -154,6 +162,9 @@ export function SettingsPage() {
       <section className="settings-language"><div><h2>{t("settings.language.title")}{help("settings.language.title", "settings.language.description", "settings.language.fileHelp")}</h2></div><div className="language-control">
         {languages.data ? <><label><span>{t("settings.language.label")}{help("settings.language.label", "settings.language.labelHelp")}</span><select value={languages.data.active} disabled={changingLanguage} onChange={(event) => void chooseLanguage(event.target.value)}>{languages.data.languages.map((language) => <option key={language.code} value={language.code}>{language.nativeName} ({language.code})</option>)}</select></label><div className="language-list">{languages.data.languages.map((language) => <div key={language.code}><span><strong>{language.nativeName}</strong><small>{language.name} · {t("settings.language.coverage", language)}</small></span>{language.builtIn ? <small>{t("settings.language.builtIn")}</small> : <button className="button danger" onClick={() => void removeLanguage(language.code)}>{t("common.remove")}</button>}</div>)}</div></> : <p>{t("settings.language.loading")}</p>}
         <input ref={languageFile} type="file" accept="application/json,.json" hidden onChange={(event) => void installLanguage(event)} /><div className="language-actions"><button className="button ghost" onClick={() => languageFile.current?.click()}>{t("settings.language.install")}</button><a className="button ghost" href="/api/i18n/template">{t("settings.language.downloadTemplate")}</a><button className="button ghost" disabled={!desktopReady || !languages.data} onClick={() => void window.psmDesktop?.openPath(languages.data!.directory)}>{t("settings.language.openFolder")}</button></div>
+      </div></section>
+      <section className="settings-updates"><div><h2>{t("settings.updates.title")}{help("settings.updates.title", "settings.updates.description")}</h2></div><div className="language-control">
+        {query.data ? <><label><span>{t("settings.updates.channel")}{help("settings.updates.channel", "settings.updates.channelHelp")}</span><select value={query.data.updateChannel} disabled={savingChannel || Boolean(query.data.updateChecksDisabled)} onChange={(event) => void chooseUpdateChannel(event.target.value as UpdateChannel)}>{updateChannels.map((channel) => <option key={channel} value={channel}>{t(`settings.updates.option.${channel}`)}</option>)}</select></label>{query.data.updateChecksDisabled && <p className="muted">{t("settings.updates.development")}</p>}</> : <p>{t("settings.updates.loading")}</p>}
       </div></section>
       <section className="settings-paths"><div><h2>{t("settings.data.title")}{help("settings.data.title", "settings.data.description")}</h2></div>{query.data && <dl><div><dt>{t("settings.data.directory")}</dt><dd>{query.data.dataDirectory}</dd></div><div><dt>{t("settings.data.database")}</dt><dd>{query.data.database}</dd></div><div><dt>{t("settings.data.steamcmd")}</dt><dd>{query.data.steamCmd}</dd></div><div><dt>{t("settings.data.logs")}</dt><dd>{query.data.logs}</dd></div></dl>}<button className="button ghost" disabled={!desktopReady || !query.data} onClick={() => void window.psmDesktop?.openPath(query.data!.dataDirectory)}>{t("settings.data.open")}</button></section>
     </div>

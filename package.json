@@ -27,8 +27,10 @@
     "audit:settings-fixture": "tsx scripts/audit-palworld-settings.ts",
     "db:generate": "drizzle-kit generate",
     "pack": "npm run build && npm run prepare:standalone && electron-builder --dir",
-    "dist:linux": "npm run build && npm run prepare:standalone && electron-builder --linux AppImage",
-    "release:linux": "node scripts/release-linux.mjs"
+    "dist:linux": "npm run build && npm run prepare:standalone && electron-builder --linux AppImage --publish never",
+    "dist:windows": "npm run build && npm run prepare:standalone && electron-builder --win nsis --x64 --publish never",
+    "release": "node scripts/release.mjs",
+    "dist": "npm run build && npm run prepare:standalone && electron-builder --linux AppImage --win nsis --x64 --publish never"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.23",
@@ -101,11 +103,30 @@
       "syncDesktopName": true
     },
     "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Palworld-Server-Manager-${version}-Setup-${arch}.${ext}",
       "icon": "public/icons/app.ico"
     },
     "compression": "maximum",
     "electronLanguages": [
       "en-US"
-    ]
+    ],
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "valeryan",
+      "repo": "palworld-server-manager"
+    }
   }
 }

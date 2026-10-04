@@ -136,7 +136,7 @@ function startServer() {
   if (!existsSync(entry)) throw new Error(`Bundled Next server is missing: ${entry}`);
   const serverModules = path.join(root, "server-node_modules");
   const nodePath = [serverModules, process.env.NODE_PATH].filter(Boolean).join(path.delimiter);
-  server = spawn(process.execPath, [entry], { cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", NODE_ENV: "production", NODE_PATH: nodePath, HOSTNAME: host, PORT: String(port), PSM_ADMIN_TOKEN: token, PSM_APP_VERSION: app.getVersion(), PSM_DATABASE_PREFLIGHTED: migrationDigest(), PALWORLD_MANAGER_DATA_DIR: dataDir() } });
+  server = spawn(process.execPath, [entry], { cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", NODE_ENV: "production", NODE_PATH: nodePath, HOSTNAME: host, PORT: String(port), PSM_ADMIN_TOKEN: token, PSM_APP_VERSION: app.getVersion(), ...(app.isPackaged ? { PSM_PACKAGED: "1" } : {}), PSM_DATABASE_PREFLIGHTED: migrationDigest(), PALWORLD_MANAGER_DATA_DIR: dataDir() } });
   log(`Bundled web server process created (pid ${server.pid ?? "unknown"})`);
   server.stdout?.on("data", (data) => log(`[web] ${String(data).trim()}`)); server.stderr?.on("data", (data) => log(`[web:error] ${String(data).trim()}`));
   server.on("error", (error) => { serverFailure = error.message; log(`Web server error: ${error.message}`); }); server.on("exit", (code) => { if (!quitting) serverFailure = `The bundled web server exited during startup (${code ?? "unknown status"}). The manager port ${port} may already be in use.`; log(`Web server exited: ${code}`); });

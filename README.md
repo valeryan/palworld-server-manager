@@ -46,8 +46,8 @@ npm test
 npm run test:e2e
 npm run build
 npm run prepare:standalone
-npm run dist:linux
-npm run release:linux
+npm run dist
+npm run release
 npm run audit:settings-fixture -- /path/to/PalServer/DefaultPalWorldSettings.ini
 ```
 
@@ -55,7 +55,9 @@ npm run audit:settings-fixture -- /path/to/PalServer/DefaultPalWorldSettings.ini
 
 The settings audit compares an installed server template with the reviewed fixture without printing complete INIs or credential values. It reports key additions/removals, changed defaults, codec mismatches, and manager-owned keys. Refresh both fixture files only after reviewing a server update; the provenance record includes the Palworld version, Steam build ID, capture date, and checksum.
 
-See the [release process](./docs/RELEASING.md) for alpha versioning, migration safety, manual AppImage updates, and future tagged releases.
+`npm run dist` builds the Linux AppImage and the Windows installer together (the installer is cross-built through Wine, in a throwaway prefix). `npm run release` runs every check first, then builds both into a clean `release/` with `SHA256SUMS.txt`. `dist:linux` and `dist:windows` build one platform for quick local testing.
+
+See the [release process](./docs/RELEASING.md) for publishing releases with the Generate release workflow, alpha versioning, migration safety, and manual AppImage updates.
 
 ## Documentation
 

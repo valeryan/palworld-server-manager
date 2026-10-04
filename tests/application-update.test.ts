@@ -14,6 +14,24 @@ describe("application update discovery", () => {
     await expect(applicationUpdateStatus("1.0.0-alpha.2", { fetcher: async () => response(releases), force: true, now: 2 })).resolves.toMatchObject({ updateAvailable: true, publishedVersion: "1.2.0-beta.1" });
     await expect(applicationUpdateStatus("1.0.0", { fetcher: async () => response(releases), force: true, now: 3 })).resolves.toMatchObject({ updateAvailable: true, publishedVersion: "1.0.1" });
   });
+  it("follows the chosen channel instead of the installed version", async () => {
+    const releases = [release("1.1.0-alpha.1", { prerelease: true }), release("1.0.1")];
+    await expect(applicationUpdateStatus("1.0.0-alpha.2", { channel: "stable", fetcher: async () => response(releases[1]), force: true, now: 8 })).resolves.toMatchObject({ channel: "stable", updateAvailable: true, publishedVersion: "1.0.1" });
+    await expect(applicationUpdateStatus("1.0.0", { channel: "prerelease", fetcher: async () => response(releases), force: true, now: 9 })).resolves.toMatchObject({ channel: "prerelease", updateAvailable: true, publishedVersion: "1.1.0-alpha.1" });
+    await expect(applicationUpdateStatus("1.0.0-alpha.2", { fetcher: async () => response([]), force: true, now: 10 })).resolves.toMatchObject({ channel: "prerelease" });
+    await expect(applicationUpdateStatus("1.0.0", { fetcher: async () => response([]), force: true, now: 11 })).resolves.toMatchObject({ channel: "stable" });
+  });
+  it("asks the stable endpoint on the stable channel and the release list on the prerelease channel", async () => {
+    const urls: string[] = []; const fetcher = (async (url: string) => { urls.push(url); return response([]); }) as unknown as typeof fetch;
+    await applicationUpdateStatus("1.0.0-alpha.2", { channel: "stable", fetcher, force: true, now: 12 });
+    await applicationUpdateStatus("1.0.0-alpha.2", { channel: "prerelease", fetcher, force: true, now: 13 });
+    expect(urls[0]).toMatch(/\/releases\/latest$/); expect(urls[1]).toMatch(/\/releases\?per_page=20$/);
+  });
+  it("never contacts GitHub in development runs", async () => {
+    let calls = 0; const fetcher = async () => { calls += 1; return response([release("9.0.0")]); };
+    await expect(applicationUpdateStatus("1.0.0", { disabled: "development", fetcher, force: true, now: 14 })).resolves.toMatchObject({ disabledReason: "development", updateAvailable: false, publishedVersion: null });
+    expect(calls).toBe(0);
+  });
   it("ignores drafts, malformed tags, and releases that are not newer", async () => { const releases = [release("2.0.0", { draft: true }), { tag_name: "latest", html_url: "https://invalid" }, release("1.0.0")]; await expect(applicationUpdateStatus("1.0.0", { fetcher: async () => response(releases), force: true, now: 4 })).resolves.toMatchObject({ updateAvailable: false }); });
   it("keeps GitHub failures non-blocking and caches results", async () => { let calls = 0; const fetcher = async () => { calls += 1; return response({}, 503); }; const first = await applicationUpdateStatus("1.0.0", { fetcher, now: 5 }); const second = await applicationUpdateStatus("1.0.0", { fetcher, now: 6 }); expect(first.updateAvailable).toBe(false); expect(second).toEqual(first); expect(calls).toBe(1); });
   it("treats timeouts and offline failures as normal no-update results", async () => {
