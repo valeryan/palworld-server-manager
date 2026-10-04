@@ -1,9 +1,9 @@
 import "server-only";
+import { deliverNotice } from "@/server/mods/relays";
 import { database } from "@/server/db";
 import { events } from "@/server/db/schema";
 import { getMaintenanceSettings } from "./schedules";
 import { getWorld } from "./worlds";
-import { palworldRest } from "./rest";
 
 function wait(milliseconds: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -35,7 +35,8 @@ export async function warnBeforeShutdown(worldId: string, action: "restart" | "s
     const fresh = await getWorld(worldId); if (!fresh || fresh.status !== "running") return 15;
     const message = warningMessage(settings.warningMessage, action, seconds);
     try {
-      await palworldRest.announce(fresh, message);
+      // Warnings are shown on screen when PSM Broadcast runs, so players notice them.
+      await deliverNotice(fresh, message);
       await database().insert(events).values({ worldId, kind: "warning", message, createdAt: Date.now() });
     } catch (error) {
       await database().insert(events).values({ worldId, kind: "warning", message: `Could not warn players: ${error instanceof Error ? error.message : String(error)}`, createdAt: Date.now() });

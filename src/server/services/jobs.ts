@@ -88,6 +88,14 @@ export async function cancelJob(id: string): Promise<void> {
 
 export function worldIsLocked(worldId: string): boolean { return locks().has(worldId); }
 
+// Holds the same per-world lock as operations for a short change made inside a request, so a
+// start or another change cannot begin until it finishes.
+export async function withWorldLock<T>(worldId: string, task: () => Promise<T>): Promise<T> {
+  if (locks().has(worldId)) throw new Error("Another operation is already running for this world.");
+  locks().add(worldId);
+  try { return await task(); } finally { locks().delete(worldId); }
+}
+
 export async function listJobLogs(jobId: string, limit = 1_000) {
   return database().select().from(jobLogs).where(eq(jobLogs.jobId, jobId)).orderBy(jobLogs.id).limit(Math.min(Math.max(limit, 1), 5_000));
 }

@@ -10,6 +10,7 @@ import { createBackup } from "./backups";
 import { installOrUpdate } from "./steamcmd";
 import { nextRun, parseCustomHttp } from "./schedules";
 import { palworldRest } from "./rest";
+import { deliverNotice } from "@/server/mods/relays";
 import { warnBeforeShutdown } from "./maintenance";
 import { applyRetentionPolicy } from "./retention";
 
@@ -89,8 +90,13 @@ async function queueSchedule(schedule: ScheduleRow): Promise<boolean> {
       if (updateError) throw updateError;
     } else if (schedule.action === "system_message" || schedule.action === "onscreen_notice") {
       const fresh = await getWorld(schedule.worldId); if (!fresh || fresh.status !== "running") throw new Error("Server is not running.");
-      await palworldRest.announce(fresh, schedule.message ?? "");
-      await log(schedule.worldId, "scheduler", schedule.action === "onscreen_notice" ? "Sent scheduled notice through REST fallback." : "Sent scheduled system message.");
+      if (schedule.action === "onscreen_notice") {
+        const route = await deliverNotice(fresh, schedule.message ?? "");
+        await log(schedule.worldId, "scheduler", route === "broadcast" ? "Showed scheduled on-screen notice through PSM Broadcast." : "Sent scheduled notice as a chat message because PSM Broadcast is not running.");
+      } else {
+        await palworldRest.announce(fresh, schedule.message ?? "");
+        await log(schedule.worldId, "scheduler", "Sent scheduled system message.");
+      }
     } else if (schedule.action === "custom_http") await runCustomHttp(schedule);
   });
   return true;
@@ -134,7 +140,8 @@ async function deliverJoinSchedule(schedule: ScheduleRow, player: Player): Promi
   try {
     await startJob(schedule.worldId, `scheduled-${schedule.action.replaceAll("_", "-")}`, async () => {
       const world = await getWorld(schedule.worldId); if (!world || world.status !== "running") throw new Error("Server is not running.");
-      await palworldRest.announce(world, (schedule.message ?? "").replaceAll(/{player}/gi, player.name));
+      const message = (schedule.message ?? "").replaceAll(/{player}/gi, player.name);
+      if (schedule.action === "onscreen_notice") await deliverNotice(world, message); else await palworldRest.announce(world, message);
     });
     await database().update(schedules).set({ lastRunAt: Date.now() }).where(eq(schedules.id, schedule.id));
   } catch (error) { await log(schedule.worldId, "scheduler", `Could not send join message: ${error instanceof Error ? error.message : String(error)}`); }

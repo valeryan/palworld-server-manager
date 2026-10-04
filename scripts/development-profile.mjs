@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 
 export const developmentRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const defaultDevelopmentPort = 4319;
+export const defaultDevelopmentWorldPortOffset = 1000;
 export const defaultDevelopmentDataDir = path.resolve(developmentRoot, "../psm-next-development/manager-data");
 
 export function developmentEnvironment(source = process.env) {
@@ -17,5 +18,8 @@ export function developmentEnvironment(source = process.env) {
     PSM_PORT: port,
     ELECTRON_START_URL: url,
     PALWORLD_MANAGER_DATA_DIR: source.PALWORLD_MANAGER_DATA_DIR || defaultDevelopmentDataDir,
+    // New development worlds default to 9211/28015/9212/26575 so they never
+    // collide with production servers on the same host.
+    PALWORLD_MANAGER_WORLD_PORT_OFFSET: source.PALWORLD_MANAGER_WORLD_PORT_OFFSET ?? String(defaultDevelopmentWorldPortOffset),
   };
 }

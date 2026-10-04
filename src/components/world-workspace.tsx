@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import type { WorldView } from "@/contracts/world";
 import { WorldSchedulesPanel } from "./world-schedules-dialog";
 import { WorldBackupsPanel } from "./world-backups-panel";
+import { WorldModsPanel } from "./world-mods-panel";
 import { AppShell } from "./app-shell";
 import { StructuredSettings } from "./structured-settings";
 import { Toast } from "./toast";
@@ -16,7 +17,7 @@ import { BuildStatus } from "./build-status";
 import { SphereMark } from "./sphere-mark";
 
 type SafeWorld = Omit<WorldView, "adminPassword" | "serverPassword" | "env">;
-type Tab = "overview" | "players" | "deaths" | "console" | "settings" | "backups" | "schedule";
+type Tab = "overview" | "players" | "deaths" | "console" | "settings" | "mods" | "backups" | "schedule";
 type Live = { reachable: boolean; info?: Record<string, unknown>; players?: { players?: Array<Record<string, unknown>> }; metrics?: Record<string, unknown>; error?: string };
 type Activity = { events: Array<{ id: number; kind: string; message: string; createdAt: number }>; sessions: Array<{ id: number; playerName: string | null; event: string; createdAt: number }>; deaths: Array<{ id: number; victim: string; cause: string | null; killer: string | null; killerKind: string | null; createdAt: number }>; hasMore: { events: boolean; sessions: boolean; deaths: boolean } };
 type Logs = { files: string[]; selected: string | null; sizeBytes?: number; content: string };
@@ -25,7 +26,7 @@ type Configuration = { path: string; exists: boolean; content: string; running: 
 type ConfigVersion = { id: string; note: string | null; createdAt: number; sizeBytes: number };
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> { const response = await fetch(url, { ...init, headers: { "content-type": "application/json", ...init?.headers } }); const body = await response.json(); if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`); return body; }
-const tabs: Tab[] = ["overview", "players", "deaths", "console", "settings", "backups", "schedule"];
+const tabs: Tab[] = ["overview", "players", "deaths", "console", "settings", "mods", "backups", "schedule"];
 export function WorldWorkspace({ worldId }: { worldId: string }) {
   const { t } = useTranslation(); const presentation = useJobPresentation(); const stamp = useLocaleDateTime();
   const client = useQueryClient(); const [tab, setTab] = useState<Tab>("overview"); const [settingsMode, setSettingsMode] = useState<"guided" | "raw">("guided"); const [notice, setNotice] = useState<string | null>(null); const [draft, setDraft] = useState<string | null>(null); const [logsPaused, setLogsPaused] = useState(false); const [selectedLog, setSelectedLog] = useState<string>(); const [activityLimit, setActivityLimit] = useState(25);
@@ -57,6 +58,7 @@ export function WorldWorkspace({ worldId }: { worldId: string }) {
       {tab === "deaths" && <Deaths records={activityQuery.data?.deaths ?? []} hasMore={Boolean(activityQuery.data?.hasMore.deaths)} onLoadOlder={() => setActivityLimit((value) => Math.min(500, value + 25))} />}
       {tab === "console" && <Console world={world} logs={logsQuery.data} paused={logsPaused} onPause={() => setLogsPaused((value) => !value)} onSelect={setSelectedLog} onRefresh={() => void logsQuery.refetch()} onNotice={setNotice} />}
       {tab === "settings" && <div><div className="settings-mode"><button className={settingsMode === "guided" ? "active" : ""} onClick={() => setSettingsMode("guided")}>{t("world.config.guided")}</button><button className={settingsMode === "raw" ? "active" : ""} onClick={() => setSettingsMode("raw")}>{t("world.config.raw")}</button></div>{settingsMode === "guided" ? <StructuredSettings worldId={worldId} onNotice={setNotice} /> : <><div className="panel-heading"><div><h2>PalWorldSettings.ini</h2><p>{configurationQuery.data?.path}</p></div><button className="button primary" disabled={saveConfig.isPending} onClick={() => saveConfig.mutate()}>{t("world.config.saveRaw")}</button></div><textarea className="settings-editor" value={draft ?? configurationQuery.data?.content ?? ""} onChange={(event) => setDraft(event.target.value)} spellCheck={false} /><h2 className="settings-history-title">{t("world.config.history")}</h2><div className="record-list">{(versionsQuery.data ?? []).map((version) => <div key={version.id}><span><strong>{version.note ?? t("world.config.version")}</strong><small>{stamp(version.createdAt)} · {t("world.config.bytes", { count: version.sizeBytes })}</small></span><button disabled={restoreConfig.isPending} onClick={() => restoreConfig.mutate(version.id)}>{t("world.config.restore")}</button></div>)}{!(versionsQuery.data ?? []).length && <p className="muted">{t("world.config.noVersions")}</p>}</div></>}</div>}
+      {tab === "mods" && <WorldModsPanel worldId={worldId} running={world.status !== "stopped" && world.status !== "crashed"} onNotice={setNotice} />}
       {tab === "backups" && <WorldBackupsPanel worldId={worldId} running={world.status === "running"} onBackup={() => action.mutate({ action: "backup", reason: "manual" })} onRestore={(backupId) => { if (window.confirm(t("world.backupRestoreConfirm"))) action.mutate({ action: "restore", backupId }); }} onNotice={setNotice} />}
       {tab === "schedule" && <WorldSchedulesPanel world={world} onNotice={setNotice} />}
     </section>

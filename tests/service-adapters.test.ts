@@ -84,6 +84,19 @@ describe("service boundaries with isolated fakes", () => {
     expect(worldIsLocked(processWorldId)).toBe(false);
   });
 
+  it("holds the world lock for in-request changes, so a start cannot begin until they finish", async () => {
+    const { startJob, withWorldLock, worldIsLocked } = await import("@/server/services/jobs");
+    let release!: () => void;
+    const change = withWorldLock(processWorldId, () => new Promise<string>((resolve) => { release = () => resolve("done"); }));
+    expect(worldIsLocked(processWorldId)).toBe(true);
+    await expect(startJob(processWorldId, "start", async () => undefined)).rejects.toThrow("Another operation");
+    await expect(withWorldLock(processWorldId, async () => "second")).rejects.toThrow("Another operation");
+    release(); expect(await change).toBe("done");
+    expect(worldIsLocked(processWorldId)).toBe(false);
+    await expect(withWorldLock(processWorldId, async () => { throw new Error("change failed"); })).rejects.toThrow("change failed");
+    expect(worldIsLocked(processWorldId)).toBe(false);
+  });
+
   it("installs through a fake SteamCMD executable and redacts credentials", async () => {
     const installDir = path.join(root, "steam-world");
     const steamDir = path.join(root, "manager-data", "steamcmd");

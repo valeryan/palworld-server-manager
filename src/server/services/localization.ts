@@ -28,7 +28,7 @@ function packsIn(directory: string, builtIn: boolean): Map<string, { pack: Langu
   try { names = readdirSync(directory).filter((name) => name.endsWith(".json")); } catch { return result; }
   for (const name of names) {
     try {
-      const pack = parsePack(readFileSync(path.join(directory, name), "utf8"), name);
+      const pack = parsePack(readFileSync(path.join(/* turbopackIgnore: true */ directory, name), "utf8"), name);
       if (path.basename(name, ".json") !== pack.meta.code) continue;
       result.set(pack.meta.code, { pack, builtIn });
     } catch { /* Invalid optional packs are ignored instead of breaking startup. */ }
@@ -81,7 +81,7 @@ export async function installLanguagePack(content: string): Promise<LanguageCata
   const pack = parsePack(content, "Selected file");
   if (pack.meta.code === "en") throw new Error("The built-in English pack cannot be replaced.");
   const directory = paths.languagePacks();
-  const destination = path.join(directory, `${pack.meta.code}.json`);
+  const destination = path.join(/* turbopackIgnore: true */ directory, `${pack.meta.code}.json`);
   const temporary = `${destination}.tmp`;
   writeFileSync(temporary, `${JSON.stringify(pack, null, 2)}\n`, { mode: 0o600 });
   renameSync(temporary, destination);
@@ -92,7 +92,7 @@ export async function removeLanguagePack(code: string): Promise<LanguageCatalog>
   if (code === "en") throw new Error("The built-in English pack cannot be removed.");
   if (!languageCodePattern.test(code)) throw new Error("The language code is invalid.");
   if (!discoveredPacks().combined.has(code)) throw new Error(`Language pack ${code} is not installed.`);
-  unlinkSync(path.join(paths.languagePacks(), `${code}.json`));
+  unlinkSync(path.join(/* turbopackIgnore: true */ paths.languagePacks(), `${code}.json`));
   if (await configuredLanguage() === code) await selectLanguage("en");
   return languageCatalog();
 }

@@ -77,7 +77,7 @@ async function replaceDatabase(source: string, target: string): Promise<void> {
 }
 
 export async function runDatabasePreflight(options: PreflightOptions): Promise<PreflightResult> {
-  const resolved = { ...options, databasePath: path.resolve(options.databasePath), dataDirectory: path.resolve(options.dataDirectory), migrationsFolder: path.resolve(options.migrationsFolder) };
+  const resolved = { ...options, databasePath: path.resolve(/* turbopackIgnore: true */ options.databasePath), dataDirectory: path.resolve(/* turbopackIgnore: true */ options.dataDirectory), migrationsFolder: path.resolve(/* turbopackIgnore: true */ options.migrationsFolder) };
   await resolved.onProgress?.("preparing");
   await mkdir(path.dirname(resolved.databasePath), { recursive: true, mode: 0o700 }); verifyMigrationFiles(resolved.migrationsFolder);
   const existed = (await stat(resolved.databasePath).catch(() => null))?.isFile() === true;
