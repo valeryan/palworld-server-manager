@@ -24,6 +24,8 @@ const inherited = { ...process.env }; delete inherited.DISPLAY;
 const env = winePrefix ? { ...inherited, WINEPREFIX: winePrefix, WINEDEBUG: "-all", WINEDLLOVERRIDES: "mscoree,mshtml=;winemenubuilder.exe=d", WAYLAND_DISPLAY: "psm-headless-no-display" } : process.env;
 try { await run("npm", ["run", "dist"], env); }
 finally { if (winePrefix) { await run("wineserver", ["-k"], env).catch(() => undefined); await rm(winePrefix, { recursive: true, force: true }); } }
+// release/ keeps only the release files; electron-builder's working output goes.
+for (const name of await readdir(release)) if (!Object.values(artifacts).some((matches) => matches(name))) await rm(path.join(release, name), { recursive: true, force: true });
 const files = await readdir(release); const sums = [];
 for (const [platform, matches] of Object.entries(artifacts)) {
   const found = files.filter(matches);
