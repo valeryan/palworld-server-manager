@@ -13,7 +13,10 @@ function LiveUpdates() {
   useEffect(() => {
     const stream = new EventSource("/api/events");
     const refresh = () => { void client.invalidateQueries({ queryKey: ["worlds"] }); void client.invalidateQueries({ queryKey: ["jobs"] }); };
-    stream.addEventListener("world", refresh); stream.addEventListener("job", refresh);
+    stream.addEventListener("world", refresh); stream.addEventListener("job", (event) => {
+      refresh();
+      try { const payload = JSON.parse(event.data); const job = payload.data ?? payload; if (["succeeded", "failed", "cancelled"].includes(job.state)) void client.invalidateQueries({ predicate: (query) => !["host", "world-port-suggestion"].includes(String(query.queryKey[0])) }); } catch { /* Ignore malformed events; polling remains available. */ }
+    });
     return () => stream.close();
   }, [client]);
   return null;

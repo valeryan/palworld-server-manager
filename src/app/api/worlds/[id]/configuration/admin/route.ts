@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { PALWORLD_SETTING_FIELDS, validateAndEncodeSettingChanges } from "@/contracts/palworld-settings";
 import { errorResponse, requireAdmin } from "@/server/http";
-import { applyConfigurationOptions, managedDisplayNameChange, managedPublicPortChange, managedConfigurationChanges, readConfigurationOptions, readSettingsState, resolveShippedDefaultChanges, saveDesiredSettings } from "@/server/services/configuration";
+import { applyConfigurationOptions, configurationIsValid, managedDisplayNameChange, managedPublicPortChange, managedConfigurationChanges, readConfigurationOptions, readSettingsState, resolveShippedDefaultChanges, saveDesiredSettings } from "@/server/services/configuration";
 import { getWorld } from "@/server/services/worlds";
 
 export const runtime = "nodejs";
@@ -25,6 +25,7 @@ const managedSchema = z.object({
   crashGuard: z.boolean().optional(),
   legacyPerfFlags: z.boolean().optional(),
   extraArgs: z.string().max(4096).optional(),
+  argumentFormat: z.enum(["legacy", "windows"]).optional(),
   env: z.record(z.string(), z.string()).optional(),
   wineBinary: z.string().trim().optional(),
   winePrefix: z.string().nullable().optional(),
@@ -55,7 +56,7 @@ export async function GET(request: Request, context: Context) {
         gamePort: world.gamePort, queryPort: world.queryPort, advertisedPort: configuration.advertisedPort,
         status: actualWorld.status,
         communityServer: world.communityServer, autostart: world.autostart, crashGuard: world.crashGuard,
-        legacyPerfFlags: world.legacyPerfFlags, extraArgs: world.extraArgs, environment: world.env,
+        legacyPerfFlags: world.legacyPerfFlags, extraArgs: world.extraArgs, argumentFormat: world.argumentFormat, environment: world.env,
         wineBinary: world.wineBinary, winePrefix: world.winePrefix, wineLaunchFlags: world.wineLaunchFlags,
       },
       appliedAdmin: { ...applied, environment: applied.env, advertisedPort: configuration.appliedAdvertisedPort, status: actualWorld.status },
@@ -89,6 +90,12 @@ export async function PUT(request: Request, context: Context) {
     const world = { ...previous, ...worldChanges };
     const publicPortProvided = Object.hasOwn(input.managed, "publicPortOverride");
     const publicPortChange = managedPublicPortChange(previousConfiguration.advertisedPort, previous.gamePort, world.gamePort, input.managed.publicPortOverride, publicPortProvided);
+    const gameChanges = Object.keys(encoded).length > 0 || input.resetToDefaults.length > 0 || publicPortProvided;
+    if (!configurationIsValid(current.desiredContent)) {
+      if (gameChanges) throw new Error("Game configuration is missing or malformed. Save registration changes separately, then install or repair the configuration.");
+      const result = await saveDesiredSettings(id, { baseRevision: input.baseRevision, manager: world });
+      return Response.json({ ok: true, result, configurationChanged: false });
+    }
     const configurationChanged = true;
     const synchronized = managedConfigurationChanges(world);
     if (publicPortChange !== undefined) synchronized.PublicPort = publicPortChange;

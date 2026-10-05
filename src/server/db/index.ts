@@ -1,4 +1,5 @@
 import "server-only";
+import { hostPlatform } from "@/server/host";
 import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -11,13 +12,15 @@ function createDatabase() {
   if (!databaseWasPrepared(databasePath)) throw new Error("Database startup preflight has not completed.");
   mkdirSync(path.dirname(databasePath), { recursive: true });
   const client = new DatabaseSync(databasePath, { timeout: 5_000 });
-  chmodSync(databasePath, 0o600);
+  try {
+  if (hostPlatform() !== "win32") chmodSync(databasePath, 0o600);
   client.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL;");
   for (const relatedPath of [`${databasePath}-wal`, `${databasePath}-shm`]) {
-    if (existsSync(/* turbopackIgnore: true */ relatedPath)) chmodSync(/* turbopackIgnore: true */ relatedPath, 0o600);
+    if (hostPlatform() !== "win32" && existsSync(/* turbopackIgnore: true */ relatedPath)) chmodSync(/* turbopackIgnore: true */ relatedPath, 0o600);
   }
   const database = drizzle({ client });
   return { database, client, databasePath };
+  } catch (error) { client.close(); throw error; }
 }
 type DatabaseBundle = ReturnType<typeof createDatabase>;
 declare global { var __psmDatabase: DatabaseBundle | undefined; }

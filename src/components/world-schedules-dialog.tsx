@@ -1,4 +1,5 @@
 "use client";
+import { requestJson as request } from "@/lib/http-client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,7 +11,7 @@ type Action = "backup" | "restart" | "stop" | "update" | "system_message" | "ons
 type Mode = "interval" | "minutes" | "daily" | "on_join";
 type Schedule = { id: string; action: Action; mode: Mode; intervalHours: number | null; intervalMinutes: number | null; timeOfDay: string | null; message: string | null; joinMatch: string | null; joinDelaySeconds: number | null; enabled: boolean; skipNext: boolean; lastRunAt: number | null; nextRunAt: number | null };
 type WarningSettings = { warningEnabled: boolean; warningLeadMinutes: number; warningIntervalMinutes: number; warningMessage: string };
-async function request<T>(url: string, init?: RequestInit): Promise<T> { const response = await fetch(url, { ...init, headers: { "content-type": "application/json", ...init?.headers } }); const body = await response.json(); if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`); return body; }
+
 const actions: Action[] = ["backup", "restart", "stop", "update", "system_message", "onscreen_notice", "custom_http", "idle_stop"];
 
 export function WorldSchedulesPanel({ world, onNotice }: { world: SafeWorld; onNotice(message: string): void }) {

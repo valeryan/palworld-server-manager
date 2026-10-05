@@ -9,10 +9,10 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n web,electron -c cyan,magenta \"npm:dev:web\" \"npm:dev:electron\"",
-    "dev:web": "node scripts/start-development-web.mjs",
-    "dev:electron": "npm run build:electron && node scripts/start-development-electron.mjs",
+    "dev:web": "node scripts/dev.mjs web",
+    "dev:electron": "npm run build:electron && node scripts/dev.mjs electron",
     "build": "npm run build:web && npm run build:electron",
-    "build:web": "node scripts/clean-web-build-artifacts.mjs && next build",
+    "build:web": "next build",
     "build:electron": "tsup",
     "prepare:standalone": "node scripts/prepare-standalone.mjs",
     "start": "next start -p 4318",
@@ -21,10 +21,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "npm run pack && playwright test",
-    "test:e2e:browser": "npm run build:web && playwright test --project=browser",
+    "test:e2e:browser": "npm run build:web && npm run prepare:standalone && playwright test --project=browser",
     "test:e2e:electron": "npm run pack && playwright test --project=packaged-electron",
-    "test:guarded": "tsx scripts/guard-source-trees.ts",
-    "audit:settings-fixture": "tsx scripts/audit-palworld-settings.ts",
     "db:generate": "drizzle-kit generate",
     "pack": "npm run build && npm run prepare:standalone && electron-builder --dir",
     "dist:linux": "npm run build && npm run prepare:standalone && electron-builder --linux AppImage --publish never",
@@ -88,6 +86,10 @@
       {
         "from": "dist-standalone",
         "to": "app"
+      },
+      {
+        "from": "dist-standalone/node_modules",
+        "to": "app/node_modules"
       }
     ],
     "directories": {

@@ -1,4 +1,5 @@
 "use client";
+import { requestJson as request } from "@/lib/http-client";
 import { useQuery } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -6,7 +7,6 @@ import { useTranslation } from "react-i18next";
 type Player = { name?: string; playername?: string; userId?: string; userid?: string; playerId?: string; level?: number };
 type World = { id: string; displayName: string; status: "stopped" | "starting" | "running" | "stopping" | "crashed" | "unknown"; gamePort: number; buildId: string | null; players?: Player[] };
 type Session = { label: string; permissions: string[] };
-async function request<T>(url: string, init?: RequestInit): Promise<T> { const response = await fetch(url, { ...init, headers: { "content-type": "application/json", ...init?.headers } }); const body = await response.json(); if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`); return body; }
 
 export function RemoteAccessPage() {
   const { t } = useTranslation();

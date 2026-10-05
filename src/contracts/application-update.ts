@@ -6,6 +6,7 @@ export type ApplicationUpdateStatus = {
   channel: UpdateChannel;
   // Development runs (npm run dev, next start, browser tests) never contact GitHub.
   disabledReason?: "development";
+  error?: string;
   publishedVersion: string | null;
   updateAvailable: boolean;
   releaseUrl: string | null;

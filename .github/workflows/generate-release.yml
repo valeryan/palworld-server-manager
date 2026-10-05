@@ -146,9 +146,41 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  windows-runtime:
+    name: Test Linux-built Windows executables
+    needs: [prepare, build]
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-${{ inputs.version }}
+          path: release
+      - name: Install artifact harness only
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force .artifact-harness | Out-Null
+          Copy-Item e2e/windows/artifacts.mjs .artifact-harness/windows.mjs
+          npm install --prefix .artifact-harness --no-audit --no-fund playwright@1.63.0
+      - name: Exercise Setup and Portable
+        run: node .artifact-harness/windows.mjs release windows-artifact-results
+      - name: Preserve native runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-runtime-${{ inputs.version }}
+          path: windows-artifact-results/
+          if-no-files-found: warn
+
   publish:
     name: Publish the release
-    needs: [prepare, build]
+    needs: [prepare, build, windows-runtime]
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     permissions:
@@ -247,7 +279,7 @@ jobs:
 
   cleanup:
     name: Remove the release branch
-    needs: [prepare, build, publish]
+    needs: [prepare, build, windows-runtime, publish]
     if: ${{ always() && needs.prepare.result != 'skipped' }}
     runs-on: ubuntu-latest
     permissions:

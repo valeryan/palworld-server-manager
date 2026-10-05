@@ -14,7 +14,13 @@ const artifacts = { linux: (name) => name.endsWith(".AppImage"), "windows instal
 
 function run(command, args, env = process.env) { return new Promise((resolve, reject) => { const child = spawn(command, args, { cwd: root, env, stdio: "inherit", windowsHide: true, shell: process.platform === "win32" }); child.once("error", reject); child.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`${command} ${args.join(" ")} exited with ${code}.`))); }); }
 
-if (!process.argv.includes("--skip-checks")) for (const script of ["typecheck", "lint", "test", "test:e2e"]) await run("npm", ["run", script]);
+if (!process.argv.includes("--skip-checks")) {
+  // test:e2e builds and prepares the application before testing the packaged desktop.
+  for (const script of ["typecheck", "lint", "test", "test:e2e"]) await run("npm", ["run", script]);
+} else {
+  await run("npm", ["run", "build"]);
+  await run("npm", ["run", "prepare:standalone"]);
+}
 await rm(release, { recursive: true, force: true });
 // On Linux the NSIS build runs the installer under Wine to extract its uninstaller. Give it a
 // throwaway prefix with no display, no Mono/Gecko prompts and no desktop integration, so it never
@@ -22,7 +28,8 @@ await rm(release, { recursive: true, force: true });
 const winePrefix = process.platform === "linux" ? await mkdtemp(path.join(tmpdir(), "psm-release-wine-")) : null;
 const inherited = { ...process.env }; delete inherited.DISPLAY;
 const env = winePrefix ? { ...inherited, WINEPREFIX: winePrefix, WINEDEBUG: "-all", WINEDLLOVERRIDES: "mscoree,mshtml=;winemenubuilder.exe=d", WAYLAND_DISPLAY: "psm-headless-no-display" } : process.env;
-try { await run("npm", ["run", "dist"], env); }
+// Package the output already built above; invoking dist here would compile it a second time.
+try { await run("npx", ["electron-builder", "--linux", "AppImage", "--win", "nsis", "portable", "--x64", "--publish", "never"], env); }
 finally { if (winePrefix) { await run("wineserver", ["-k"], env).catch(() => undefined); await rm(winePrefix, { recursive: true, force: true }); } }
 // release/ keeps only the release files; electron-builder's working output goes.
 for (const name of await readdir(release)) if (!Object.values(artifacts).some((matches) => matches(name))) await rm(path.join(release, name), { recursive: true, force: true });

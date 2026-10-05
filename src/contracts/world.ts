@@ -23,6 +23,7 @@ export const createWorldSchema = z.object({
   crashGuard: z.boolean().default(true),
   legacyPerfFlags: z.boolean().default(true),
   extraArgs: z.string().max(4096).default(""),
+  argumentFormat: z.enum(["legacy", "windows"]).optional(),
   env: z.record(z.string(), z.string()).default({}),
   wineBinary: z.string().trim().default("wine"),
   winePrefix: z.string().nullable().default(null),
@@ -34,7 +35,7 @@ export const managedWorldSettingsSchema = createWorldSchema.omit({ adminPassword
 export const portableWorldSchema = createWorldSchema.omit({ adminPassword: true, serverPassword: true }).strict();
 export const worldRegistrationSchema = z.object({
   format: z.literal("psm-next/world-registration"),
-  version: z.literal(1),
+  version: z.union([z.literal(1), z.literal(2)]),
   exportedAt: z.iso.datetime(),
   sourceWorldId: z.string().min(1),
   world: portableWorldSchema,
@@ -49,6 +50,7 @@ export const worldActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("stop"), force: z.boolean().default(false) }),
   z.object({ action: z.literal("restart") }),
   z.object({ action: z.literal("install") }),
+  z.object({ action: z.literal("repair-prerequisites") }),
   z.object({ action: z.literal("update") }),
   z.object({ action: z.literal("check-update") }),
   z.object({ action: z.literal("backup"), reason: z.string().max(200).default("manual") }),
@@ -63,6 +65,7 @@ export type WorldStatus = z.infer<typeof worldStatusSchema>;
 export type WorldRegistration = z.infer<typeof worldRegistrationSchema>;
 
 export interface WorldView extends CreateWorldInput {
+  installation?: import("./installation").InstallationHealth;
   id: string;
   status: WorldStatus;
   processId: number | null;

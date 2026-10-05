@@ -1,7 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, powerSaveBlocker, shell, Tray } from "electron";
 import { randomBytes } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { request } from "node:http";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -11,6 +10,7 @@ import { defaultLaunchAtLoginOptions, defaultManagerPort, launchAtLoginArguments
 import { runDatabasePreflight, UpgradePreflightError, type PreflightOptions, type UpgradeStage } from "../src/server/db/upgrade";
 import { migrationDigest } from "../src/server/db/migration-catalog";
 import { compareSemanticVersions } from "../src/lib/semver";
+import { assertLocalWindowsPath } from "../src/server/host";
 
 app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
@@ -26,16 +26,18 @@ function sandboxNeedsCompatibility(): boolean {
 if (sandboxNeedsCompatibility()) { app.commandLine.appendSwitch("no-sandbox"); app.commandLine.appendSwitch("no-zygote"); }
 
 const isDev = Boolean(process.env.ELECTRON_START_URL); const developmentUrl = isDev ? new URL(process.env.ELECTRON_START_URL!) : null; const token = randomBytes(32).toString("hex");
+const launchSession = randomBytes(24).toString("hex");
+let quitDrained = false; let drainingQuit = false; let profileError: unknown;
 const startHidden = process.argv.includes("--hidden");
 let window: BrowserWindow | null = null; let upgradeWindow: BrowserWindow | null = null; let upgradeCloseBlocked = false; let tray: Tray | null = null; let server: ChildProcess | null = null; let serverFailure: string | null = null; let quitting = false;
 if (isDev && process.env.PALWORLD_MANAGER_DATA_DIR) { const developmentProfile = path.resolve(process.env.PALWORLD_MANAGER_DATA_DIR, "electron"); mkdirSync(developmentProfile, { recursive: true }); app.setPath("userData", developmentProfile); }
-else if (process.env.PORTABLE_EXECUTABLE_DIR) { const portable = path.join(process.env.PORTABLE_EXECUTABLE_DIR, "PSM-Data"); mkdirSync(portable, { recursive: true }); app.setPath("userData", portable); }
+else if (process.env.PORTABLE_EXECUTABLE_DIR) { const portable = path.join(process.env.PORTABLE_EXECUTABLE_DIR, "PSM-Data"); try { mkdirSync(portable, { recursive: true }); app.setPath("userData", portable); } catch (error) { profileError = error; } }
 const dataDir = () => app.getPath("userData"); const log = (message: string) => { try { appendFileSync(path.join(dataDir(), "launcher-v3.log"), `[${new Date().toISOString()}] ${message}\n`); } catch {} };
 const preferencePath = () => path.join(dataDir(), "desktop-preferences.json");
 type ManagerHost = "127.0.0.1" | "0.0.0.0";
-type DesktopPreferences = { closeToTray: boolean; launchAtLogin: boolean; launchOptions: LaunchAtLoginOptions; managerPort: number; managerHost: ManagerHost; lastSuccessfulAppVersion: string | null };
+type DesktopPreferences = { lastLoginExecutable: string | null; closeToTray: boolean; launchAtLogin: boolean; launchOptions: LaunchAtLoginOptions; managerPort: number; managerHost: ManagerHost; lastSuccessfulAppVersion: string | null };
 function normalizeManagerHost(value: unknown): ManagerHost { return value === "0.0.0.0" ? value : "127.0.0.1"; }
-function preferences(): DesktopPreferences { try { const saved = JSON.parse(readFileSync(preferencePath(), "utf8")); return { closeToTray: saved.closeToTray !== false, launchAtLogin: saved.launchAtLogin === true || (saved.launchAtLogin == null && process.platform === "linux" && existsSync(linuxAutostartPath())), launchOptions: normalizeLaunchAtLoginOptions(saved.launchOptions), managerPort: normalizeManagerPort(saved.managerPort), managerHost: normalizeManagerHost(saved.managerHost), lastSuccessfulAppVersion: typeof saved.lastSuccessfulAppVersion === "string" ? saved.lastSuccessfulAppVersion : null }; } catch { return { closeToTray: true, launchAtLogin: process.platform === "linux" && existsSync(linuxAutostartPath()), launchOptions: defaultLaunchAtLoginOptions, managerPort: defaultManagerPort, managerHost: "127.0.0.1", lastSuccessfulAppVersion: null }; } }
+function preferences(): DesktopPreferences { try { const saved = JSON.parse(readFileSync(preferencePath(), "utf8")); return { lastLoginExecutable: typeof saved.lastLoginExecutable === "string" ? saved.lastLoginExecutable : null, closeToTray: saved.closeToTray !== false, launchAtLogin: saved.launchAtLogin === true || (saved.launchAtLogin == null && process.platform === "linux" && existsSync(linuxAutostartPath())), launchOptions: normalizeLaunchAtLoginOptions(saved.launchOptions), managerPort: normalizeManagerPort(saved.managerPort), managerHost: normalizeManagerHost(saved.managerHost), lastSuccessfulAppVersion: typeof saved.lastSuccessfulAppVersion === "string" ? saved.lastSuccessfulAppVersion : null }; } catch { return { lastLoginExecutable: null, closeToTray: true, launchAtLogin: process.platform === "linux" && existsSync(linuxAutostartPath()), launchOptions: defaultLaunchAtLoginOptions, managerPort: defaultManagerPort, managerHost: "127.0.0.1", lastSuccessfulAppVersion: null }; } }
 function writePreferences(patch: Partial<DesktopPreferences>) { mkdirSync(dataDir(), { recursive: true }); const temporary = `${preferencePath()}.tmp-${process.pid}`; writeFileSync(temporary, JSON.stringify({ ...preferences(), ...patch }, null, 2), { mode: 0o600 }); renameSync(temporary, preferencePath()); }
 const port = developmentUrl ? validateManagerPort(developmentUrl.port || "80") : process.env.PSM_PORT ? validateManagerPort(process.env.PSM_PORT) : preferences().managerPort;
 function remoteAccessEnabled(): boolean { try { return JSON.parse(readFileSync(path.join(dataDir(), "remote-access.json"), "utf8")).enabled === true; } catch { return false; } }
@@ -43,7 +45,7 @@ const host: ManagerHost = process.env.PSM_HOST === "0.0.0.0" ? "0.0.0.0" : remot
 function linuxAutostartPath() { return path.join(app.getPath("home"), ".config", "autostart", "com.palworld.servermanager.next.desktop"); }
 function persistentDataArguments() { return process.argv.slice(1).filter((argument) => argument.startsWith("--user-data-dir=")); }
 function desktopQuote(value: string) { return `"${value.replace(/([\\`"$])/g, "\\$1")}"`; }
-function autostartContents(): string { const executable = process.env.APPIMAGE || process.execPath; const launchArguments = launchAtLoginArguments(preferences().launchOptions, persistentDataArguments()); const command = [executable, ...launchArguments].map(desktopQuote).join(" "); return `[Desktop Entry]\nType=Application\nName=Palworld Server Manager Next\nComment=Start the Palworld server supervisor at login\nExec=${command}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n`; }
+function autostartContents(): string { const executable = process.env.APPIMAGE || process.execPath; const launchArguments = launchAtLoginArguments({ ...preferences().launchOptions, forceX11: process.platform === "linux" && preferences().launchOptions.forceX11 }, persistentDataArguments()); const command = [executable, ...launchArguments].map(desktopQuote).join(" "); return `[Desktop Entry]\nType=Application\nName=Palworld Server Manager Next\nComment=Start the Palworld server supervisor at login\nExec=${command}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n`; }
 function atomicWrite(filePath: string, content: string) { mkdirSync(path.dirname(filePath), { recursive: true }); const temporary = `${filePath}.tmp-${process.pid}`; writeFileSync(temporary, content, { mode: 0o600 }); renameSync(temporary, filePath); }
 function updatedAutostartContents(content: string): string {
   const executable = process.env.APPIMAGE || process.execPath;
@@ -51,16 +53,25 @@ function updatedAutostartContents(content: string): string {
   if (!command) throw new Error("The managed launch-at-login entry has no replaceable Exec command.");
   return content.replace(command[0], () => `Exec=${desktopQuote(executable)}${command[1]}`);
 }
-function setLaunchAtLogin(enabled: boolean): boolean {
+function loginExecutable(): string { return process.env.PORTABLE_EXECUTABLE_FILE || (process.env.PORTABLE_EXECUTABLE_DIR && process.env.PORTABLE_EXECUTABLE_APP_FILENAME ? path.join(process.env.PORTABLE_EXECUTABLE_DIR, process.env.PORTABLE_EXECUTABLE_APP_FILENAME) : process.execPath); }
+function loginStatus() {
+  if (process.platform !== "win32") return { configured: preferences().launchAtLogin, enabled: preferences().launchAtLogin, disabledByOS: false };
+  const state = app.getLoginItemSettings({ path: loginExecutable(), args: launchAtLoginArguments({ ...preferences().launchOptions, forceX11: false }, persistentDataArguments()) });
+  return { configured: state.openAtLogin, enabled: state.openAtLogin && state.executableWillLaunchAtLogin, disabledByOS: state.openAtLogin && !state.executableWillLaunchAtLogin };
+}
+function setLaunchAtLogin(enabled: boolean, preserveApproval = false): boolean {
   if (isDev) throw new Error("Launch at login is only available in the packaged application.");
-  const launchArguments = launchAtLoginArguments(preferences().launchOptions, persistentDataArguments());
+  const launchArguments = launchAtLoginArguments({ ...preferences().launchOptions, forceX11: process.platform === "linux" && preferences().launchOptions.forceX11 }, persistentDataArguments());
   if (process.platform === "linux") {
     const filePath = linuxAutostartPath(); mkdirSync(path.dirname(filePath), { recursive: true });
     if (enabled) {
       atomicWrite(filePath, autostartContents());
     } else rmSync(filePath, { force: true });
-  } else app.setLoginItemSettings({ openAtLogin: enabled, args: enabled ? launchArguments : [] });
-  writePreferences({ launchAtLogin: enabled }); return enabled;
+  } else {
+    const approved = enabled && (!preserveApproval || app.getLoginItemSettings({ path: preferences().lastLoginExecutable ?? loginExecutable() }).executableWillLaunchAtLogin);
+    app.setLoginItemSettings({ openAtLogin: enabled, enabled: approved, path: loginExecutable(), args: launchArguments });
+  }
+  writePreferences({ launchAtLogin: enabled, lastLoginExecutable: loginExecutable() }); return enabled;
 }
 function preflightOptions(): PreflightOptions { return { databasePath: path.join(dataDir(), "registry-v3.sqlite"), dataDirectory: dataDir(), migrationsFolder: path.join(process.resourcesPath, "app", "drizzle") }; }
 
@@ -68,7 +79,7 @@ const upgradeStyles = `body{margin:0;background:#07101e;color:#eaf8ff;font:15px 
 const upgradePage = (body: string) => `data:text/html,${encodeURIComponent(`<meta charset="utf-8"><title>Palworld Server Manager upgrade</title><style>${upgradeStyles}</style><main class="card">${body}</main>`)}`;
 async function confirmVersionTransition(previous: string | null, current: string, downgrade: boolean): Promise<boolean> {
   const heading = downgrade ? `Downgrade to ${current}?` : previous ? `Upgrade to ${current}?` : `Upgrade existing installation to ${current}?`;
-  const detail = downgrade ? `This installation last started successfully with ${previous}. Continue only if you intentionally selected an older AppImage. Database compatibility will be checked before startup.` : `The manager will safely prepare local data and update an existing launch-at-login entry before starting ${current}.`;
+  const detail = downgrade ? `This installation last started successfully with ${previous}. Continue only if you intentionally selected an older application. Database compatibility will be checked before startup.` : `The manager will safely prepare local data and update an existing launch-at-login entry before starting ${current}.`;
   upgradeWindow = new BrowserWindow({ width: 540, height: 360, resizable: false, maximizable: false, fullscreenable: false, autoHideMenuBar: true, backgroundColor: "#07101e", title: "Palworld Server Manager upgrade", webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } });
   upgradeWindow.on("close", (event) => { if (upgradeCloseBlocked && !quitting) event.preventDefault(); });
   await upgradeWindow.loadURL(upgradePage(`<h1>${heading}</h1><p>${detail}</p><p class="version">${previous ?? "existing installation"} → ${current}</p><div class="actions"><button onclick="location.href='psm-upgrade://quit'">Quit</button><button class="primary" onclick="location.href='psm-upgrade://confirm'">${downgrade ? "Continue downgrade" : "Upgrade"}</button></div>`));
@@ -134,9 +145,7 @@ function startServer() {
   const root = path.join(process.resourcesPath, "app"); const entry = path.join(root, "server.js");
   log(`Starting bundled web server from ${entry}`);
   if (!existsSync(entry)) throw new Error(`Bundled Next server is missing: ${entry}`);
-  const serverModules = path.join(root, "server-node_modules");
-  const nodePath = [serverModules, process.env.NODE_PATH].filter(Boolean).join(path.delimiter);
-  server = spawn(process.execPath, [entry], { cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", NODE_ENV: "production", NODE_PATH: nodePath, HOSTNAME: host, PORT: String(port), PSM_ADMIN_TOKEN: token, PSM_APP_VERSION: app.getVersion(), ...(app.isPackaged ? { PSM_PACKAGED: "1" } : {}), PSM_DATABASE_PREFLIGHTED: migrationDigest(), PALWORLD_MANAGER_DATA_DIR: dataDir() } });
+  server = spawn(process.execPath, [entry], { cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", NODE_ENV: "production", HOSTNAME: host, PORT: String(port), PSM_ADMIN_TOKEN: token, PSM_LAUNCH_SESSION: launchSession, PSM_APP_VERSION: app.getVersion(), ...(app.isPackaged ? { PSM_PACKAGED: "1" } : {}), PSM_DATABASE_PREFLIGHTED: migrationDigest(), PALWORLD_MANAGER_DATA_DIR: dataDir() } });
   log(`Bundled web server process created (pid ${server.pid ?? "unknown"})`);
   server.stdout?.on("data", (data) => log(`[web] ${String(data).trim()}`)); server.stderr?.on("data", (data) => log(`[web:error] ${String(data).trim()}`));
   server.on("error", (error) => { serverFailure = error.message; log(`Web server error: ${error.message}`); }); server.on("exit", (code) => { if (!quitting) serverFailure = `The bundled web server exited during startup (${code ?? "unknown status"}). The manager port ${port} may already be in use.`; log(`Web server exited: ${code}`); });
@@ -147,7 +156,25 @@ async function stopServer(): Promise<void> {
   await new Promise<void>((resolve) => { const forced = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, 2_000); child.once("exit", () => { clearTimeout(forced); resolve(); }); try { child.kill("SIGTERM"); } catch { clearTimeout(forced); resolve(); } });
 }
 
-function ping(): Promise<boolean> { return new Promise((resolve) => { const req = developmentUrl ? request(developmentUrl, { method: "HEAD", timeout: 1_000 }, (response) => { response.destroy(); resolve(true); }) : request({ hostname: "127.0.0.1", port, path: "/", method: "HEAD", timeout: 1_000 }, (response) => { response.destroy(); resolve(true); }); req.on("error", () => resolve(false)); req.on("timeout", () => { req.destroy(); resolve(false); }); req.end(); }); }
+async function runtimeRequest(route: string, method = "GET"): Promise<Record<string, unknown>> {
+  const response = await fetch(`http://127.0.0.1:${port}/api/runtime/${route}`, { method, redirect: "error", signal: AbortSignal.timeout(2_000), headers: { cookie: `psm_admin=${token}`, "x-psm-launch-session": launchSession } });
+  if (!response.ok) throw new Error(`Runtime ${route}: HTTP ${response.status}`);
+  const body = await response.json(); if (!body.ok || body.session !== launchSession) throw new Error("Runtime session did not match this launcher."); return body;
+}
+async function ping(): Promise<boolean> {
+  try { if (developmentUrl) { const response = await fetch(developmentUrl, { signal: AbortSignal.timeout(1_000), redirect: "manual" }); return response.status >= 200 && response.status < 400; } await runtimeRequest("ready"); return true; } catch { return false; }
+}
+async function drainAndQuit(): Promise<void> {
+  if (drainingQuit) return; drainingQuit = true;
+  try {
+    if (server && server.exitCode === null && !serverFailure) {
+      window?.setTitle("Finishing operations before quitting…");
+      while (true) { const state = await runtimeRequest("drain", "POST"); if (state.active === 0) break; await new Promise((resolve) => setTimeout(resolve, 500)); }
+    }
+    await stopServer(); quitDrained = true; app.quit();
+  } catch (error) { drainingQuit = false; quitting = false; log(`Quit delayed: ${String(error)}`); await dialog.showMessageBox({ type: "error", message: "The manager could not finish shutting down safely.", detail: `${String(error)}\nInspect Operations and retry Quit. Running servers have not been stopped.` }); }
+}
+
 async function waitForServer() { const deadline = Date.now() + 60_000; while (Date.now() < deadline) { if (serverFailure) throw new Error(serverFailure); if (await ping()) return; await new Promise((resolve) => setTimeout(resolve, 350)); } throw new Error(`The bundled web server did not answer on port ${port} within 60 seconds.`); }
 function iconPath() { return desktopIconPath({ isDevelopment: isDev, platform: process.platform, developmentRoot: path.join(__dirname, ".."), resourcesPath: process.resourcesPath }); }
 
@@ -160,6 +187,8 @@ async function createWindow(show = true) {
   created.webContents.on("render-process-gone", (_event, details) => log(`Renderer gone: ${details.reason} (${details.exitCode})`));
   created.webContents.setWindowOpenHandler(({ url }) => { void shell.openExternal(url); return { action: "deny" }; });
   created.on("close", (event) => { if (!quitting && tray && preferences().closeToTray) { event.preventDefault(); created.hide(); } });
+  created.on("query-session-end", () => { quitting = true; void runtimeRequest("drain", "POST").catch((error) => log(`Session-end drain: ${String(error)}`)); });
+  created.on("session-end", () => { quitDrained = true; void stopServer(); });
   created.on("closed", () => { if (window === created) window = null; });
   if (show) created.once("ready-to-show", () => { if (!created.isDestroyed()) { created.show(); created.focus(); } });
   const url = developmentUrl?.toString() || `http://127.0.0.1:${port}`;
@@ -179,11 +208,11 @@ ipcMain.handle("pick-registration", async () => { const result = await dialog.sh
 ipcMain.handle("save-registration", async (_event, defaultName: string, content: string) => { if (Buffer.byteLength(content, "utf8") > 1_048_576) throw new Error("Registration files must be smaller than 1 MiB."); const safeName = path.basename(defaultName).replace(/[^a-zA-Z0-9._-]/g, "-"); const result = await dialog.showSaveDialog(window!, { defaultPath: safeName, filters: [{ name: "PSM Next registration", extensions: ["json"] }] }); if (result.canceled || !result.filePath) return null; writeFileSync(result.filePath, content, { mode: 0o600 }); return result.filePath; });
 ipcMain.handle("open-path", (_event, target: string) => shell.openPath(target)); ipcMain.handle("get-theme", () => nativeTheme.shouldUseDarkColors ? "dark" : "light"); ipcMain.handle("get-locale", () => app.getLocale() || "en");
 ipcMain.handle("get-close-to-tray", () => preferences().closeToTray); ipcMain.handle("set-close-to-tray", (_event, enabled: boolean) => { writePreferences({ closeToTray: Boolean(enabled) }); return Boolean(enabled); });
-ipcMain.handle("get-launch-at-login", () => preferences().launchAtLogin); ipcMain.handle("set-launch-at-login", (_event, enabled: boolean) => setLaunchAtLogin(Boolean(enabled)));
+ipcMain.handle("get-launch-at-login", () => loginStatus().configured); ipcMain.handle("get-login-status", () => loginStatus()); ipcMain.handle("set-launch-at-login", (_event, enabled: boolean) => setLaunchAtLogin(Boolean(enabled)));
 ipcMain.handle("get-launch-at-login-options", () => preferences().launchOptions);
 ipcMain.handle("set-launch-at-login-options", (_event, value: unknown) => {
-  const launchOptions = normalizeLaunchAtLoginOptions(value); parseCustomLaunchFlags(launchOptions.customFlags); writePreferences({ launchOptions });
-  if (preferences().launchAtLogin) setLaunchAtLogin(true);
+  const launchOptions = normalizeLaunchAtLoginOptions(value); if (process.platform === "win32") { launchOptions.forceX11 = false; if (launchOptions.customFlags !== preferences().launchOptions.customFlags) launchOptions.argumentFormat = "windows"; } parseCustomLaunchFlags(launchOptions.customFlags, launchOptions.argumentFormat); writePreferences({ launchOptions });
+  if (preferences().launchAtLogin) setLaunchAtLogin(true, true);
   return launchOptions;
 });
 ipcMain.handle("get-manager-port", () => ({ configured: preferences().managerPort, active: port }));
@@ -195,11 +224,12 @@ if (!ownsInstanceLock) app.quit(); else {
   app.on("second-instance", () => { if (upgradeWindow && !upgradeWindow.isDestroyed()) { upgradeWindow.show(); upgradeWindow.focus(); } else void createWindow(); });
   app.whenReady().then(async () => {
     try {
-      mkdirSync(dataDir(), { recursive: true }); log(`Desktop ready (data ${dataDir()}, bind ${host}:${port}, AppImage ${Boolean(process.env.APPIMAGE)}, hidden ${startHidden})`); powerSaveBlocker.start("prevent-app-suspension");
+      if (profileError) throw profileError;
+      assertLocalWindowsPath(dataDir()); mkdirSync(dataDir(), { recursive: true }); assertLocalWindowsPath(realpathSync(dataDir())); log(`Desktop ready (data ${dataDir()}, bind ${host}:${port}, AppImage ${Boolean(process.env.APPIMAGE)}, hidden ${startHidden})`); powerSaveBlocker.start("prevent-app-suspension");
       if (!isDev) await activatePackagedVersion();
       if (upgradeWindow && !upgradeWindow.isDestroyed()) await showUpgradeProgress("starting");
       startServer(); await waitForServer(); log("Bundled web server is ready");
-      if (!isDev) writePreferences({ lastSuccessfulAppVersion: app.getVersion() });
+      if (!isDev) { writePreferences({ lastSuccessfulAppVersion: app.getVersion() }); if (process.platform === "win32" && preferences().launchAtLogin) setLaunchAtLogin(true, true); }
       if (upgradeWindow && !upgradeWindow.isDestroyed() && !await showUpgradeCompletion()) { quitting = true; await stopServer(); app.quit(); return; }
       createTray(); await createWindow(!startHidden);
       if (upgradeWindow && !upgradeWindow.isDestroyed()) { upgradeWindow.destroy(); upgradeWindow = null; }
@@ -211,6 +241,6 @@ if (!ownsInstanceLock) app.quit(); else {
       if (response.response === 0) await shell.openPath(dataDir()); else if (response.response === 1) await shell.openPath(path.join(dataDir(), "launcher-v3.log")); quitting = true; app.quit();
     }
   });
-  app.on("before-quit", () => { quitting = true; tray?.destroy(); upgradeWindow?.destroy(); upgradeWindow = null; try { server?.kill("SIGKILL"); } catch {} server = null; });
+  app.on("before-quit", (event) => { quitting = true; if (!quitDrained && server) { event.preventDefault(); void drainAndQuit(); return; } tray?.destroy(); upgradeWindow?.destroy(); upgradeWindow = null; });
   app.on("window-all-closed", () => { if (!preferences().closeToTray || !tray) app.quit(); });
 }

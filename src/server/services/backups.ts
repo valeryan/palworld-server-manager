@@ -1,5 +1,6 @@
+import { privateFile } from "@/server/host";
 import "server-only";
-import { access, chmod, mkdir, rm, stat } from "node:fs/promises";
+import { access, mkdir, rm, stat, writeFile, readFile, rename, readdir } from "node:fs/promises";
 import { constants } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -8,10 +9,10 @@ import { asc, eq } from "drizzle-orm";
 import { backupSettingsSchema, type BackupSettingsInput } from "@/contracts/backup";
 import type { JobContext } from "./jobs";
 import { database } from "@/server/db";
-import { backupSettings, backups } from "@/server/db/schema";
+import { backupSettings, backups, worldSettings } from "@/server/db/schema";
 import { paths } from "@/server/paths";
 import { getWorld } from "./worlds";
-import { listWorlds, pathsOverlap } from "./worlds";
+import { listWorlds, pathsOverlap, canonicalInstallDir } from "./worlds";
 import { worldIsLocked } from "./jobs";
 import { adoptRestoredConfiguration, validateConfiguration } from "./configuration";
 import { safeEntries } from "./archive";
@@ -25,11 +26,11 @@ export async function createBackup(worldId: string, reason: string, context: Job
   await context.update(10, "Collecting save files");
   const id = randomUUID();
   const settings = await getBackupSettings(worldId);
-  const directory = settings.destinationDir ?? paths.backups(worldId);
+  const directory = await validateDestination(worldId, settings.destinationDir) ?? paths.backups(worldId);
   await mkdir(directory, { recursive: true });
   const destination = path.join(/* turbopackIgnore: true */ directory, `${Date.now()}-${id}.zip`);
   const zip = new AdmZip(); zip.addLocalFolder(source, "Saved"); zip.writeZip(destination);
-  await chmod(destination, 0o600);
+  await privateFile(destination);
   const verified = new AdmZip(destination).test();
   if (!verified) { await rm(destination, { force: true }); throw new Error("Backup verification failed."); }
   const info = await stat(destination);
@@ -56,7 +57,11 @@ export async function restoreBackup(worldId: string, backupId: string, context: 
   await mkdir(staging, { recursive: true }); zip.extractAllTo(staging, true, false);
   const extracted = path.join(/* turbopackIgnore: true */ staging, "Saved");
   await stat(extracted).catch(() => { throw new Error("Backup does not contain a Saved directory."); });
+  context.signal.throwIfAborted();
+  context.nonCancellable?.();
   const displaced = `${saved}.before-${Date.now()}`;
+  const journal = path.join(/* turbopackIgnore: true */ paths.data(), `restore-${worldId}.json`);
+  await writeFile(journal, JSON.stringify({ worldId, saved, staging, displaced }), { flag: "wx", mode: 0o600 });
   try {
     await adoptRestoredConfiguration(worldId, restoredConfiguration, async () => {
       const { rename } = await import("node:fs/promises");
@@ -65,6 +70,7 @@ export async function restoreBackup(worldId: string, backupId: string, context: 
       catch (cause) { await rename(displaced, saved); throw cause; }
       return async () => { await rm(saved, { recursive: true, force: true }); await rename(displaced, saved); };
     });
+    await rm(journal);
   } finally {
     await rm(staging, { recursive: true, force: true });
   }
@@ -88,15 +94,15 @@ export async function getBackupSettings(worldId: string) {
 async function validateDestination(worldId: string, candidate: string | null): Promise<string | null> {
   if (!candidate) return null;
   if (!path.isAbsolute(candidate)) throw new Error("Custom backup destination must be an absolute path.");
-  const destination = path.resolve(/* turbopackIgnore: true */ candidate);
+  const destination = await canonicalInstallDir(candidate);
   for (const world of await listWorlds()) {
-    if (pathsOverlap(destination, path.resolve(/* turbopackIgnore: true */ world.installDir))) {
+    if (pathsOverlap(destination, await canonicalInstallDir(world.installDir))) {
       throw new Error(`Backup destination overlaps the installation for ${world.displayName}.`);
     }
   }
-  const relativeToWorldBackups = path.relative(path.resolve(paths.backups(worldId)), destination);
+  const relativeToWorldBackups = path.relative(path.resolve(/* turbopackIgnore: true */ paths.backups(worldId)), destination);
   const insideWorldBackups = relativeToWorldBackups === "" || (!relativeToWorldBackups.startsWith("..") && !path.isAbsolute(relativeToWorldBackups));
-  if (pathsOverlap(destination, path.resolve(paths.data())) && !insideWorldBackups) {
+  if (pathsOverlap(destination, path.resolve(/* turbopackIgnore: true */ paths.data())) && !insideWorldBackups) {
     throw new Error("Custom backup destination cannot overlap other manager-owned data.");
   }
   await mkdir(destination, { recursive: true });
@@ -138,4 +144,23 @@ async function applyRetention(worldId: string, keep: number, protectedId: string
 export function retentionCandidates<T extends { id: string }>(oldestFirst: readonly T[], keep: number, protectedId: string): T[] {
   if (keep <= 0 || oldestFirst.length <= keep) return [];
   return oldestFirst.filter((record) => record.id !== protectedId).slice(0, oldestFirst.length - keep);
+}
+
+// Restore the old Saved tree after an interrupted replacement. Retain both copies, and require
+// explicit configuration reconciliation instead of guessing which database transaction committed.
+export async function recoverInterruptedRestores(): Promise<void> {
+  for (const name of await readdir(paths.data())) {
+    if (!/^restore-[a-f0-9-]+\.json$/.test(name)) continue;
+    const journal = path.join(/* turbopackIgnore: true */ paths.data(), name);
+    const record = JSON.parse(await readFile(journal, "utf8")) as { worldId: string; saved: string; staging: string; displaced: string };
+    const world = await getWorld(record.worldId); if (!world) throw new Error(`Restore recovery requires the missing registration ${record.worldId}.`);
+    const expected = saveDirectory(world.installDir);
+    if (record.saved !== expected || !record.displaced.startsWith(`${expected}.before-`) || path.dirname(record.displaced) !== path.dirname(expected)) throw new Error("Invalid restore recovery journal; inspect the manager logs.");
+    if (await stat(record.displaced).catch(() => null)) {
+      if (await stat(expected).catch(() => null)) await rename(expected, `${expected}.interrupted-${randomUUID()}`);
+      await rename(record.displaced, expected);
+      await database().update(worldSettings).set({ drift: true, driftReason: "An interrupted restore was rolled back. Import the recovered configuration before starting.", lastApplyError: "Interrupted restore recovered; configuration reconciliation required." }).where(eq(worldSettings.worldId, world.id));
+    }
+    await rm(journal);
+  }
 }

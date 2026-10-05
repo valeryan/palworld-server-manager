@@ -1,3 +1,4 @@
+import { hostPlatform } from "@/server/host";
 import "server-only";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -13,7 +14,7 @@ const NO_DESKTOP_INTEGRATION = "winemenubuilder.exe=d";
 export function serverWineOverrides(current: string | undefined): string { return withWineOverrides(current, NO_DESKTOP_INTEGRATION); }
 export function withWineOverrides(current: string | undefined, ...overrides: string[]): string { return [current, ...overrides].filter(Boolean).join(";"); }
 
-export function runsUnderWine(world: Pick<WorldView, "platform">, host = process.platform): boolean { return world.platform === "windows" && host !== "win32"; }
+export function runsUnderWine(world: Pick<WorldView, "platform">, host = hostPlatform()): boolean { return world.platform === "windows" && host !== "win32"; }
 
 // Worlds without an explicit prefix get their own manager-owned prefix instead of ~/.wine.
 export function effectiveWinePrefix(world: WineWorld): string { return world.winePrefix?.trim() || paths.winePrefix(world.id); }

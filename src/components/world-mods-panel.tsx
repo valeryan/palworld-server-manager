@@ -1,4 +1,5 @@
 "use client";
+import { requestJson as request } from "@/lib/http-client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
@@ -7,7 +8,6 @@ import type { LuaModView, WorldModsView } from "@/contracts/mod";
 import { JobProgress } from "./job-progress";
 
 type Ue4ssAction = "install" | "replace" | "enable" | "disable" | "remove";
-async function request<T>(url: string, init?: RequestInit): Promise<T> { const response = await fetch(url, { ...init, headers: { "content-type": "application/json", ...init?.headers } }); const body = await response.json(); if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`); return body; }
 
 export function WorldModsPanel({ worldId, running, onNotice }: { worldId: string; running: boolean; onNotice(message: string): void }) {
   const { t } = useTranslation(); const client = useQueryClient();

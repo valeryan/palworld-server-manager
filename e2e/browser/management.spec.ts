@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import path from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 const worldDirectory = path.join(process.cwd(), ".e2e-runtime", "world");
 
@@ -276,6 +277,53 @@ test("adopts and manages an isolated world through critical browser workflows", 
     const payload = await response.json() as { configuration: { pendingApply: boolean; appliedOptions: Record<string, string> } };
     return `${payload.configuration.pendingApply}:${payload.configuration.appliedOptions.AdminPassword}`;
   }).toBe('false:"staged-while-running"');
+  let logReadFails = false;
+  await page.route(`**/api/worlds/${worldId}/logs`, (route) => route.fulfill(logReadFails
+    ? { status: 500, json: { error: "Access denied reading server logs" } }
+    : { json: { ok: true, logs: { files: ["fixture.log"], selected: "fixture.log", content: "Server ready\nPlayer fixture joined\n" } } }));
+  await page.getByRole("button", { name: "Console", exact: true }).click();
+  await page.getByRole("button", { name: "Refresh now", exact: true }).click();
+  const consoleOutput = page.locator(".console-panel .console-output");
+  await expect(consoleOutput).toContainText("Server ready");
+  await page.getByLabel("Search this log").fill("PLAYER");
+  await expect(consoleOutput).toHaveText("Player fixture joined");
+  await page.getByLabel("Search this log").fill("not-present");
+  await expect(consoleOutput).toHaveText("No lines match this search.");
+  await page.getByLabel("Search this log").fill("");
+  await page.getByRole("button", { name: "Pause live updates" }).click();
+  await expect(page.getByRole("button", { name: "Resume live updates" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Download full log" })).toHaveAttribute("href", `/api/worlds/${worldId}/logs/download?file=fixture.log`);
+  logReadFails = true;
+  await page.getByRole("button", { name: "Refresh now", exact: true }).click();
+  await expect(page.locator(".world-tab-panel").getByRole("alert")).toContainText("Access denied reading server logs");
+  logReadFails = false;
+  await page.getByRole("button", { name: "Refresh now", exact: true }).click();
+  await expect(page.locator(".world-tab-panel").getByRole("alert")).toBeHidden();
+  const announcementInput = page.getByPlaceholder("Announcement to all online players");
+  await expect(announcementInput).toBeDisabled();
+  await page.route(`**/api/worlds/${worldId}`, async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    await route.fulfill({ json: { ...body, world: { ...body.world, restApiEnabled: true } } });
+  });
+  await expect(announcementInput).toBeEnabled();
+  let announcement: unknown;
+  await page.route(`**/api/worlds/${worldId}/admin`, (route) => {
+    announcement = route.request().postDataJSON();
+    return route.fulfill({ json: { ok: true } });
+  });
+  await announcementInput.fill("Fixture announcement");
+  await page.getByRole("button", { name: "Send announcement" }).click();
+  await expect(announcementInput).toHaveValue("");
+  expect(announcement).toEqual({ action: "announce", message: "Fixture announcement" });
+  await page.unroute(`**/api/worlds/${worldId}/admin`);
+  await page.route(`**/api/worlds/${worldId}/admin`, (route) => route.fulfill({ status: 503, json: { error: "Fixture announcement rejected" } }));
+  await announcementInput.fill("Rejected announcement");
+  await page.getByRole("button", { name: "Send announcement" }).click();
+  await expect(page.getByText("Fixture announcement rejected", { exact: true })).toBeVisible();
+  await page.unroute(`**/api/worlds/${worldId}/admin`);
+  await page.unroute(`**/api/worlds/${worldId}`);
+  await page.unroute(`**/api/worlds/${worldId}/logs`);
   await page.getByRole("button", { name: "Stop", exact: true }).click();
   await waitForLatestJob(page, "stop");
   await page.reload();
@@ -293,4 +341,26 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await expect(retentionTooltip.locator("strong")).toHaveText("Completed operations");
   await expect(retentionTooltip).toContainText("Maximum number of completed operation records");
   await expect(page.locator(".launch-option-grid small, .custom-launch-flags small, .retention-footer small, .language-control > small")).toHaveCount(0);
+});
+
+test("removes an incomplete world from the overview without deleting its files", async ({ page }) => {
+  await authenticate(page);
+  const installDir = path.join(process.cwd(), ".e2e-runtime", "removal-world");
+  const created = await page.request.post("/api/worlds", { data: { displayName: "Incomplete removal fixture", installDir, platform: "linux", gamePort: 39771, queryPort: 39772, restApiPort: 39773, rconPort: 39774 } });
+  expect(created.ok()).toBe(true);
+  const { world } = await created.json() as { world: { id: string } };
+  await mkdir(installDir, { recursive: true });
+  const savedFile = path.join(installDir, "saved-fixture.txt");
+  await writeFile(savedFile, "preserve this save");
+  await page.goto(`/worlds/${world.id}`);
+  const remove = page.getByRole("button", { name: "Remove from manager", exact: true });
+  await expect(remove).toBeVisible();
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await remove.click();
+  expect((await page.request.get(`/api/worlds/${world.id}`)).ok()).toBe(true);
+  page.once("dialog", async (dialog) => { expect(dialog.message()).toContain("Server files and saves will be kept"); await dialog.accept(); });
+  await remove.click();
+  await expect(page).toHaveURL("/");
+  expect((await page.request.get(`/api/worlds/${world.id}`)).status()).toBe(404);
+  expect(await readFile(savedFile, "utf8")).toBe("preserve this save");
 });

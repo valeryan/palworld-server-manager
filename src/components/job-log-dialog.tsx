@@ -1,17 +1,11 @@
 "use client";
+import { fetchJson as responseJson } from "@/lib/http-client";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import type { JobView } from "@/contracts/job";
 import { useJobPresentation } from "@/lib/use-job-presentation";
 import { useLocaleDateTime } from "@/lib/use-locale-format";
-
-async function responseJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, init);
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
-  return body;
-}
 
 export function JobLogDialog({ job: initialJob, onClose }: { job: JobView; onClose(): void }) {
   const { t } = useTranslation();

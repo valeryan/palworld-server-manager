@@ -4,11 +4,15 @@ Clean Next.js 16 and Electron rewrite focused on reliable management of multiple
 
 This is a personal, independently maintained hard fork and is not affiliated with or endorsed by the original project.
 
-## Requirements
+## Windows downloads
+
+Windows 11 x64 builds are available as **Setup** and **Portable** EXEs. Setup stores manager data in your user profile; Portable keeps `PSM-Data` beside the EXE. Keep that folder when replacing Portable. Use writable local NTFS storage; network/UNC locations are unsupported. Windows builds are unsigned.
+
+## Development requirements
 
 - Node.js 24 (`.nvmrc`)
 - npm 11+
-- Linux is the first packaging target
+- Linux (Windows executables are cross-built through Wine)
 
 With `nvm`, run `nvm use` from the repository to select the version recorded in `.nvmrc`.
 
@@ -48,14 +52,13 @@ npm run build
 npm run prepare:standalone
 npm run dist
 npm run release
-npm run audit:settings-fixture -- /path/to/PalServer/DefaultPalWorldSettings.ini
 ```
 
 `npm test` runs the deterministic service suite. `npm run test:e2e` builds a packaged Electron directory and runs the production-browser and packaged-desktop workflows against disposable data.
 
-The settings audit compares an installed server template with the reviewed fixture without printing complete INIs or credential values. It reports key additions/removals, changed defaults, codec mismatches, and manager-owned keys. Refresh both fixture files only after reviewing a server update; the provenance record includes the Palworld version, Steam build ID, capture date, and checksum.
+The normal test suite verifies the reviewed Palworld template’s checksum, setting coverage, and codecs. When updating the template after a game release, review its diff and update both fixture files together; the provenance record includes the game version, Steam build ID, capture date, and checksum.
 
-`npm run dist` builds the Linux AppImage and the Windows Setup and portable exes together (the Windows builds are cross-built through Wine, in a throwaway prefix). `npm run release` runs every check first, then builds them into a clean `release/` with `SHA256SUMS.txt`. `dist:linux` and `dist:windows` build one platform for quick local testing.
+`npm run dist` builds the Linux AppImage and the Windows Setup and portable exes together (the Windows builds are cross-built through Wine). `npm run release` runs every check first, then builds them into a clean `release/` with `SHA256SUMS.txt` and gives the Windows build a disposable Wine prefix. `dist:linux` and `dist:windows` build one platform for quick local testing.
 
 See the [release process](./docs/RELEASING.md) for publishing releases with the Generate release workflow, alpha versioning, migration safety, and manual AppImage updates.
 

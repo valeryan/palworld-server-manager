@@ -50,7 +50,7 @@ describe("service boundaries with isolated fakes", () => {
     const [{ createWorld, getWorld, setRuntimeState }, { startWorld, stopWorld, reconcileProcesses }] = await Promise.all([
       import("@/server/services/worlds"), import("@/server/services/processes"),
     ]);
-    const world = await createWorld({ displayName: "Fake process", installDir, gamePort: 39111, queryPort: 39112, restApiPort: 39113, rconPort: 39114, restApiEnabled: false, crashGuard: false });
+    const world = await createWorld({ displayName: "Fake process", installDir, gamePort: 39111, queryPort: 39112, restApiPort: 39113, rconPort: 39114, restApiEnabled: false, crashGuard: true });
     if (process.platform !== "win32") {
       for (const suffix of ["", "-wal", "-shm"]) {
         expect((await stat(`${process.env.PALWORLD_MANAGER_DB}${suffix}`)).mode & 0o777).toBe(0o600);
@@ -64,12 +64,61 @@ describe("service boundaries with isolated fakes", () => {
     await setRuntimeState(world.id, "starting", running!.processId);
     await reconcileProcesses();
     expect(await getWorld(world.id)).toMatchObject({ status: "running", processId: running!.processId });
-    await stopWorld(world.id, true);
+    // Pause WMI-/proc-style inspection after it has read the registered running state.
+    // Stop must wait for that inspection, rather than letting a stale snapshot resurrect
+    // the world or mark the intentional exit as a crash.
+    const inspection = await import("@/server/services/process-inspection");
+    const snapshot = inspection.processSnapshot;
+    let release!: () => void; let entered!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const ready = new Promise<void>((resolve) => { entered = resolve; });
+    const spy = vi.spyOn(inspection, "processSnapshot").mockImplementationOnce(async () => { entered(); await gate; return snapshot(); });
+    const reconciling = reconcileProcesses();
+    await ready;
+    let stopped = false;
+    const stopping = stopWorld(world.id, true).then(() => { stopped = true; });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(stopped).toBe(false);
+    } finally { release(); await Promise.all([reconciling, stopping]); spy.mockRestore(); }
+    await reconcileProcesses();
     expect(await getWorld(world.id)).toMatchObject({ status: "stopped", processId: null });
+    expect(globalThis.__psmRecoveryTimers?.has(world.id) ?? false).toBe(false);
+  });
+
+  it("cancels pending crash recovery when the user stops the crashed world", async () => {
+    const { startWorld, stopWorld, reconcileProcesses } = await import("@/server/services/processes");
+    const { getWorld } = await import("@/server/services/worlds");
+    const { processSnapshot } = await import("@/server/services/process-inspection");
+    await startWorld(processWorldId);
+    const world = (await getWorld(processWorldId))!;
+    process.kill(-world.processId!, "SIGKILL");
+    await waitFor(async () => !(await processSnapshot()).some((entry) => entry.pid === world.processId), "Fake server did not exit.");
+    await reconcileProcesses();
+    expect(await getWorld(processWorldId)).toMatchObject({ status: "crashed" });
+    expect(globalThis.__psmRecoveryTimers?.has(processWorldId)).toBe(true);
+    await stopWorld(processWorldId, true);
+    expect(globalThis.__psmRecoveryTimers?.has(processWorldId)).toBe(false);
+    await reconcileProcesses();
+    expect(await getWorld(processWorldId)).toMatchObject({ status: "stopped", processId: null });
+  });
+
+  it.skipIf(process.getuid?.() === 0)("returns captured server output and reports log-directory read failures", async () => {
+    const { worldLogs, worldLogFile } = await import("@/server/services/observability");
+    const { paths } = await import("@/server/paths");
+    const file = "server-fixture.log";
+    await writeFile(path.join(paths.worldLogs(processWorldId), file), "Running Palworld dedicated server\n");
+    expect(await worldLogs(processWorldId, file)).toMatchObject({ selected: file, content: "Running Palworld dedicated server\n" });
+    const directory = paths.worldLogs(processWorldId);
+    await chmod(directory, 0o300);
+    try {
+      await expect(worldLogs(processWorldId)).rejects.toMatchObject({ code: "EACCES" });
+      await expect(worldLogFile(processWorldId, file)).rejects.toMatchObject({ code: "EACCES" });
+    } finally { await chmod(directory, 0o700); }
   });
 
   it("records succeeded and failed job states and enforces the per-world lock", async () => {
-    const { startJob, getJob, worldIsLocked } = await import("@/server/services/jobs");
+    const { startJob, getJob, listJobLogs, worldIsLocked } = await import("@/server/services/jobs");
     let release!: () => void;
     const held = new Promise<void>((resolve) => { release = resolve; });
     const first = await startJob(processWorldId, "fake-held", async ({ update, log }) => { await update(42, "Halfway"); log("fake output"); await held; });
@@ -77,10 +126,12 @@ describe("service boundaries with isolated fakes", () => {
     expect(worldIsLocked(processWorldId)).toBe(true);
     await expect(startJob(processWorldId, "overlap", async () => undefined)).rejects.toThrow("Another operation");
     release();
-    await waitFor(async () => (await getJob(first))?.state === "succeeded", "Fake held job did not succeed.");
+    // Terminal state is persisted before the asynchronous installation lease is released.
+    await waitFor(async () => (await getJob(first))?.state === "succeeded" && !worldIsLocked(processWorldId), "Fake held job did not finish cleanup.");
     const failed = await startJob(processWorldId, "fake-failure", async () => { throw new Error("synthetic adapter failure"); });
-    await waitFor(async () => (await getJob(failed))?.state === "failed", "Fake failed job did not settle.");
+    await waitFor(async () => (await getJob(failed))?.state === "failed" && !worldIsLocked(processWorldId), "Fake failed job did not finish cleanup.");
     expect(await getJob(failed)).toMatchObject({ state: "failed", error: "synthetic adapter failure", progress: 0 });
+    expect((await listJobLogs(failed)).map((line) => line.message)).toEqual(["Operation failed: synthetic adapter failure"]);
     expect(worldIsLocked(processWorldId)).toBe(false);
   });
 
@@ -91,6 +142,7 @@ describe("service boundaries with isolated fakes", () => {
     expect(worldIsLocked(processWorldId)).toBe(true);
     await expect(startJob(processWorldId, "start", async () => undefined)).rejects.toThrow("Another operation");
     await expect(withWorldLock(processWorldId, async () => "second")).rejects.toThrow("Another operation");
+    await waitFor(async () => typeof release === "function", "the in-request change did not acquire its installation lease");
     release(); expect(await change).toBe("done");
     expect(worldIsLocked(processWorldId)).toBe(false);
     await expect(withWorldLock(processWorldId, async () => { throw new Error("change failed"); })).rejects.toThrow("change failed");
@@ -112,7 +164,7 @@ done
 mkdir -p "$install/steamapps"
 printf '#!/bin/sh\\nexit 0\\n' > "$install/PalServer.sh"
 chmod 700 "$install/PalServer.sh"
-printf '"AppState" { "buildid" "424242" }\\n' > "$install/steamapps/appmanifest_2394010.acf"
+printf '"AppState" { "appid" "2394010" "buildid" "424242" }\\n' > "$install/steamapps/appmanifest_2394010.acf"
 printf '; This shipped template comment must not be copied into the active file.\\n[/Script/Pal.PalGameWorldSettings]\\nOptionSettings=(ServerName="Default Palworld Server",PublicPort=8211,ServerReplicatePawnCullDistance=15000.000000,DenyTechnologyList=,RESTAPIEnabled=False,RESTAPIPort=8212,RCONEnabled=False,RCONPort=25575)\\n' > "$install/DefaultPalWorldSettings.ini"
 mkdir -p "$install/Pal/Saved/Config/LinuxServer"
 : > "$install/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini"
@@ -120,6 +172,7 @@ echo "login $PSM_STEAM_USERNAME $PSM_STEAM_PASSWORD"
 echo "Success! App '2394010' fully installed."
 `);
     await chmod(steam, 0o700);
+    await writeFile(path.join(steamDir, ".psm-ready.json"), JSON.stringify({ platform: "linux" }));
     process.env.PSM_STEAM_USERNAME = "fake-user"; process.env.PSM_STEAM_PASSWORD = "fake-password";
     globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ data: { "2394010": { depots: { branches: { public: { buildid: "424242" } } } } } }), { status: 200 })) as typeof fetch;
     const { createWorld, getWorld } = await import("@/server/services/worlds");
