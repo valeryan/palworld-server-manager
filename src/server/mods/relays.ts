@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import type { RelayId, RelayView } from "@/contracts/mod";
 import type { WorldView } from "@/contracts/world";
 import { database } from "@/server/db";
-import { appSettings, deaths, events } from "@/server/db/schema";
+import { appSettings, deaths } from "@/server/db/schema";
 import { paths } from "@/server/paths";
 import { movePath } from "@/server/services/archive";
 import { palworldRest } from "@/server/services/rest";
@@ -20,7 +20,6 @@ export const RELAYS: Record<RelayId, { folder: string; placeholder: string; file
   "death-relay": { folder: "PSMDeathRelay", placeholder: "__PSM_OUT_PATH__", file: "psm-deaths.jsonl" },
   broadcast: { folder: "PSMBroadcast", placeholder: "__PSM_QUEUE_PATH__", file: "psm-broadcast.jsonl" },
 };
-export const RELAY_FOLDERS = new Set(Object.values(RELAYS).map((relay) => relay.folder));
 
 type RelayWorld = Pick<WorldView, "id" | "installDir" | "platform" | "status">;
 interface RelayMarker { builtin: RelayId; version: number; sha256: string }
@@ -181,10 +180,6 @@ export async function stopDeathCapture(world: Pick<WorldView, "id" | "installDir
   const timer = tails().get(world.id); if (timer) clearInterval(timer);
   tails().delete(world.id);
   await readNewDeaths(world).catch(() => undefined);
-}
-
-export async function noteRelayDelivery(worldId: string, route: "broadcast" | "rest", message: string): Promise<void> {
-  await database().insert(events).values({ worldId, kind: "notice", message: route === "broadcast" ? `On-screen notice: ${message}` : `Notice sent as a chat message (PSM Broadcast not running): ${message}`, createdAt: Date.now() });
 }
 
 // A managed relay's script must still be the one PSM rendered for this world.

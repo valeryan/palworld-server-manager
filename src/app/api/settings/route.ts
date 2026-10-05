@@ -5,8 +5,6 @@ import { getRetentionSettings, saveRetentionSettings } from "@/server/services/r
 import { getUpdateChannel, saveUpdateChannel, updateChecksDisabled } from "@/server/services/update-channel";
 import packageJson from "../../../../package.json";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const denied = requireAdmin(request); if (denied) return denied;
   const [theme, retention, updateChannel] = await Promise.all([getTheme(), getRetentionSettings(), getUpdateChannel(process.env.PSM_APP_VERSION || packageJson.version)]);

@@ -2,9 +2,6 @@ import { restAdminActionSchema } from "@/contracts/admin";
 import { errorResponse, requireAdmin } from "@/server/http";
 import { runRestAdminAction } from "@/server/services/administration";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const denied = requireAdmin(request); if (denied) return denied;
   try {

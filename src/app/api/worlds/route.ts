@@ -4,9 +4,6 @@ import { installationHealth } from "@/server/services/installation";
 import { adoptWorld, createWorld, listWorlds } from "@/server/services/worlds";
 import { errorResponse, publicWorld, requireAdmin } from "@/server/http";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
 export async function GET() {
   try { return Response.json({ ok: true, worlds: await Promise.all((await listWorlds()).map(async (world) => ({ ...publicWorld(world), installation: await installationHealth(world) }))) }); }
   catch (error) { return errorResponse(error); }

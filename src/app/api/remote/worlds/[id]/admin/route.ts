@@ -3,7 +3,6 @@ import { errorResponse } from "@/server/http";
 import { runRestAdminAction } from "@/server/services/administration";
 import { auditPrincipal, authorizeRemote, remoteAccessErrorResponse } from "@/server/services/remote-access";
 
-export const runtime = "nodejs"; export const dynamic = "force-dynamic";
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await context.params; const action = restAdminActionSchema.parse(await request.json());

@@ -12,8 +12,6 @@ export function useJobPresentation() {
   const displayMessage = (job: Pick<JobView, "kind" | "state" | "message">) => {
     const kind = kindLabel(job.kind);
     if (job.message === "Queued") return t("jobs.message.waiting", { kind });
-    if (job.message === "Starting") return startingMessage(job.kind);
-    if (job.message === "Complete") return successMessage(job.kind);
     if (job.message === "Failed") return t("jobs.message.failed", { kind });
     if (job.message === "Cancelled") return t("jobs.message.cancelled", { kind });
     if (job.message === "Cancelling") return t("jobs.message.cancelling", { kind: kind.toLocaleLowerCase() });

@@ -3,9 +3,6 @@ import { Readable } from "node:stream";
 import { errorResponse, requireAdmin } from "@/server/http";
 import { worldLogFile } from "@/server/services/observability";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const denied = requireAdmin(request); if (denied) return denied;
   try {

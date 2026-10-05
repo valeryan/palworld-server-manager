@@ -60,7 +60,6 @@ export const worldActionSchema = z.discriminatedUnion("action", [
 export type CreateWorldInput = z.infer<typeof createWorldSchema>;
 export type UpdateWorldInput = z.infer<typeof updateWorldSchema>;
 export type ManagedWorldSettings = z.infer<typeof managedWorldSettingsSchema>;
-export type WorldActionInput = z.infer<typeof worldActionSchema>;
 export type WorldStatus = z.infer<typeof worldStatusSchema>;
 export type WorldRegistration = z.infer<typeof worldRegistrationSchema>;
 

@@ -4,9 +4,6 @@ import { getWorld, unregisterWorld } from "@/server/services/worlds";
 import { advertisedPortState, applyConfigurationOptions, configurationIsValid, managedConfigurationChanges, managedPublicPortChange, parseConfigurationOptions, readSettingsState, saveDesiredSettings } from "@/server/services/configuration";
 import { managedWorldSettingsSchema, parseWorldUpdate } from "@/contracts/world";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
 type Context = { params: Promise<{ id: string }> };
 export async function GET(_request: Request, context: Context) {
   try { const { id } = await context.params; const world = await getWorld(id); return world ? Response.json({ ok: true, world: { ...publicWorld(world), installation: await installationHealth(world) } }) : Response.json({ ok: false, error: "World not found." }, { status: 404 }); }

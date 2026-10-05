@@ -1,8 +1,6 @@
 import { errorResponse, requireAdmin } from "@/server/http";
 import { deleteSchedule, updateSchedule } from "@/server/services/schedules";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: Request, context: Context) {

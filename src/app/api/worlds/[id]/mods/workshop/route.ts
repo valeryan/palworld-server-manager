@@ -4,9 +4,6 @@ import { setWorkshopEnabled, setWorkshopModActive } from "@/server/mods/workshop
 import { getWorld } from "@/server/services/worlds";
 import { withWorldLock } from "@/server/services/jobs";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
 const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.enum(["enable-all", "disable-all"]) }).strict(),
   z.object({ action: z.enum(["activate", "deactivate"]), packageName: z.string().min(1).max(200) }).strict(),

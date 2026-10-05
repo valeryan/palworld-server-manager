@@ -1,9 +1,6 @@
 import type { ManagerEvent } from "@/contracts/job";
 import { eventBus } from "@/server/services/events";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
 export async function GET(request: Request) {
   const encoder = new TextEncoder(); let unsubscribe = () => {};
   const stream = new ReadableStream<Uint8Array>({

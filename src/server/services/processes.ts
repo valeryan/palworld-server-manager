@@ -14,7 +14,6 @@ import { paths } from "@/server/paths";
 import { database } from "@/server/db";
 import { events, worlds } from "@/server/db/schema";
 import { eq, sql } from "drizzle-orm";
-import { eventBus } from "./events";
 import { getWorld, listWorlds, setRuntimeState } from "./worlds";
 import { applyDesiredSettings, prepareWorldStart, syncManagedConfiguration } from "./configuration";
 import { palworldRest } from "./rest";
@@ -314,5 +313,4 @@ export async function reconcileProcesses(): Promise<void> {
     }
     startProcessMonitor();
   } finally { for (const release of releases) release(); globalThis.__psmReconciling = false; }
-  eventBus().publish({ type: "system", data: { action: "processes-reconciled" } });
 }

@@ -4,9 +4,6 @@ import { installLuaMod, removeLuaMod, setLuaModEnabled } from "@/server/mods/lua
 import { getWorld } from "@/server/services/worlds";
 import { withWorldLock } from "@/server/services/jobs";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
 const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.enum(["install", "replace"]), artifactId: z.string().min(1) }).strict(),
   z.object({ action: z.enum(["enable", "disable", "remove"]), name: z.string().min(1).max(64) }).strict(),

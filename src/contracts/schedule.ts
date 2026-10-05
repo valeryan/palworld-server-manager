@@ -46,5 +46,4 @@ export const maintenanceSettingsSchema = z.object({
   warningMessage: z.string().trim().min(1).max(500).default("The server will {action} in {minutes} minute(s). Please get to a safe place."),
 });
 
-export type CreateScheduleInput = z.infer<typeof createScheduleSchema>;
 export type MaintenanceSettingsInput = z.infer<typeof maintenanceSettingsSchema>;

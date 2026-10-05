@@ -2,7 +2,6 @@ import { z } from "zod";
 import { errorResponse, requireAdmin } from "@/server/http";
 import { readConfiguration, saveConfiguration } from "@/server/services/configuration";
 
-export const runtime = "nodejs"; export const dynamic = "force-dynamic";
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   try { return Response.json({ ok: true, configuration: await readConfiguration((await context.params).id) }); } catch (error) { return errorResponse(error); }
 }

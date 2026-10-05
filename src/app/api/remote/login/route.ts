@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { errorResponse } from "@/server/http";
 import { loginRemote, remoteAccessErrorResponse } from "@/server/services/remote-access";
 
-export const runtime = "nodejs"; export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   try {
     const result = await loginRemote(request, await request.json());

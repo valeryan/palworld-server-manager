@@ -7,9 +7,6 @@ import { startWorld, stopWorld } from "@/server/services/processes";
 import { detectLatestBuild, installOrUpdate } from "@/server/services/steamcmd";
 import { getWorld } from "@/server/services/worlds";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const denied = requireAdmin(request); if (denied) return denied;
   try {

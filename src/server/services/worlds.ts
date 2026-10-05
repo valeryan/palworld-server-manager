@@ -5,7 +5,7 @@ import { access, realpath, readFile } from "node:fs/promises";
 import { and, eq, ne } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { CreateWorldInput, WorldPorts, WorldRegistration, WorldView } from "@/contracts/world";
-import { createWorldSchema, defaultWorldPorts, managedWorldSettingsSchema, parseWorldUpdate, worldRegistrationSchema } from "@/contracts/world";
+import { createWorldSchema, defaultWorldPorts, managedWorldSettingsSchema, worldRegistrationSchema } from "@/contracts/world";
 import { database } from "@/server/db";
 import { worlds, worldSettings } from "@/server/db/schema";
 import { paths } from "@/server/paths";
@@ -15,7 +15,6 @@ import { withWorldLock } from "./jobs";
 
 type WorldRow = typeof worlds.$inferSelect;
 const PORT_FIELDS = ["gamePort", "queryPort", "restApiPort", "rconPort"] as const;
-const STOP_REQUIRED_FIELDS = ["installDir", "platform", ...PORT_FIELDS, "restApiEnabled", "rconEnabled", "communityServer", "legacyPerfFlags", "extraArgs", "argumentFormat", "env", "wineBinary", "winePrefix", "wineLaunchFlags"] as const;
 
 function toView(row: WorldRow): WorldView {
   return {
@@ -154,26 +153,6 @@ export async function adoptWorld(raw: unknown): Promise<WorldView> {
   const world = await createWorld(raw);
   if (inspection.buildId) await database().update(worlds).set({ buildId: inspection.buildId }).where(eq(worlds.id, world.id));
   return (await getWorld(world.id))!;
-}
-
-export async function updateWorld(id: string, raw: unknown): Promise<WorldView> {
-  const current = await getWorld(id);
-  if (!current) throw new Error("World not found.");
-  const patch = parseWorldUpdate(raw);
-  if (current.status !== "stopped" && STOP_REQUIRED_FIELDS.some((field) => Object.hasOwn(patch, field) && JSON.stringify(patch[field]) !== JSON.stringify(current[field]))) {
-    throw new Error("Stop the world before changing launch, path, port, platform, or environment settings.");
-  }
-  const merged = createWorldSchema.parse({ ...current, ...patch });
-  await withReservationLock(async () => { const input = await validateIsolation(merged, id); await database().update(worlds).set({
-    displayName: input.displayName, installDir: input.installDir, platform: input.platform,
-    gamePort: input.gamePort, queryPort: input.queryPort, restApiPort: input.restApiPort, rconPort: input.rconPort,
-    adminPassword: input.adminPassword, serverPassword: input.serverPassword, restApiEnabled: input.restApiEnabled,
-    rconEnabled: input.rconEnabled, communityServer: input.communityServer, autostart: input.autostart,
-    crashGuard: input.crashGuard, legacyPerfFlags: input.legacyPerfFlags, extraArgs: input.extraArgs, argumentFormat: input.argumentFormat ?? (hostPlatform() === "win32" ? "windows" : "legacy"), environment: input.env,
-    wineBinary: input.wineBinary, winePrefix: input.winePrefix, wineLaunchFlags: input.wineLaunchFlags, updatedAt: Date.now(),
-  }).where(eq(worlds.id, id)); });
-  eventBus().publish({ type: "world", worldId: id, data: { action: "updated" } });
-  return (await getWorld(id))!;
 }
 
 export function exportWorldRegistration(world: WorldView): WorldRegistration {

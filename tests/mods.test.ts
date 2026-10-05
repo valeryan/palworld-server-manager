@@ -91,7 +91,7 @@ describe("world mod status", () => {
 
 describe("mod library", () => {
   it("lists pinned builds with download state and the worlds where each is detected", async () => {
-    const { modLibrary, artifactPath } = await import("@/server/mods/status"); const { MOD_CATALOG } = await import("@/server/mods/catalog");
+    const { modLibrary } = await import("@/server/mods/status"); const { MOD_CATALOG, artifactPath } = await import("@/server/mods/catalog");
     const linux = MOD_CATALOG.find((artifact) => artifact.variant === "linux")!;
     await put(artifactPath(linux), "x".repeat(linux.sizeBytes));
     const entries = await modLibrary();
@@ -141,7 +141,7 @@ describe("verified downloads", () => {
 describe("library downloads", () => {
   afterEach(() => { vi.unstubAllGlobals(); });
   it("downloads a catalog entry as an operation, refuses duplicates, and removes only the library copy", async () => {
-    const { MOD_CATALOG: catalog } = await import("@/server/mods/catalog"); const MOD_CATALOG = catalog as import("@/server/mods/catalog").CatalogArtifact[]; const { artifactPath } = await import("@/server/mods/status");
+    const { MOD_CATALOG: catalog, artifactPath } = await import("@/server/mods/catalog"); const MOD_CATALOG = catalog as import("@/server/mods/catalog").CatalogArtifact[];
     const { downloadArtifact, removeArtifact } = await import("@/server/mods/library"); const { getJob } = await import("@/server/services/jobs");
     const windows = MOD_CATALOG.find((artifact) => artifact.variant === "windows")!;
     const body = new Uint8Array(windows.sizeBytes);

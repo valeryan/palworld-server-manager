@@ -53,10 +53,7 @@ export async function startJob(worldId: string | null, kind: string, task: (cont
   catch (error) { controllers().delete(id); if (worldId) locks().delete(worldId); throw error; }
   void (async () => {
     let releaseInstallation: (() => Promise<void>) | undefined;
-    const log = (message: string) => {
-      sqliteClient().prepare("INSERT INTO job_logs (job_id,message,created_at) VALUES (?,?,?)").run(id, message, Date.now());
-      eventBus().publish({ type: "log", worldId: worldId ?? undefined, data: { jobId: id, message } });
-    };
+    const log = (message: string) => { sqliteClient().prepare("INSERT INTO job_logs (job_id,message,created_at) VALUES (?,?,?)").run(id, message, Date.now()); };
     try {
       if (worldId) releaseInstallation = await claimOperationInstallation(worldId);
       await database().update(jobs).set({ state: "running", startedAt: Date.now(), message: jobStartingMessage(kind) }).where(eq(jobs.id, id));

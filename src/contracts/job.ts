@@ -18,7 +18,7 @@ export interface JobView {
 
 export interface ManagerEvent {
   id: string;
-  type: "job" | "world" | "log" | "system";
+  type: "job" | "world";
   worldId?: string;
   timestamp: number;
   data: unknown;

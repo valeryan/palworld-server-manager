@@ -1,9 +1,6 @@
 import { errorResponse, requireAdmin } from "@/server/http";
 import { importLuaArchive, MAX_LUA_ARCHIVE_BYTES } from "@/server/mods/lua-library";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
 // Reads the body up to the limit, whatever Content-Length says (a chunked upload has none).
 async function readLimited(request: Request, limit: number): Promise<Buffer> {
   if (Number(request.headers.get("content-length") ?? 0) > limit) throw new Error("The archive is larger than 100 MiB.");

@@ -5,9 +5,6 @@ import { Readable } from "node:stream";
 import { errorResponse, requireAdmin } from "@/server/http";
 import { getBackup } from "@/server/services/backups";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
 export async function GET(request: Request, context: { params: Promise<{ id: string; backupId: string }> }) {
   const denied = requireAdmin(request); if (denied) return denied;
   try {

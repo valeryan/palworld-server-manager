@@ -4,9 +4,6 @@ import { installUe4ss, removeUe4ss, setUe4ssEnabled } from "@/server/mods/ue4ss-
 import { startJob, withWorldLock } from "@/server/services/jobs";
 import { getWorld } from "@/server/services/worlds";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
 const actionSchema = z.object({ action: z.enum(["install", "replace", "enable", "disable", "remove"]) }).strict();
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {

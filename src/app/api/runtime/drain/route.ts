@@ -1,7 +1,5 @@
 import { requireAdmin } from "@/server/http";
 import { beginDrain } from "@/server/services/jobs";
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   const denied = requireAdmin(request); if (denied) return denied;
   if (request.headers.get("x-psm-launch-session") !== process.env.PSM_LAUNCH_SESSION || !process.env.PSM_LAUNCH_SESSION) return Response.json({ ok: false }, { status: 403 });

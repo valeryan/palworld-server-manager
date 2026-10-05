@@ -128,10 +128,6 @@ export async function removeLuaMod(world: LuaWorld, name: string): Promise<void>
   await editModsTxt(directory, name, null);
 }
 
-export async function managedArtifactOf(world: Pick<WorldView, "installDir" | "platform">, name: string): Promise<ManagedMarker | null> {
-  return readMarker(path.join(/* turbopackIgnore: true */ await resolveModsDirectory(ue4ssLayout(world)), name));
-}
-
 // Files a library mod installed must still exist and, while that copy is still in the library,
 // hold the same bytes as the archive. Files the mod itself created are not checked.
 export async function checkLuaModFiles(world: Pick<WorldView, "installDir" | "platform">): Promise<Array<{ name: string; artifactId: string; missing: string[]; changed: string[]; libraryAvailable: boolean }>> {

@@ -1,8 +1,6 @@
 import { errorResponse, requireAdmin } from "@/server/http";
 import { getBackupSettings, updateBackupSettings } from "@/server/services/backups";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ id: string }> };
 
 export async function GET(request: Request, context: Context) {

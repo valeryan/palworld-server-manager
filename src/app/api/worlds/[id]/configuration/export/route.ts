@@ -3,9 +3,6 @@ import { errorResponse, requireAdmin } from "@/server/http";
 import { readConfiguration } from "@/server/services/configuration";
 import { getWorld } from "@/server/services/worlds";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const denied = requireAdmin(request); if (denied) return denied;
   try {

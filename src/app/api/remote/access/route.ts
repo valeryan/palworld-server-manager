@@ -3,7 +3,6 @@ import { updateRemoteCodeSchema } from "@/contracts/remote-access";
 import { errorResponse, requireAdmin } from "@/server/http";
 import { createRemoteCode, deleteRemoteCode, listRemoteAccess, revokeRemoteSessions, setRemoteAccessEnabled, updateRemoteCode } from "@/server/services/remote-access";
 
-export const runtime = "nodejs"; export const dynamic = "force-dynamic";
 const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("set-enabled"), enabled: z.boolean() }),
   z.object({ action: z.literal("create-code"), value: z.unknown() }),

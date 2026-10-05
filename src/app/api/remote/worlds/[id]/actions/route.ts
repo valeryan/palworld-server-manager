@@ -5,7 +5,6 @@ import { startWorld, stopWorld } from "@/server/services/processes";
 import { auditPrincipal, authorizeRemote, remoteAccessErrorResponse } from "@/server/services/remote-access";
 import { getWorld } from "@/server/services/worlds";
 
-export const runtime = "nodejs"; export const dynamic = "force-dynamic";
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await context.params; const principal = await authorizeRemote(request, "world.lifecycle", id);

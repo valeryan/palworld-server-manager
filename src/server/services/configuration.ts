@@ -586,10 +586,6 @@ export async function saveConfigurationOptions(worldId: string, changes: Record<
 type ManagedConfigurationOptions = {
   syncPublicPort?: boolean;
 };
-const managedFields = new Set(["restApiEnabled", "restApiPort", "rconEnabled", "rconPort"]);
-export function needsManagedConfigurationSync(input: unknown) {
-  return Boolean(input && typeof input === "object" && !Array.isArray(input) && Object.keys(input).some(key => managedFields.has(key)));
-}
 export function managedConfigurationChanges(world: Pick<ManagedWorldSettings, "restApiEnabled" | "restApiPort" | "rconEnabled" | "rconPort" | "gamePort">, options: ManagedConfigurationOptions = {}) {
   const changes: Record<string, string> = {
     RESTAPIEnabled: world.restApiEnabled ? "True" : "False",

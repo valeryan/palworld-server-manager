@@ -1,5 +1,3 @@
-import type { JobState, JobView } from "@/contracts/job";
-
 const jobLabels: Record<string, string> = {
   start: "Start server",
   stop: "Stop server",
@@ -50,6 +48,8 @@ const startingMessages: Record<string, string> = {
   "mod-install": "Installing UE4SS",
   "mod-remove": "Removing UE4SS",
   "mod-repair": "Repairing mods",
+  "steamcmd-bootstrap": "Preparing SteamCMD",
+  "repair-prerequisites": "Repairing Windows prerequisites",
 };
 
 const successMessages: Record<string, string> = {
@@ -75,14 +75,8 @@ const successMessages: Record<string, string> = {
   "mod-install": "UE4SS installed",
   "mod-remove": "UE4SS removed",
   "mod-repair": "Mods repaired",
-};
-
-const stateLabels: Record<JobState, string> = {
-  queued: "Waiting",
-  running: "In progress",
-  succeeded: "Completed",
-  failed: "Failed",
-  cancelled: "Canceled",
+  "steamcmd-bootstrap": "SteamCMD is ready",
+  "repair-prerequisites": "Windows prerequisites repaired",
 };
 
 export function humanizeIdentifier(value: string): string {
@@ -92,13 +86,3 @@ export function humanizeIdentifier(value: string): string {
 export function jobKindLabel(kind: string): string { return jobLabels[kind] ?? humanizeIdentifier(kind); }
 export function jobStartingMessage(kind: string): string { return startingMessages[kind] ?? `Running ${jobKindLabel(kind).toLowerCase()}`; }
 export function jobSuccessMessage(kind: string): string { return successMessages[kind] ?? `${jobKindLabel(kind)} completed`; }
-export function jobStateLabel(state: JobState): string { return stateLabels[state]; }
-
-export function jobDisplayMessage(job: Pick<JobView, "kind" | "state" | "message">): string {
-  if (job.message === "Queued") return `${jobKindLabel(job.kind)} is waiting to begin`;
-  if (job.message === "Starting") return jobStartingMessage(job.kind);
-  if (job.message === "Complete") return jobSuccessMessage(job.kind);
-  if (job.message === "Failed") return `${jobKindLabel(job.kind)} failed`;
-  if (job.message === "Cancelled" || job.message === "Cancelling") return job.message === "Cancelled" ? `${jobKindLabel(job.kind)} was canceled` : `Canceling ${jobKindLabel(job.kind).toLowerCase()}`;
-  return job.message;
-}
