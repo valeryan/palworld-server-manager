@@ -1,5 +1,5 @@
 import { _electron as electron, expect, test } from "@playwright/test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -13,13 +13,18 @@ async function createAlpha1Database(userData: string) {
 
 test("packaged Electron boots its bundled server and exposes desktop IPC", async () => {
   const userData = await mkdtemp(path.join(tmpdir(), "psm-packaged-e2e-"));
+  // Run outside the checkout so missing packaged dependencies cannot resolve from
+  // the repository's node_modules and falsely pass this release gate.
+  const packageRoot = path.join(userData, "application");
+  await cp(path.join(process.cwd(), "release", "linux-unpacked"), packageRoot, { recursive: true });
+  const executable = path.join(packageRoot, "palworld-server-manager-next");
   await writeFile(path.join(userData, "desktop-preferences.json"), await readFile(path.join(process.cwd(), "tests", "fixtures", "upgrade-alpha.1-desktop-preferences.json")));
   await createAlpha1Database(userData);
   const home = path.join(userData, "home"); const autostart = path.join(home, ".config", "autostart", "com.palworld.servermanager.next.desktop"); await mkdir(path.dirname(autostart), { recursive: true }); await writeFile(autostart, '[Desktop Entry]\nType=Application\nExec="/obsolete/Palworld-Server-Manager-1.0.0-alpha.1-x86_64.AppImage" --hidden --custom-kept=value\nX-PSM-Test=preserved\n');
   const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
-  env.PSM_PORT = "4338"; env.HOME = home; delete env.ELECTRON_RUN_AS_NODE;
+  env.PSM_PORT = "4338"; env.HOME = home; delete env.ELECTRON_RUN_AS_NODE; delete env.NODE_PATH;
   const application = await electron.launch({
-    executablePath: path.join(process.cwd(), "release", "linux-unpacked", "palworld-server-manager-next"),
+    executablePath: executable,
     args: [`--user-data-dir=${userData}`],
     env,
     timeout: 120_000,
@@ -40,7 +45,7 @@ test("packaged Electron boots its bundled server and exposes desktop IPC", async
     await page.getByRole("link", { name: "Settings" }).click();
     await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
     await expect(page.getByText("Active port: 4338")).toBeVisible();
-    const updatedAutostart = await readFile(autostart, "utf8"); expect(updatedAutostart).toContain(path.join(process.cwd(), "release", "linux-unpacked", "palworld-server-manager-next")); expect(updatedAutostart).toContain(" --hidden --custom-kept=value\nX-PSM-Test=preserved\n");
+    const updatedAutostart = await readFile(autostart, "utf8"); expect(updatedAutostart).toContain(executable); expect(updatedAutostart).toContain(" --hidden --custom-kept=value\nX-PSM-Test=preserved\n");
     const preferences = JSON.parse(await readFile(path.join(userData, "desktop-preferences.json"), "utf8")); expect(preferences.lastSuccessfulAppVersion).toBe("1.0.0-alpha.2");
     const upgraded = new DatabaseSync(path.join(userData, "registry-v3.sqlite"), { readOnly: true }); expect((upgraded.prepare("SELECT count(*) count FROM worlds WHERE id='fixture-world'").get() as { count: number }).count).toBe(1); expect(() => upgraded.prepare("SELECT * FROM world_settings").all()).not.toThrow(); upgraded.close();
     const closeToTray = await page.evaluate(() => (globalThis as typeof globalThis & { psmDesktop: { getCloseToTray(): Promise<boolean> } }).psmDesktop.getCloseToTray());

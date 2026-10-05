@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 
 const root = process.cwd(); const source = path.join(root, ".next", "standalone"); const destination = path.join(root, "dist-standalone");
@@ -11,10 +11,8 @@ if (leaked.length) throw new Error(`The standalone build traced repository-only 
 const sources = existsSync(path.join(source, "src")) ? readdirSync(path.join(source, "src"), { recursive: true }).map(String).filter((file) => /\.tsx?$/.test(file)) : [];
 if (sources.length) throw new Error(`The standalone build traced ${sources.length} source file(s) (${sources.slice(0, 3).join(", ")}). Mark world or user paths with /* turbopackIgnore: true */.`);
 rmSync(destination, { recursive: true, force: true }); cpSync(source, destination, { recursive: true });
-// electron-builder intentionally filters directories named node_modules from
-// extraResources. Keep Next's traced dependency tree under a neutral name and
-// expose it to the standalone CommonJS loader through NODE_PATH at runtime.
-renameSync(path.join(destination, "node_modules"), path.join(destination, "server-node_modules"));
+// package.json maps node_modules separately because electron-builder filters that
+// directory at the root of an extraResources source. Keep normal Node resolution.
 mkdirSync(path.join(destination, ".next"), { recursive: true }); cpSync(path.join(root, ".next", "static"), path.join(destination, ".next", "static"), { recursive: true });
 cpSync(path.join(root, "public"), path.join(destination, "public"), { recursive: true }); cpSync(path.join(root, "drizzle"), path.join(destination, "drizzle"), { recursive: true });
 console.log(`Prepared standalone application at ${destination}`);

@@ -86,6 +86,10 @@
       {
         "from": "dist-standalone",
         "to": "app"
+      },
+      {
+        "from": "dist-standalone/node_modules",
+        "to": "app/node_modules"
       }
     ],
     "directories": {
