@@ -48,12 +48,11 @@ npm run build
 npm run prepare:standalone
 npm run dist
 npm run release
-npm run audit:settings-fixture -- /path/to/PalServer/DefaultPalWorldSettings.ini
 ```
 
 `npm test` runs the deterministic service suite. `npm run test:e2e` builds a packaged Electron directory and runs the production-browser and packaged-desktop workflows against disposable data.
 
-The settings audit compares an installed server template with the reviewed fixture without printing complete INIs or credential values. It reports key additions/removals, changed defaults, codec mismatches, and manager-owned keys. Refresh both fixture files only after reviewing a server update; the provenance record includes the Palworld version, Steam build ID, capture date, and checksum.
+The normal test suite verifies the reviewed Palworld template’s checksum, setting coverage, and codecs. When updating the template after a game release, review its diff and update both fixture files together; the provenance record includes the game version, Steam build ID, capture date, and checksum.
 
 `npm run dist` builds the Linux AppImage and the Windows Setup and portable exes together (the Windows builds are cross-built through Wine, in a throwaway prefix). `npm run release` runs every check first, then builds them into a clean `release/` with `SHA256SUMS.txt`. `dist:linux` and `dist:windows` build one platform for quick local testing.
 

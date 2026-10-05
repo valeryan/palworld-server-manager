@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { prepareTestDatabase } from "./prepare-database";
 import { adoptWorld, exportWorldRegistration, pathsOverlap } from "@/server/services/worlds";
@@ -282,6 +283,8 @@ describe("PalWorldSettings transformations", () => {
   });
   it("accounts for every setting in the tested Palworld 1.0.5 template", async () => {
     const template = await readFile(path.join(process.cwd(), "tests/fixtures/DefaultPalWorldSettings-1.0.5.ini"), "utf8");
+    const provenance = JSON.parse(await readFile(path.join(process.cwd(), "tests/fixtures/DefaultPalWorldSettings-1.0.5.json"), "utf8")) as { sha256: string };
+    expect(createHash("sha256").update(template).digest("hex"), "Update the reviewed template and provenance together").toBe(provenance.sha256);
     const templateKeys = Object.keys(parseConfigurationOptions(template)).sort();
     const representedKeys = [...PALWORLD_SETTING_FIELDS.map((field) => field.key), ...PALWORLD_MANAGER_SETTING_KEYS].sort();
     expect(templateKeys).toHaveLength(122);
