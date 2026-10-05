@@ -277,6 +277,46 @@ test("adopts and manages an isolated world through critical browser workflows", 
     const payload = await response.json() as { configuration: { pendingApply: boolean; appliedOptions: Record<string, string> } };
     return `${payload.configuration.pendingApply}:${payload.configuration.appliedOptions.AdminPassword}`;
   }).toBe('false:"staged-while-running"');
+  await page.route(`**/api/worlds/${worldId}/logs`, (route) => route.fulfill({ json: {
+    ok: true, logs: { files: ["fixture.log"], selected: "fixture.log", content: "Server ready\nPlayer fixture joined\n" },
+  } }));
+  await page.getByRole("button", { name: "Console", exact: true }).click();
+  await page.getByRole("button", { name: "Refresh now", exact: true }).click();
+  const consoleOutput = page.locator(".console-panel .console-output");
+  await expect(consoleOutput).toContainText("Server ready");
+  await page.getByLabel("Search this log").fill("PLAYER");
+  await expect(consoleOutput).toHaveText("Player fixture joined");
+  await page.getByLabel("Search this log").fill("not-present");
+  await expect(consoleOutput).toHaveText("No lines match this search.");
+  await page.getByLabel("Search this log").fill("");
+  await page.getByRole("button", { name: "Pause live updates" }).click();
+  await expect(page.getByRole("button", { name: "Resume live updates" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Download full log" })).toHaveAttribute("href", `/api/worlds/${worldId}/logs/download?file=fixture.log`);
+  const announcementInput = page.getByPlaceholder("Announcement to all online players");
+  await expect(announcementInput).toBeDisabled();
+  await page.route(`**/api/worlds/${worldId}`, async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    await route.fulfill({ json: { ...body, world: { ...body.world, restApiEnabled: true } } });
+  });
+  await expect(announcementInput).toBeEnabled();
+  let announcement: unknown;
+  await page.route(`**/api/worlds/${worldId}/admin`, (route) => {
+    announcement = route.request().postDataJSON();
+    return route.fulfill({ json: { ok: true } });
+  });
+  await announcementInput.fill("Fixture announcement");
+  await page.getByRole("button", { name: "Send announcement" }).click();
+  await expect(announcementInput).toHaveValue("");
+  expect(announcement).toEqual({ action: "announce", message: "Fixture announcement" });
+  await page.unroute(`**/api/worlds/${worldId}/admin`);
+  await page.route(`**/api/worlds/${worldId}/admin`, (route) => route.fulfill({ status: 503, json: { error: "Fixture announcement rejected" } }));
+  await announcementInput.fill("Rejected announcement");
+  await page.getByRole("button", { name: "Send announcement" }).click();
+  await expect(page.getByText("Fixture announcement rejected", { exact: true })).toBeVisible();
+  await page.unroute(`**/api/worlds/${worldId}/admin`);
+  await page.unroute(`**/api/worlds/${worldId}`);
+  await page.unroute(`**/api/worlds/${worldId}/logs`);
   await page.getByRole("button", { name: "Stop", exact: true }).click();
   await waitForLatestJob(page, "stop");
   await page.reload();
