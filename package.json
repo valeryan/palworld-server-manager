@@ -12,7 +12,7 @@
     "dev:web": "node scripts/start-development-web.mjs",
     "dev:electron": "npm run build:electron && node scripts/start-development-electron.mjs",
     "build": "npm run build:web && npm run build:electron",
-    "build:web": "node scripts/clean-web-build-artifacts.mjs && next build",
+    "build:web": "next build",
     "build:electron": "tsup",
     "prepare:standalone": "node scripts/prepare-standalone.mjs",
     "start": "next start -p 4318",
