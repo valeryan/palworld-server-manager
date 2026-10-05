@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import type { WorldView } from "@/contracts/world";
+import type { AdvertisedPortState, PublicWorldView } from "@/contracts/world";
 import { WorldSchedulesPanel } from "./world-schedules-dialog";
 import { WorldBackupsPanel } from "./world-backups-panel";
 import { WorldModsPanel } from "./world-mods-panel";
@@ -20,11 +20,11 @@ import { BuildStatus } from "./build-status";
 import { SphereMark } from "./sphere-mark";
 import { WorldStatus } from "./world-status";
 
-type SafeWorld = Omit<WorldView, "adminPassword" | "serverPassword" | "env">;
+type SafeWorld = PublicWorldView;
 type Tab = "overview" | "players" | "deaths" | "console" | "settings" | "mods" | "backups" | "schedule";
 type Live = { reachable: boolean; info?: Record<string, unknown>; players?: { players?: Array<Record<string, unknown>> }; metrics?: Record<string, unknown>; error?: string };
 type Activity = { events: Array<{ id: number; kind: string; message: string; createdAt: number }>; sessions: Array<{ id: number; playerName: string | null; event: string; createdAt: number }>; deaths: Array<{ id: number; victim: string; cause: string | null; killer: string | null; killerKind: string | null; createdAt: number }>; hasMore: { events: boolean; sessions: boolean; deaths: boolean } };
-type AdvertisedPort = { mode: "inherit" | "override"; effectivePort: number } | { mode: "invalid"; raw: string; effectivePort: number };
+type AdvertisedPort = AdvertisedPortState;
 type Configuration = { path: string; exists: boolean; content: string; running: boolean; advertisedPort: AdvertisedPort; desiredRevision: number; appliedRevision: number; pendingApply: boolean; applyError: string | null; drift: boolean };
 type ConfigVersion = { id: string; note: string | null; createdAt: number; sizeBytes: number };
 

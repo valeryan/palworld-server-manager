@@ -1,10 +1,20 @@
 import { z } from "zod";
 
-export const platformSchema = z.enum(["linux", "windows"]);
-export const worldStatusSchema = z.enum(["stopped", "starting", "running", "stopping", "crashed", "unknown"]);
-const port = z.coerce.number().int().min(1).max(65535);
+// Single source of the enumerations shared by the database schema, the API and the client.
+export const PLATFORMS = ["linux", "windows"] as const;
+export const WORLD_STATUSES = ["stopped", "starting", "running", "stopping", "crashed", "unknown"] as const;
+export const ARGUMENT_FORMATS = ["legacy", "windows"] as const;
+export type Platform = typeof PLATFORMS[number];
+export type ArgumentFormat = typeof ARGUMENT_FORMATS[number];
+
+export const platformSchema = z.enum(PLATFORMS);
+export const worldStatusSchema = z.enum(WORLD_STATUSES);
+export const portSchema = z.coerce.number().int().min(1).max(65535);
+const port = portSchema;
+export const PORT_FIELDS = ["gamePort", "queryPort", "restApiPort", "rconPort"] as const;
+export type PortField = typeof PORT_FIELDS[number];
 export const defaultWorldPorts = { gamePort: 8211, queryPort: 27015, restApiPort: 8212, rconPort: 25575 } as const;
-export type WorldPorts = { gamePort: number; queryPort: number; restApiPort: number; rconPort: number };
+export type WorldPorts = Record<PortField, number>;
 
 export const createWorldSchema = z.object({
   displayName: z.string().trim().min(1).max(80),
@@ -23,7 +33,7 @@ export const createWorldSchema = z.object({
   crashGuard: z.boolean().default(true),
   legacyPerfFlags: z.boolean().default(true),
   extraArgs: z.string().max(4096).default(""),
-  argumentFormat: z.enum(["legacy", "windows"]).optional(),
+  argumentFormat: z.enum(ARGUMENT_FORMATS).optional(),
   env: z.record(z.string(), z.string()).default({}),
   wineBinary: z.string().trim().default("wine"),
   winePrefix: z.string().nullable().default(null),
@@ -31,8 +41,16 @@ export const createWorldSchema = z.object({
 });
 
 export const updateWorldSchema = createWorldSchema.partial();
+// Everything PSM manages about a world apart from the game credentials, which live only in the INI.
 export const managedWorldSettingsSchema = createWorldSchema.omit({ adminPassword: true, serverPassword: true }).strict();
-export const portableWorldSchema = createWorldSchema.omit({ adminPassword: true, serverPassword: true }).strict();
+export const portableWorldSchema = managedWorldSettingsSchema;
+/** The managed field names, derived from the schema so no code has to list them by hand. */
+export const MANAGED_KEYS = Object.keys(managedWorldSettingsSchema.shape) as Array<keyof ManagedWorldSettings>;
+/** Only the managed fields of `source`, as a plain object ready for `managedWorldSettingsSchema.parse`. */
+export function pickManaged<T extends object>(source: T): Pick<T, keyof ManagedWorldSettings & keyof T> {
+  const record = source as Record<string, unknown>;
+  return Object.fromEntries(MANAGED_KEYS.filter((key) => key in record).map((key) => [key, record[key]])) as Pick<T, keyof ManagedWorldSettings & keyof T>;
+}
 export const worldRegistrationSchema = z.object({
   format: z.literal("psm-next/world-registration"),
   version: z.union([z.literal(1), z.literal(2)]),
@@ -85,3 +103,12 @@ export interface WorldView extends CreateWorldInput {
   createdAt: number;
   updatedAt: number;
 }
+
+/** A world as the API returns it: never the game credentials or the process environment. */
+export type PublicWorldView = Omit<WorldView, "adminPassword" | "serverPassword" | "env">;
+
+/** How the port advertised to players (PublicPort) relates to the game port. */
+export type AdvertisedPortState =
+  | { mode: "inherit"; effectivePort: number }
+  | { mode: "override"; effectivePort: number }
+  | { mode: "invalid"; raw: string; effectivePort: number };

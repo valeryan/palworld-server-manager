@@ -1,11 +1,12 @@
 import { hostPlatform } from "@/server/host";
 import "server-only";
 import { assertSupportedTarget } from "@/server/host";
-import { windowsArguments } from "@/lib/arguments";
+import { posixArguments, windowsArguments } from "@/lib/arguments";
 import { createWriteStream, existsSync, openSync, closeSync } from "node:fs";
 import path from "node:path";
-import { appendFile, writeFile, readFile, rename, rm } from "node:fs/promises";
+import { appendFile, writeFile, readFile, rm } from "node:fs/promises";
 import { errorMessage } from "@/lib/errors";
+import { writeFileAtomic } from "@/server/fs";
 import { processSnapshot, ownedTree, sameProcess, type ProcessIdentity } from "./process-inspection";
 import { inspectPrerequisites } from "./prerequisites";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -51,21 +52,7 @@ function executableAvailable(command: string, env: NodeJS.ProcessEnv): boolean {
   return (env.PATH ?? "").split(path.delimiter).some((directory) => existsSync(path.join(/* turbopackIgnore: true */ directory, command)));
 }
 
-export function parseArguments(value: string): string[] {
-  const args: string[] = [];
-  let token = ""; let quote: "'" | '"' | null = null; let escaped = false;
-  for (const character of value.trim()) {
-    if (escaped) { token += character; escaped = false; continue; }
-    if (character === "\\" && quote !== "'") { escaped = true; continue; }
-    if (quote) { if (character === quote) quote = null; else token += character; continue; }
-    if (character === "'" || character === '"') { quote = character; continue; }
-    if (/\s/.test(character)) { if (token) { args.push(token); token = ""; } continue; }
-    token += character;
-  }
-  if (escaped || quote) throw new Error("Launch arguments contain an unfinished quote or escape.");
-  if (token) args.push(token);
-  return args;
-}
+export function parseArguments(value: string): string[] { return posixArguments(value, { unfinishedMessage: "Launch arguments contain an unfinished quote or escape." }); }
 
 export function commandFor(world: WorldView): { command: string; args: string[]; env: NodeJS.ProcessEnv } {
   assertSupportedTarget(world.platform);
@@ -108,9 +95,7 @@ async function persistIdentity(world: WorldView, processes: ProcessIdentity[]): 
   const file = launchLease(world);
   const lease = JSON.parse(await readFile(file, "utf8")) as RuntimeLease;
   if (lease.profile !== paths.data()) throw new Error("This installation belongs to another manager profile.");
-  const temporary = `${file}.tmp-${process.pid}`;
-  await writeFile(temporary, JSON.stringify({ ...lease, processes }), { mode: 0o600 });
-  await rename(temporary, file);
+  await writeFileAtomic(file, JSON.stringify({ ...lease, processes }), { mode: 0o600 });
 }
 async function claimInstallation(world: WorldView, snapshot: ProcessIdentity[]): Promise<void> {
   const file = launchLease(world);
@@ -252,6 +237,15 @@ async function stopWorldProcess(worldId: string, force: boolean, options: { wait
   if (application.pendingApply) throw new Error(`Server stopped; settings remain pending${application.applyError ? `: ${application.applyError}` : "."}`);
 }
 export async function restartWorld(worldId: string, options: { waitSeconds?: number; message?: string } = {}): Promise<void> { await stopWorld(worldId, false, options); await startWorld(worldId); }
+
+/** The body of a start/stop/restart operation, shared by the desktop and remote action routes. */
+export function lifecycleTask(worldId: string, action: "start" | "stop" | "restart", force = false): (job: import("./jobs").JobContext) => Promise<void> {
+  return async (job) => {
+    if (action === "start") { await job.update(10, "Starting server process"); await startWorld(worldId); }
+    else if (action === "stop") { await job.update(10, force ? "Force-stopping server process" : "Requesting graceful server shutdown"); await stopWorld(worldId, force); }
+    else { await job.update(10, "Stopping server"); await stopWorld(worldId); await job.update(60, "Starting server"); await startWorld(worldId); }
+  };
+}
 
 declare global { var __psmProcessTimer: NodeJS.Timeout | undefined; var __psmReconciling: boolean | undefined; var __psmInspectionError: string | undefined; }
 function startProcessMonitor() {

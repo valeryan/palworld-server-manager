@@ -1,7 +1,11 @@
 import { z } from "zod";
 
-export const scheduleActionSchema = z.enum(["backup", "restart", "stop", "update", "system_message", "onscreen_notice", "custom_http", "idle_stop"]);
-export const scheduleModeSchema = z.enum(["interval", "minutes", "daily", "on_join"]);
+export const SCHEDULE_ACTIONS = ["backup", "restart", "stop", "update", "system_message", "onscreen_notice", "custom_http", "idle_stop"] as const;
+export const SCHEDULE_MODES = ["interval", "minutes", "daily", "on_join"] as const;
+export type ScheduleAction = typeof SCHEDULE_ACTIONS[number];
+export type ScheduleMode = typeof SCHEDULE_MODES[number];
+export const scheduleActionSchema = z.enum(SCHEDULE_ACTIONS);
+export const scheduleModeSchema = z.enum(SCHEDULE_MODES);
 const messageActions = new Set(["system_message", "onscreen_notice"]);
 const timedActions = new Set(["backup", "restart", "stop", "update", "system_message", "onscreen_notice", "custom_http"]);
 

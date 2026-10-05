@@ -1,16 +1,10 @@
-import { readdir } from "node:fs/promises";
-import { canonicalInstallDir } from "@/server/services/worlds";
+import { publicWorld, route } from "@/server/http";
 import { installationHealth } from "@/server/services/installation";
-import { adoptWorld, createWorld, listWorlds } from "@/server/services/worlds";
-import { errorResponse, publicWorld, requireAdmin } from "@/server/http";
+import { listWorlds, registerWorld } from "@/server/services/worlds";
 
-export async function GET() {
-  try { return Response.json({ ok: true, worlds: await Promise.all((await listWorlds()).map(async (world) => ({ ...publicWorld(world), installation: await installationHealth(world) }))) }); }
-  catch (error) { return errorResponse(error); }
-}
+export const GET = route(async () => ({ worlds: await Promise.all((await listWorlds()).map(async (world) => ({ ...publicWorld(world), installation: await installationHealth(world) }))) }));
 
-export async function POST(request: Request) {
-  const denied = requireAdmin(request); if (denied) return denied;
-  try { const body = await request.json(); if (new URL(request.url).searchParams.get("mode") !== "adopt" && typeof body.installDir === "string") { const directory = await canonicalInstallDir(body.installDir); const entries = await readdir(directory).catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return []; throw error; }); if (entries.length) throw new Error("A new installation must use an empty directory. Use Adopt for an existing server."); } const world = new URL(request.url).searchParams.get("mode") === "adopt" ? await adoptWorld(body) : await createWorld(body); return Response.json({ ok: true, world: publicWorld(world) }, { status: 201 }); }
-  catch (error) { return errorResponse(error); }
-}
+export const POST = route(async (request) => {
+  const mode = new URL(request.url).searchParams.get("mode") === "adopt" ? "adopt" : "install";
+  return { world: publicWorld(await registerWorld(await request.json(), mode)) };
+}, { status: 201 });

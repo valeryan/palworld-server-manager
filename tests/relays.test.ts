@@ -1,29 +1,15 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { appendFile, mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { describe, expect, it, vi } from "vitest";
+import { appendFile, mkdir, readFile, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { prepareTestDatabase } from "./prepare-database";
+import { setupTestDataDirectory } from "./prepare-database";
+import { exists, world as worldFixture } from "./mod-fixtures";
 
-let directory: string;
-async function exists(target: string): Promise<boolean> { try { await stat(target); return true; } catch { return false; } }
-async function world(name: string, platform: "windows" | "linux") {
-  const installDir = path.join(directory, name);
-  await mkdir(path.join(installDir, "Pal", "Binaries", platform === "windows" ? "Win64" : "Linux"), { recursive: true });
-  const { createWorld } = await import("@/server/services/worlds");
-  return createWorld({ displayName: name, installDir, platform });
-}
+const dir = setupTestDataDirectory("psm-relays-");
+async function world(name: string, platform: "windows" | "linux") { return worldFixture(dir.directory, name, platform); }
 async function enableUe4ss(worldId: string, variant: "windows" | "linux") {
   const { database } = await import("@/server/db"); const { modRuntimes } = await import("@/server/db/schema");
   await database().insert(modRuntimes).values({ worldId, artifactId: `ue4ss-${variant}`, variant, version: "test", sha256: "0".repeat(64), enabled: true, installedFiles: [], installedAt: 1, updatedAt: 1 });
 }
-
-beforeAll(async () => {
-  directory = await mkdtemp(path.join(tmpdir(), "psm-relays-"));
-  process.env.PALWORLD_MANAGER_DATA_DIR = path.join(directory, "data");
-  process.env.PALWORLD_MANAGER_DB = path.join(directory, "data", "registry-v3.sqlite");
-  await prepareTestDatabase(process.env.PALWORLD_MANAGER_DATA_DIR, process.env.PALWORLD_MANAGER_DB);
-});
-afterAll(async () => { await rm(directory, { recursive: true, force: true }); });
 
 describe("relay scripts", () => {
   it("fills in the world's path as the game sees it, and carries a version", async () => {

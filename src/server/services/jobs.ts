@@ -119,6 +119,11 @@ export async function withWorldLock<T>(worldId: string, task: () => Promise<T>, 
   }
 }
 
+/** A short change that needs the world's current row read under the lock, so it cannot race a start. */
+export async function withLockedWorld<T>(worldId: string, task: (world: import("@/contracts/world").WorldView) => Promise<T>): Promise<T> {
+  return withWorldLock(worldId, async () => { const { requireWorld } = await import("./worlds"); return task(await requireWorld(worldId)); });
+}
+
 export async function listJobLogs(jobId: string, limit = 1_000) {
   return database().select().from(jobLogs).where(eq(jobLogs.jobId, jobId)).orderBy(jobLogs.id).limit(Math.min(Math.max(Math.trunc(limit) || 1_000, 1), 5_000));
 }

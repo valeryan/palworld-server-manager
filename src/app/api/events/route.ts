@@ -1,7 +1,8 @@
 import type { ManagerEvent } from "@/contracts/job";
+import { route } from "@/server/http";
 import { eventBus } from "@/server/services/events";
 
-export async function GET(request: Request) {
+export const GET = route(async (request) => {
   const encoder = new TextEncoder(); let unsubscribe = () => {};
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -13,4 +14,4 @@ export async function GET(request: Request) {
     cancel() { unsubscribe(); },
   });
   return new Response(stream, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" } });
-}
+});

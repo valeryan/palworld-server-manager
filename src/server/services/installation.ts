@@ -1,6 +1,7 @@
 import "server-only";
 import path from "node:path";
-import { readFile, stat, readdir } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
+import { isDirectory, isFile } from "@/server/fs";
 import { desc, eq } from "drizzle-orm";
 import { isWorldStopped, type WorldView } from "@/contracts/world";
 import { isJobActive, SERVER_INSTALL_JOB_KINDS } from "@/contracts/job";
@@ -12,10 +13,9 @@ import { readInstalledBuild } from "./steamcmd";
 import { configPath, configurationIsValid } from "./configuration";
 import { inspectPrerequisites } from "./prerequisites";
 export async function inspectInstallation(installDir: string, target?: "linux" | "windows") {
-  const present = async (file: string) => (await stat(file).catch(() => null))?.isFile() ?? false;
   const platforms: Array<"linux" | "windows"> = [];
-  if (await present(path.join(/* turbopackIgnore: true */ installDir, "PalServer.sh"))) platforms.push("linux");
-  if (await present(path.join(/* turbopackIgnore: true */ installDir, "PalServer.exe"))) platforms.push("windows");
+  if (await isFile(path.join(/* turbopackIgnore: true */ installDir, "PalServer.sh"))) platforms.push("linux");
+  if (await isFile(path.join(/* turbopackIgnore: true */ installDir, "PalServer.exe"))) platforms.push("windows");
   const platform = target ?? (platforms.length === 1 ? platforms[0] : undefined);
   const warnings: string[] = []; let executable = false;
   if (platform) {
@@ -35,7 +35,7 @@ export async function inspectInstallation(installDir: string, target?: "linux" |
   const configuration = configurationIsValid(content);
   const template = !content.trim() ? await readFile(path.join(/* turbopackIgnore: true */ installDir, "DefaultPalWorldSettings.ini"), "utf8").catch(() => "") : "";
   const canInitialize = !content.trim() && configurationIsValid(template);
-  const saves = (await stat(path.join(/* turbopackIgnore: true */ installDir, "Pal", "Saved")).catch(() => null))?.isDirectory() ?? false;
+  const saves = await isDirectory(path.join(/* turbopackIgnore: true */ installDir, "Pal", "Saved"));
   const build = platform ? readInstalledBuild({ installDir, platform } as WorldView) : null;
   const buildId = build?.buildId ?? null;
   if (!buildId) warnings.push("Installed build is unknown; no matching Steam manifest was found.");

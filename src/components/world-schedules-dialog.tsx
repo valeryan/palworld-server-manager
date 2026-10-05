@@ -4,15 +4,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocaleDateTime } from "@/lib/use-locale-format";
-import type { WorldView } from "@/contracts/world";
+import type { MaintenanceSettingsInput, ScheduleAction, ScheduleMode } from "@/contracts/schedule";
+import { SCHEDULE_ACTIONS } from "@/contracts/schedule";
+import type { PublicWorldView } from "@/contracts/world";
 
-type SafeWorld = Omit<WorldView, "adminPassword" | "serverPassword" | "env">;
-type Action = "backup" | "restart" | "stop" | "update" | "system_message" | "onscreen_notice" | "custom_http" | "idle_stop";
-type Mode = "interval" | "minutes" | "daily" | "on_join";
+type SafeWorld = PublicWorldView;
+type Action = ScheduleAction;
+type Mode = ScheduleMode;
 type Schedule = { id: string; action: Action; mode: Mode; intervalHours: number | null; intervalMinutes: number | null; timeOfDay: string | null; message: string | null; joinMatch: string | null; joinDelaySeconds: number | null; enabled: boolean; skipNext: boolean; lastRunAt: number | null; nextRunAt: number | null };
-type WarningSettings = { warningEnabled: boolean; warningLeadMinutes: number; warningIntervalMinutes: number; warningMessage: string };
+type WarningSettings = MaintenanceSettingsInput;
 
-const actions: Action[] = ["backup", "restart", "stop", "update", "system_message", "onscreen_notice", "custom_http", "idle_stop"];
+const actions: readonly Action[] = SCHEDULE_ACTIONS;
 
 export function WorldSchedulesPanel({ world, onNotice }: { world: SafeWorld; onNotice(message: string): void }) {
   const { t } = useTranslation();

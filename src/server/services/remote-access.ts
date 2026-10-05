@@ -6,7 +6,8 @@ import { promisify } from "node:util";
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import { createRemoteCodeSchema, remoteAccessSettingsSchema, remoteLoginSchema, type RemotePermission } from "@/contracts/remote-access";
 import { database } from "@/server/db";
-import { appSettings, remoteAccessCodes, remoteAudit, remoteSessions } from "@/server/db/schema";
+import { readAppSetting, writeAppSetting } from "@/server/db/app-settings";
+import { remoteAccessCodes, remoteAudit, remoteSessions } from "@/server/db/schema";
 import { ForbiddenError, HttpError, UnauthorizedError } from "@/server/errors";
 import { paths } from "@/server/paths";
 import { requireWorld } from "./worlds";
@@ -50,15 +51,13 @@ function sessionToken(request: Request): string | null {
 }
 export function requestIp(request: Request): string { return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "unknown"; }
 
-export async function getRemoteAccessSettings() {
-  const [row] = await database().select().from(appSettings).where(eq(appSettings.key, SETTINGS_KEY)).limit(1);
-  const parsed = remoteAccessSettingsSchema.safeParse(row?.value);
-  return parsed.success ? parsed.data : { enabled: false };
+export function getRemoteAccessSettings() {
+  return readAppSetting(SETTINGS_KEY, (value) => remoteAccessSettingsSchema.safeParse(value).data, { enabled: false });
 }
 
 export async function setRemoteAccessEnabled(enabled: boolean) {
   const value = remoteAccessSettingsSchema.parse({ enabled });
-  await database().insert(appSettings).values({ key: SETTINGS_KEY, value }).onConflictDoUpdate({ target: appSettings.key, set: { value } });
+  await writeAppSetting(SETTINGS_KEY, value);
   writeFileSync(path.join(paths.data(), "remote-access.json"), JSON.stringify(value), { mode: 0o600 });
   if (!enabled) await database().update(remoteSessions).set({ revokedAt: Date.now() }).where(isNull(remoteSessions.revokedAt));
   return value;

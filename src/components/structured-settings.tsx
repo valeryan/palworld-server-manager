@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { decodeDefaultSettingValue, decodeSettingValue, PALWORLD_SETTING_FIELD_MAP, PALWORLD_SETTING_FIELDS, PALWORLD_SETTING_TABS, settingLayoutSpan, settingPresentation, type DecodedSettingValue, type PalworldSettingField, type PalworldSettingPresentation, type PalworldSettingValue } from "@/contracts/palworld-settings";
-import type { WorldRegistration } from "@/contracts/world";
+import type { AdvertisedPortState, WorldRegistration } from "@/contracts/world";
 import { errorMessage } from "@/lib/errors";
 import { fetchBlob, fetchJson, requestJson } from "@/lib/http-client";
 import { settingFieldKey, settingGroupKey } from "@/lib/localization-resources";
@@ -20,7 +20,7 @@ type Structured = {
   shippedDefaults: { available: boolean; options: Record<string, string> };
   schemaWarnings: { unknownActiveKeys: string[]; unknownDefaultKeys: string[]; missingDefaultKeys: string[] };
 };
-type AdvertisedPort = { mode: "inherit"; effectivePort: number } | { mode: "override"; effectivePort: number } | { mode: "invalid"; raw: string; effectivePort: number };
+type AdvertisedPort = AdvertisedPortState;
 type AdminConfiguration = {
   restApiEnabled: boolean; restApiPort: number; rconEnabled: boolean; rconPort: number;
   displayName: string; installDir: string; platform: "linux" | "windows"; gamePort: number; queryPort: number; advertisedPort: AdvertisedPort;

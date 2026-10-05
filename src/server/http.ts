@@ -1,7 +1,7 @@
 import "server-only";
 import { timingSafeEqual } from "node:crypto";
 import { ZodError } from "zod";
-import type { WorldView } from "@/contracts/world";
+import type { PublicWorldView, WorldView } from "@/contracts/world";
 import { HttpError } from "@/server/errors";
 import { worldIsLocked } from "@/server/services/jobs";
 
@@ -33,8 +33,34 @@ export function requireAdmin(request: Request): Response | null {
   return null;
 }
 
-export function publicWorld(world: WorldView): Omit<WorldView, "adminPassword" | "serverPassword" | "env"> {
+export function publicWorld(world: WorldView): PublicWorldView {
   const safe: Partial<WorldView> = { ...world };
   delete safe.adminPassword; delete safe.serverPassword; delete safe.env;
-  return safe as Omit<WorldView, "adminPassword" | "serverPassword" | "env">;
+  return safe as PublicWorldView;
+}
+
+type RouteParams = Record<string, string>;
+type RouteResult = Response | Record<string, unknown> | void;
+type RouteContext<P> = { params: Promise<P> };
+type RouteOptions = {
+  /** Require the desktop admin cookie (default). Remote and public routes pass false and authenticate themselves. */
+  admin?: boolean;
+  /** Status for a successful JSON result; 200 by default, 201/202 for creations and accepted jobs. */
+  status?: number;
+};
+
+/**
+ * Wraps a route handler with the shared concerns of every API route: admin authentication, awaiting
+ * the dynamic params, the `{ ok: true, ... }` success envelope and HTTP-status-aware error mapping.
+ * A handler may return a Response of its own (files, streams, cookies) to bypass the envelope.
+ */
+export function route<P extends RouteParams = Record<string, never>>(handler: (request: Request, params: P) => Promise<RouteResult> | RouteResult, options: RouteOptions = {}) {
+  return async (request: Request, context?: RouteContext<P>): Promise<Response> => {
+    try {
+      if (options.admin !== false) { const denied = requireAdmin(request); if (denied) return denied; }
+      const result = await handler(request, context ? await context.params : ({} as P));
+      if (result instanceof Response) return result;
+      return Response.json({ ok: true, ...(result ?? {}) }, { status: options.status ?? 200 });
+    } catch (error) { return errorResponse(error); }
+  };
 }

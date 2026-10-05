@@ -2,8 +2,9 @@ import { hostPlatform } from "@/server/host";
 import "server-only";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { mkdir, readdir, readFile, stat } from "node:fs/promises";
+import { mkdir, readdir, readFile } from "node:fs/promises";
 import type { WorldView } from "@/contracts/world";
+import { exists } from "@/server/fs";
 import { paths } from "@/server/paths";
 
 type WineWorld = Pick<WorldView, "id" | "platform" | "wineBinary" | "winePrefix">;
@@ -19,8 +20,6 @@ export function runsUnderWine(world: Pick<WorldView, "platform">, host = hostPla
 // Worlds without an explicit prefix get their own manager-owned prefix instead of ~/.wine.
 export function effectiveWinePrefix(world: WineWorld): string { return world.winePrefix?.trim() || paths.winePrefix(world.id); }
 export function managesWinePrefix(world: WineWorld): boolean { return !world.winePrefix?.trim() || path.resolve(world.winePrefix) === path.resolve(paths.winePrefix(world.id)); }
-
-async function exists(target: string): Promise<boolean> { try { await stat(target); return true; } catch { return false; } }
 
 function run(command: string, args: string[], env: NodeJS.ProcessEnv, log: (line: string) => void, timeoutMs: number): Promise<void> {
   return new Promise((resolve, reject) => {

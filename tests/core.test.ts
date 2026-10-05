@@ -1,9 +1,9 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { prepareTestDatabase } from "./prepare-database";
+import { setupTestDataDirectory } from "./prepare-database";
 import { adoptWorld, exportWorldRegistration, pathsOverlap } from "@/server/services/worlds";
 import { commandFor, parseArguments } from "@/server/services/processes";
 import { createWorldSchema, parseWorldUpdate, worldRegistrationSchema } from "@/contracts/world";
@@ -283,14 +283,7 @@ describe("PalWorldSettings transformations", () => {
 });
 
 describe("job cancellation", () => {
-  let directory: string | undefined;
-  beforeAll(async () => {
-    directory = await mkdtemp(path.join(tmpdir(), "psm-jobs-test-"));
-    process.env.PALWORLD_MANAGER_DATA_DIR = path.join(directory, "data");
-    process.env.PALWORLD_MANAGER_DB = path.join(directory, "data", "registry-v3.sqlite");
-    await prepareTestDatabase(process.env.PALWORLD_MANAGER_DATA_DIR, process.env.PALWORLD_MANAGER_DB);
-  });
-  afterAll(async () => { if (directory) await rm(directory, { recursive: true, force: true }); });
+  setupTestDataDirectory("psm-jobs-test-");
 
   it("cancels an attached long-running job and records cancellation", async () => {
     const id = await startJob(null, "cancel-test", async ({ signal }) => await new Promise<void>((_resolve, reject) => {

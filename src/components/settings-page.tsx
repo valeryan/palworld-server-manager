@@ -6,7 +6,7 @@ import * as Tooltip from "@radix-ui/react-tooltip";
 import Image from "next/image";
 import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import type { LaunchAtLoginOptions } from "../../electron/launch-options";
+import { defaultLaunchAtLoginOptions, type LaunchAtLoginOptions } from "../../electron/launch-options";
 import { updateChannels, type UpdateChannel } from "@/contracts/application-update";
 import type { LanguageCatalog } from "@/contracts/localization";
 import { defaultRetentionSettings, retentionLimits, retentionSettingKeys, type RetentionSettingKey, type RetentionSettings } from "@/contracts/retention";
@@ -19,7 +19,6 @@ import { themes } from "@/lib/themes";
 import { useNoticeAction } from "@/lib/use-notice-action";
 
 type Paths = { dataDirectory: string; database: string; steamCmd: string; logs: string; retention: RetentionSettings; theme: string; updateChannel: UpdateChannel; updateChecksDisabled: "development" | null };
-const initialLaunchOptions: LaunchAtLoginOptions = { startHidden: true, disableGpu: false, forceX11: false, customFlags: "" };
 const retentionLabels: Record<RetentionSettingKey, string> = { operationDays: "operationDays", operationCount: "operationCount", operationLogLines: "operationLines", activityDays: "activityDays", activityCountPerWorld: "activityCount", serverLogFilesPerWorld: "logFiles", configurationVersionsPerWorld: "configVersions" };
 
 export function SettingsPage() {
@@ -32,7 +31,7 @@ export function SettingsPage() {
   const [closeToTray, setCloseToTray] = useState(true);
   const [loginDisabledByOS, setLoginDisabledByOS] = useState(false);
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
-  const [launchOptions, setLaunchOptions] = useState(initialLaunchOptions);
+  const [launchOptions, setLaunchOptions] = useState<LaunchAtLoginOptions>(defaultLaunchAtLoginOptions);
   const [managerPort, setManagerPort] = useState("4318");
   const [activeManagerPort, setActiveManagerPort] = useState(4318);
   const [desktopReady, setDesktopReady] = useState(false);

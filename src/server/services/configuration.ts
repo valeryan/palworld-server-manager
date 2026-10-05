@@ -4,54 +4,33 @@ import { privateFile } from "@/server/host";
 import "server-only";
 import { assertSupportedTarget } from "@/server/host";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { readOptional, writeFileAtomic } from "@/server/fs";
 import { and, desc, eq } from "drizzle-orm";
-import { managedWorldSettingsSchema, worldBusy, type ManagedWorldSettings, type WorldView } from "@/contracts/world";
+import { managedWorldSettingsSchema, pickManaged, worldBusy, type AdvertisedPortState, type ManagedWorldSettings, type WorldView } from "@/contracts/world";
 import { ConflictError } from "@/server/errors";
-import { decodeDefaultSettingValue, PALWORLD_MANAGER_SETTING_KEYS, PALWORLD_SETTING_FIELD_MAP } from "@/contracts/palworld-settings";
+import { serialize } from "@/server/serialize";
+import { decodeDefaultSettingValue, PALWORLD_MANAGER_SETTING_KEYS, PALWORLD_SETTING_FIELD_MAP, validateAndEncodeSettingChanges } from "@/contracts/palworld-settings";
+import type { AdministrationRequest } from "@/contracts/world-administration";
+import { parseWorldUpdate } from "@/contracts/world";
 import { database } from "@/server/db";
 import { configVersions, events, worlds, worldSettings } from "@/server/db/schema";
-import { canonicalInstallDir, validateInstallLocation, assertWorldOwnership, getWorld, listWorlds, pathsOverlap, requireWorld } from "./worlds";
+import { assertReservationsFree, assertWorldOwnership, canonicalInstallDir, getWorld, listWorlds, requireWorld, toWorldColumns } from "./worlds";
 import { pruneConfigurationVersions } from "./retention";
 import { withReservationLock } from "./reservations";
 import { trackActiveChange } from "./jobs";
-export type AdvertisedPortState = {
-  mode: "inherit";
-  effectivePort: number;
-} | {
-  mode: "override";
-  effectivePort: number;
-} | {
-  mode: "invalid";
-  raw: string;
-  effectivePort: number;
-};
+export type { AdvertisedPortState };
 export class StaleSettingsRevisionError extends ConflictError {
   constructor() {
     super("Settings changed since this page was loaded. Refresh and try again.");
   }
 }
 type Transaction = Parameters<Parameters<ReturnType<typeof database>["transaction"]>[0]>[0];
-const PORT_FIELDS = ["gamePort", "queryPort", "restApiPort", "rconPort"] as const;
-const queues = new Map<string, Promise<unknown>>();
+// Per-world settings lock. It is not re-entrant: nothing inside `work` may call another locked
+// function for the same world (that includes the REST client, which reads credentials under it).
 async function locked<T>(worldId: string, work: () => Promise<T>): Promise<T> {
-  return trackActiveChange(async () => {
-    const previous = queues.get(worldId) ?? Promise.resolve();
-    let release!: () => void;
-    const current = new Promise<void>(resolve => {
-      release = resolve;
-    });
-    const marker = previous.catch(() => undefined).then(() => current);
-    queues.set(worldId, marker);
-    await previous.catch(() => undefined);
-    try {
-      return await work();
-    } finally {
-      release();
-      if (queues.get(worldId) === marker) queues.delete(worldId);
-    }
-  });
+  return trackActiveChange(() => serialize(`settings:${worldId}`, work));
 }
 export function advertisedPortState(raw: string | undefined, gamePort: number): AdvertisedPortState {
   if (raw == null) return {
@@ -128,34 +107,7 @@ export function managedWorldChangesFromConfiguration(content: string) {
   return patch;
 }
 function managerFromWorld(world: WorldView): ManagedWorldSettings {
-  return managedWorldSettingsSchema.parse({
-    displayName: world.displayName,
-    installDir: world.installDir,
-    platform: world.platform,
-    gamePort: world.gamePort,
-    queryPort: world.queryPort,
-    restApiPort: world.restApiPort,
-    rconPort: world.rconPort,
-    restApiEnabled: world.restApiEnabled,
-    rconEnabled: world.rconEnabled,
-    communityServer: world.communityServer,
-    autostart: world.autostart,
-    crashGuard: world.crashGuard,
-    legacyPerfFlags: world.legacyPerfFlags,
-    extraArgs: world.extraArgs,
-    argumentFormat: world.argumentFormat,
-    env: world.env,
-    wineBinary: world.wineBinary,
-    winePrefix: world.winePrefix,
-    wineLaunchFlags: world.wineLaunchFlags
-  });
-}
-async function readOptional(filePath: string) {
-  try {
-    return await readFile(filePath, "utf8");
-  } catch {
-    return null;
-  }
+  return managedWorldSettingsSchema.parse(pickManaged(world));
 }
 // The shipped DefaultPalWorldSettings.ini as parsed options, or null when it is absent or malformed.
 async function readShippedDefaults(installDir: string): Promise<Record<string, string> | null> {
@@ -289,17 +241,8 @@ async function rowUnlocked(worldId: string) {
   return row;
 }
 async function writeAtomic(filePath: string, content: string) {
-  await mkdir(path.dirname(filePath), {
-    recursive: true,
-    mode: 0o700
-  });
-  const temporary = `${filePath}.tmp-${randomUUID()}`;
-  await writeFile(temporary, content, {
-    encoding: "utf8",
-    mode: 0o600
-  });
-  await privateFile(temporary);
-  await rename(temporary, filePath);
+  await mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  await writeFileAtomic(filePath, content, { mode: 0o600 });
   await privateFile(filePath);
 }
 function state(row: SettingsRow, world: WorldView) {
@@ -316,43 +259,12 @@ function state(row: SettingsRow, world: WorldView) {
     applyError: row.lastApplyError
   };
 }
-function projection(manager: ManagedWorldSettings) {
-  return {
-    displayName: manager.displayName,
-    installDir: manager.installDir,
-    platform: manager.platform,
-    gamePort: manager.gamePort,
-    queryPort: manager.queryPort,
-    restApiPort: manager.restApiPort,
-    rconPort: manager.rconPort,
-    restApiEnabled: manager.restApiEnabled,
-    rconEnabled: manager.rconEnabled,
-    communityServer: manager.communityServer,
-    autostart: manager.autostart,
-    crashGuard: manager.crashGuard,
-    legacyPerfFlags: manager.legacyPerfFlags,
-    extraArgs: manager.extraArgs,
-    argumentFormat: manager.argumentFormat ?? "legacy",
-    environment: manager.env,
-    wineBinary: manager.wineBinary,
-    winePrefix: manager.winePrefix,
-    wineLaunchFlags: manager.wineLaunchFlags
-  };
-}
+// The managed settings as `worlds` columns.
+function projection(manager: ManagedWorldSettings) { return toWorldColumns(manager, "legacy"); }
 async function validateReservations(worldId: string, candidate: ManagedWorldSettings) {
   assertSupportedTarget(candidate.platform);
-  const desiredRows = await database().select().from(worldSettings);
-  const desired = new Map(desiredRows.map(row => [row.worldId, managerFromRow(row)]));
-  const candidatePath = await validateInstallLocation(candidate.installDir);
   await assertWorldOwnership(candidate);
-  for (const other of await listWorlds()) {
-    if (other.id === worldId) continue;
-    for (const settings of [managerFromWorld(other), desired.get(other.id)].filter(Boolean) as ManagedWorldSettings[]) {
-      if (pathsOverlap(candidatePath, await canonicalInstallDir(settings.installDir))) throw new Error(`Install directory overlaps with ${other.displayName}: ${settings.installDir}`);
-      for (const field of PORT_FIELDS) for (const otherField of PORT_FIELDS) if (candidate[field] === settings[otherField]) throw new Error(`Port ${candidate[field]} is reserved by ${other.displayName} (${otherField}).`);
-    }
-  }
-  if (new Set(PORT_FIELDS.map(field => candidate[field])).size !== PORT_FIELDS.length) throw new Error("A world cannot reuse the same port for multiple services.");
+  await assertReservationsFree(candidate, worldId);
 }
 async function markFailure(worldId: string, message: string, drift = false) {
   await database().update(worldSettings).set({
@@ -741,4 +653,70 @@ export async function adoptRestoredConfiguration(worldId: string, content: strin
     });
     return state((await rowUnlocked(worldId))!, (await getWorld(worldId))!);
   });
+}
+
+// The guided settings page: PSM-owned settings as the page shows them, next to the game options.
+function managerView(manager: ManagedWorldSettings) {
+  const { env, ...rest } = manager;
+  return { ...rest, environment: env };
+}
+export async function readAdministration(worldId: string) {
+  const actualWorld = await requireWorld(worldId);
+  const configuration = await readConfigurationOptions(worldId);
+  return {
+    configuration,
+    admin: { ...managerView(configuration.desiredManager), advertisedPort: configuration.advertisedPort, status: actualWorld.status },
+    appliedAdmin: { ...managerView(configuration.appliedManager), advertisedPort: configuration.appliedAdvertisedPort, status: actualWorld.status }
+  };
+}
+// Saves a mixed change from the guided settings page: game options, options reset to the shipped
+// defaults, and PSM-owned settings, as one new desired revision.
+export async function saveAdministration(worldId: string, input: AdministrationRequest) {
+  if (new Set(input.resetToDefaults).size !== input.resetToDefaults.length) throw new ConflictError("A setting can only be reset once.");
+  const overlap = input.resetToDefaults.find(key => Object.hasOwn(input.changes, key));
+  if (overlap) throw new ConflictError(`A setting cannot be changed and reset in the same request: ${overlap}`);
+  const encoded = Object.keys(input.changes).length ? validateAndEncodeSettingChanges(input.changes) : {};
+  if (!Object.keys(encoded).length && !input.resetToDefaults.length && !Object.keys(input.managed).length) throw new ConflictError("No configuration changes were provided.");
+  const current = await readSettingsState(worldId);
+  if (current.desiredRevision !== input.baseRevision) throw new StaleSettingsRevisionError();
+  const previous = current.desiredManager;
+  const previousConfiguration = await readConfigurationOptions(worldId);
+  const resetChanges = await resolveShippedDefaultChanges(worldId, input.resetToDefaults);
+  const nextServerName = encoded.ServerName ?? resetChanges.ServerName ?? previousConfiguration.options.ServerName;
+  const { publicPortOverride, displayNameOverride, ...worldChanges } = input.managed;
+  const displayNameProvided = Object.hasOwn(input.managed, "displayNameOverride");
+  const displayNameChange = managedDisplayNameChange(previous.displayName, previousConfiguration.options.ServerName, nextServerName, displayNameOverride, displayNameProvided);
+  const world: ManagedWorldSettings = { ...previous, ...worldChanges, ...(displayNameChange === undefined ? {} : { displayName: displayNameChange }) };
+  const publicPortProvided = Object.hasOwn(input.managed, "publicPortOverride");
+  const publicPortChange = managedPublicPortChange(previousConfiguration.advertisedPort, previous.gamePort, world.gamePort, publicPortOverride, publicPortProvided);
+  const gameChanges = Object.keys(encoded).length > 0 || input.resetToDefaults.length > 0 || publicPortProvided;
+  if (!configurationIsValid(current.desiredContent)) {
+    if (gameChanges) throw new ConflictError("Game configuration is missing or malformed. Save registration changes separately, then install or repair the configuration.");
+    return { result: await saveDesiredSettings(worldId, { baseRevision: input.baseRevision, manager: world }), configurationChanged: false };
+  }
+  const synchronized = managedConfigurationChanges(world);
+  if (publicPortChange !== undefined) synchronized.PublicPort = publicPortChange;
+  const content = applyConfigurationOptions(current.desiredContent, { ...encoded, ...resetChanges, ...synchronized });
+  return { result: await saveDesiredSettings(worldId, { baseRevision: input.baseRevision, manager: world, content }), configurationChanged: true };
+}
+// A registration patch from the world API: PSM-owned fields plus, optionally, the game credentials,
+// which are written into the INI rather than kept in the registry.
+export async function patchWorldRegistration(worldId: string, raw: unknown) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new ConflictError("Invalid request.");
+  const input = raw as Record<string, unknown>;
+  const baseRevision = Number(input.baseRevision);
+  if (!Number.isInteger(baseRevision) || baseRevision < 0) throw new ConflictError("A valid baseRevision is required.");
+  const { adminPassword, serverPassword, ...managerPatch } = parseWorldUpdate(input);
+  const current = await readSettingsState(worldId);
+  const manager = managedWorldSettingsSchema.parse({ ...current.desiredManager, ...managerPatch });
+  const inheritedPublicPort = managedPublicPortChange(advertisedPortState(parseConfigurationOptions(current.desiredContent).PublicPort, current.desiredManager.gamePort), current.desiredManager.gamePort, manager.gamePort, undefined, false);
+  const optionChanges = {
+    ...managedConfigurationChanges(manager),
+    ...(inheritedPublicPort === undefined ? {} : { PublicPort: inheritedPublicPort }),
+    ...(adminPassword === undefined ? {} : { AdminPassword: JSON.stringify(adminPassword) }),
+    ...(serverPassword === undefined ? {} : { ServerPassword: JSON.stringify(serverPassword) })
+  };
+  const valid = configurationIsValid(current.desiredContent);
+  if (!valid && (adminPassword !== undefined || serverPassword !== undefined)) throw new ConflictError("Game configuration is missing or malformed; save registration changes separately.");
+  return saveDesiredSettings(worldId, { baseRevision, manager, ...(valid ? { content: applyConfigurationOptions(current.desiredContent, optionChanges) } : {}) });
 }

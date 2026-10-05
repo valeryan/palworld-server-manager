@@ -37,8 +37,16 @@ const preferencePath = () => path.join(dataDir(), "desktop-preferences.json");
 type ManagerHost = "127.0.0.1" | "0.0.0.0";
 type DesktopPreferences = { lastLoginExecutable: string | null; closeToTray: boolean; launchAtLogin: boolean; launchOptions: LaunchAtLoginOptions; managerPort: number; managerHost: ManagerHost; lastSuccessfulAppVersion: string | null };
 function normalizeManagerHost(value: unknown): ManagerHost { return value === "0.0.0.0" ? value : "127.0.0.1"; }
-function preferences(): DesktopPreferences { try { const saved = JSON.parse(readFileSync(preferencePath(), "utf8")); return { lastLoginExecutable: typeof saved.lastLoginExecutable === "string" ? saved.lastLoginExecutable : null, closeToTray: saved.closeToTray !== false, launchAtLogin: saved.launchAtLogin === true || (saved.launchAtLogin == null && process.platform === "linux" && existsSync(linuxAutostartPath())), launchOptions: normalizeLaunchAtLoginOptions(saved.launchOptions), managerPort: normalizeManagerPort(saved.managerPort), managerHost: normalizeManagerHost(saved.managerHost), lastSuccessfulAppVersion: typeof saved.lastSuccessfulAppVersion === "string" ? saved.lastSuccessfulAppVersion : null }; } catch { return { lastLoginExecutable: null, closeToTray: true, launchAtLogin: process.platform === "linux" && existsSync(linuxAutostartPath()), launchOptions: defaultLaunchAtLoginOptions, managerPort: defaultManagerPort, managerHost: "127.0.0.1", lastSuccessfulAppVersion: null }; } }
-function writePreferences(patch: Partial<DesktopPreferences>) { mkdirSync(dataDir(), { recursive: true }); const temporary = `${preferencePath()}.tmp-${process.pid}`; writeFileSync(temporary, JSON.stringify({ ...preferences(), ...patch }, null, 2), { mode: 0o600 }); renameSync(temporary, preferencePath()); }
+// Before any preference is saved, launch-at-login follows whether a Linux autostart entry already exists.
+const defaultPreferences = (): DesktopPreferences => ({ lastLoginExecutable: null, closeToTray: true, launchAtLogin: process.platform === "linux" && existsSync(linuxAutostartPath()), launchOptions: defaultLaunchAtLoginOptions, managerPort: defaultManagerPort, managerHost: "127.0.0.1", lastSuccessfulAppVersion: null });
+function preferences(): DesktopPreferences {
+  const defaults = defaultPreferences();
+  try {
+    const saved = JSON.parse(readFileSync(preferencePath(), "utf8"));
+    return { lastLoginExecutable: typeof saved.lastLoginExecutable === "string" ? saved.lastLoginExecutable : null, closeToTray: saved.closeToTray !== false, launchAtLogin: saved.launchAtLogin === true || (saved.launchAtLogin == null && defaults.launchAtLogin), launchOptions: normalizeLaunchAtLoginOptions(saved.launchOptions), managerPort: normalizeManagerPort(saved.managerPort), managerHost: normalizeManagerHost(saved.managerHost), lastSuccessfulAppVersion: typeof saved.lastSuccessfulAppVersion === "string" ? saved.lastSuccessfulAppVersion : null };
+  } catch { return defaults; }
+}
+function writePreferences(patch: Partial<DesktopPreferences>) { atomicWrite(preferencePath(), JSON.stringify({ ...preferences(), ...patch }, null, 2)); }
 const port = developmentUrl ? validateManagerPort(developmentUrl.port || "80") : process.env.PSM_PORT ? validateManagerPort(process.env.PSM_PORT) : preferences().managerPort;
 function remoteAccessEnabled(): boolean { try { return JSON.parse(readFileSync(path.join(dataDir(), "remote-access.json"), "utf8")).enabled === true; } catch { return false; } }
 const host: ManagerHost = process.env.PSM_HOST === "0.0.0.0" ? "0.0.0.0" : remoteAccessEnabled() ? preferences().managerHost : "127.0.0.1";
@@ -83,15 +91,18 @@ async function confirmVersionTransition(previous: string | null, current: string
   upgradeWindow = new BrowserWindow({ width: 540, height: 360, resizable: false, maximizable: false, fullscreenable: false, autoHideMenuBar: true, backgroundColor: "#07101e", title: "Palworld Server Manager upgrade", webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } });
   upgradeWindow.on("close", (event) => { if (upgradeCloseBlocked && !quitting) event.preventDefault(); });
   await upgradeWindow.loadURL(upgradePage(`<h1>${heading}</h1><p>${detail}</p><p class="version">${previous ?? "existing installation"} → ${current}</p><div class="actions"><button onclick="location.href='psm-upgrade://quit'">Quit</button><button class="primary" onclick="location.href='psm-upgrade://confirm'">${downgrade ? "Continue downgrade" : "Upgrade"}</button></div>`));
-  return await new Promise<boolean>((resolve) => {
-    let settled = false;
-    const activeWindow = upgradeWindow!;
-    const navigate = (event: Electron.Event, url: string) => { if (!url.startsWith("psm-upgrade://")) return; event.preventDefault(); finish(url === "psm-upgrade://confirm"); };
-    const closed = () => finish(false);
-    const finish = (value: boolean) => { if (settled) return; settled = true; activeWindow.webContents.removeListener("will-navigate", navigate); activeWindow.removeListener("closed", closed); resolve(value); };
-    activeWindow.webContents.on("will-navigate", navigate);
-    activeWindow.once("closed", closed);
-  });
+  return awaitUpgradeChoice(upgradeWindow, "psm-upgrade://confirm").choice;
+}
+// The upgrade pages answer through psm-upgrade:// navigations; closing the window counts as declining.
+function awaitUpgradeChoice(activeWindow: BrowserWindow, acceptUrl: string, onChoice?: (value: boolean) => void): { choice: Promise<boolean>; finish: (value: boolean) => void } {
+  let settled = false; let resolveChoice!: (value: boolean) => void;
+  const choice = new Promise<boolean>((resolve) => { resolveChoice = resolve; });
+  const finish = (value: boolean) => { if (settled) return; settled = true; onChoice?.(value); activeWindow.webContents.removeListener("will-navigate", navigate); activeWindow.removeListener("closed", closed); resolveChoice(value); };
+  const navigate = (event: Electron.Event, url: string) => { if (!url.startsWith("psm-upgrade://")) return; event.preventDefault(); finish(url === acceptUrl); };
+  const closed = () => finish(false);
+  activeWindow.webContents.on("will-navigate", navigate);
+  activeWindow.once("closed", closed);
+  return { choice, finish };
 }
 async function showUpgradeProgress(stage: UpgradeStage | "starting"): Promise<void> {
   if (!upgradeWindow || upgradeWindow.isDestroyed()) return;
@@ -104,18 +115,10 @@ async function showUpgradeCompletion(): Promise<boolean> {
   if (!upgradeWindow || upgradeWindow.isDestroyed()) return false;
   const activeWindow = upgradeWindow;
   upgradeCloseBlocked = true;
-  let finish!: (value: boolean) => void;
-  const continued = new Promise<boolean>((resolve) => {
-    let settled = false;
-    const navigate = (event: Electron.Event, url: string) => { if (!url.startsWith("psm-upgrade://")) return; event.preventDefault(); finish(url === "psm-upgrade://continue"); };
-    const closed = () => finish(false);
-    finish = (value: boolean) => { if (settled) return; settled = true; if (value) upgradeCloseBlocked = false; activeWindow.webContents.removeListener("will-navigate", navigate); activeWindow.removeListener("closed", closed); resolve(value); };
-    activeWindow.webContents.on("will-navigate", navigate);
-    activeWindow.once("closed", closed);
-  });
+  const { choice, finish } = awaitUpgradeChoice(activeWindow, "psm-upgrade://continue", (value) => { if (value) upgradeCloseBlocked = false; });
   try { await activeWindow.loadURL(upgradePage(`<h1>Upgrade complete</h1><p>Version ${app.getVersion()} is ready. Continue to open Palworld Server Manager.</p><div class="bar"><i style="width:100%"></i></div><p class="version">Version ${app.getVersion()}</p><div class="actions"><button class="primary" onclick="location.href='psm-upgrade://continue'">Continue</button></div>`)); }
   catch { finish(false); }
-  return await continued;
+  return await choice;
 }
 function restoreAutostart(filePath: string, content: string | null): void { if (content === null) rmSync(filePath, { force: true }); else atomicWrite(filePath, content); }
 

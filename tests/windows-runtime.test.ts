@@ -9,7 +9,7 @@ import { safeEntries, safeArchivePath } from "@/server/services/archive";
 import { sameProcess, ownedTree, type ProcessIdentity } from "@/server/services/process-inspection";
 import { hostCapabilities, assertSupportedTarget, assertLocalWindowsPath } from "@/server/host";
 import { steamCmdHost } from "@/server/services/steamcmd";
-import { prepareTestDatabase } from "./prepare-database";
+import { setupTestDataDirectory } from "./prepare-database";
 import { commandFor } from "@/server/services/processes";
 import type { WorldView } from "@/contracts/world";
 
@@ -66,19 +66,16 @@ describe("native host and command contracts", () => {
 });
 
 describe("registration and recovery on an incomplete installation", () => {
+  const dir = setupTestDataDirectory("psm-native-regression-", { closeDatabase: true, dataSubdir: "manager", passDatabasePath: false });
   let root: string; let id: string;
   beforeAll(async () => {
-    root = await mkdtemp(path.join(tmpdir(), "psm-native-regression-"));
-    process.env.PALWORLD_MANAGER_DATA_DIR = path.join(root, "manager");
-    process.env.PALWORLD_MANAGER_DB = path.join(root, "manager", "registry-v3.sqlite");
+    root = dir.directory;
     process.env.PSM_ADMIN_TOKEN = "native-test";
-    await prepareTestDatabase(process.env.PALWORLD_MANAGER_DATA_DIR);
     const { createWorld } = await import("@/server/services/worlds");
     id = (await createWorld({ displayName: "Failed install", installDir: path.join(root, "missing") })).id;
   });
-  afterAll(async () => {
-    const { sqliteClient } = await import("@/server/db"); sqliteClient().close(); globalThis.__psmDatabase = undefined;
-    globalThis.__psmDraining = false; delete process.env.PSM_ADMIN_TOKEN; await rm(root, { recursive: true, force: true });
+  afterAll(() => {
+    globalThis.__psmDraining = false; delete process.env.PSM_ADMIN_TOKEN;
   });
   const request = (body: unknown) => new Request(`http://localhost/api/worlds/${id}/configuration/admin`, { method: "PUT", headers: { cookie: "psm_admin=native-test", "content-type": "application/json" }, body: JSON.stringify(body) });
   it("renames and relocates through the existing admin API without writing an INI", async () => {

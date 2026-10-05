@@ -1,8 +1,4 @@
-import { errorResponse, requireAdmin } from "@/server/http";
+import { route } from "@/server/http";
 import { downloadArtifact } from "@/server/mods/library";
 
-export async function POST(request: Request, context: { params: Promise<{ artifactId: string }> }) {
-  const denied = requireAdmin(request); if (denied) return denied;
-  try { return Response.json({ ok: true, jobId: await downloadArtifact((await context.params).artifactId) }, { status: 202 }); }
-  catch (error) { return errorResponse(error); }
-}
+export const POST = route<{ artifactId: string }>(async (_request, { artifactId }) => ({ jobId: await downloadArtifact(artifactId) }), { status: 202 });

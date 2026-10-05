@@ -1,13 +1,15 @@
 import "server-only";
 import path from "node:path";
-import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import AdmZip from "adm-zip";
 import { and, eq } from "drizzle-orm";
 import { database } from "@/server/db";
 import { modArtifacts } from "@/server/db/schema";
+import { NotFoundError } from "@/server/errors";
 import { paths } from "@/server/paths";
 import { relativeEntry, safeEntries } from "@/server/services/archive";
+import { readVerified, sha256Hex } from "./managed-files";
 
 export type LuaArtifact = typeof modArtifacts.$inferSelect;
 export const MAX_LUA_ARCHIVE_BYTES = 100 * 1024 * 1024;
@@ -54,7 +56,7 @@ export async function importLuaArchive(data: Buffer, fileName: string): Promise<
   let zip: AdmZip;
   try { zip = new AdmZip(data); zip.getEntries(); } catch { throw new Error("The file is not a readable zip archive."); }
   const archive = readLuaArchive(zip, fileName);
-  const sha256 = createHash("sha256").update(data).digest("hex");
+  const sha256 = sha256Hex(data);
   const [existing] = await database().select().from(modArtifacts).where(and(eq(modArtifacts.kind, "lua"), eq(modArtifacts.name, archive.name))).limit(1);
   const values = { kind: "lua" as const, name: archive.name, fileName: path.basename(fileName), sha256, sizeBytes: data.byteLength, addedAt: Date.now() };
   const destination = luaArtifactPath(values);
@@ -72,14 +74,13 @@ export async function importLuaArchive(data: Buffer, fileName: string): Promise<
 }
 
 export async function loadLuaArtifact(artifact: LuaArtifact): Promise<LuaArchive> {
-  const data = await readFile(luaArtifactPath(artifact)).catch(() => { throw new Error(`The library copy of ${artifact.name} is missing; import it again.`); });
-  if (createHash("sha256").update(data).digest("hex") !== artifact.sha256) throw new Error(`The library copy of ${artifact.name} failed verification; import it again.`);
+  const data = await readVerified(luaArtifactPath(artifact), artifact.sha256, { missing: `The library copy of ${artifact.name} is missing; import it again.`, tampered: `The library copy of ${artifact.name} failed verification; import it again.` });
   return readLuaArchive(new AdmZip(data), artifact.fileName);
 }
 
 // Removes only the library copy; worlds keep what was installed into them.
 export async function removeLuaArtifact(id: string): Promise<void> {
-  const artifact = await getLuaArtifact(id); if (!artifact) throw new Error("Mod library entry not found.");
+  const artifact = await getLuaArtifact(id); if (!artifact) throw new NotFoundError("Mod library entry not found.");
   await rm(luaArtifactPath(artifact), { force: true });
   await database().delete(modArtifacts).where(eq(modArtifacts.id, id));
 }

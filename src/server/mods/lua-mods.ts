@@ -1,19 +1,19 @@
 import "server-only";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import type { LuaModView } from "@/contracts/mod";
 import type { WorldView } from "@/contracts/world";
+import { NotFoundError } from "@/server/errors";
+import { exists, isDirectory, readOptional, writeFileAtomic } from "@/server/fs";
 import { paths } from "@/server/paths";
-import { fileMatches, insideFolder, movePath } from "@/server/services/archive";
+import { insideFolder, movePath } from "@/server/services/archive";
 import { assertWorldStopped } from "@/server/services/worlds";
 import { getLuaArtifact, loadLuaArtifact } from "./lua-library";
+import { classifyInstalled, MANAGED_MARKER, moveAsideUnmanaged, readMarker } from "./managed-files";
 import { resolveModsDirectory, ue4ssLayout } from "./ue4ss";
 
-export const MANAGED_MARKER = "psm-mod.json";
+export { MANAGED_MARKER };
 const MAX_MODS_TXT_BYTES = 256 * 1024;
-
-async function exists(target: string): Promise<boolean> { try { await stat(target); return true; } catch { return false; } }
 
 // mods.txt lines are "ModName : 1|0"; blank lines and ";" comments are ignored.
 export function parseModsTxt(content: string): Map<string, boolean> {
@@ -27,18 +27,22 @@ export function parseModsTxt(content: string): Map<string, boolean> {
   return state;
 }
 
+// psm-mod.json written by installLuaMod. Older or hand-made markers may hold only some fields, and
+// a folder still counts as PSM-managed as long as the marker is a JSON object.
+interface ManagedMarker { artifactId: string; name: string; sha256: string; files: string[] }
+const isMarkerObject = (value: unknown): value is Partial<ManagedMarker> => typeof value === "object" && value !== null;
+const isCompleteMarker = (value: unknown): value is ManagedMarker => isMarkerObject(value) && typeof value.artifactId === "string" && Boolean(value.artifactId) && Array.isArray(value.files);
+
 export async function listLuaMods(world: Pick<WorldView, "installDir" | "platform">): Promise<Array<LuaModView & { installedSha256: string | null }>> {
   const layout = ue4ssLayout(world);
   const directory = await resolveModsDirectory(layout);
   const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
-  const modsTxt = path.join(/* turbopackIgnore: true */ directory, "mods.txt");
-  const listed = (await stat(modsTxt).then((info) => info.size <= MAX_MODS_TXT_BYTES, () => false))
-    ? parseModsTxt(await readFile(modsTxt, "utf8")) : new Map<string, boolean>();
+  const listed = parseModsTxt(await readOptional(path.join(/* turbopackIgnore: true */ directory, "mods.txt"), MAX_MODS_TXT_BYTES) ?? "");
   const mods = await Promise.all(entries.filter((entry) => entry.isDirectory() && !layout.reserved.has(entry.name)).map(async (entry) => {
     const folder = path.join(/* turbopackIgnore: true */ directory, entry.name);
     const [forced, upperScript, lowerScript, marker] = await Promise.all([
       exists(path.join(/* turbopackIgnore: true */ folder, "enabled.txt")), exists(path.join(/* turbopackIgnore: true */ folder, "Scripts", "main.lua")),
-      exists(path.join(/* turbopackIgnore: true */ folder, "scripts", "main.lua")), readMarker(folder),
+      exists(path.join(/* turbopackIgnore: true */ folder, "scripts", "main.lua")), readMarker(folder, isMarkerObject),
     ]);
     // enabled.txt force-loads a mod regardless of its mods.txt entry.
     const enabledBy: LuaModView["enabledBy"] = forced ? "enabled-txt" : listed.get(entry.name) ? "mods-txt" : null;
@@ -67,37 +71,31 @@ export function setModsTxtEntry(content: string, name: string, value: boolean | 
 }
 
 type LuaWorld = Pick<WorldView, "id" | "installDir" | "platform" | "status" | "processId">;
-interface ManagedMarker { artifactId: string; name: string; sha256: string; files: string[] }
-
 const STOP_FIRST = "Stop the server before changing Lua mods.";
 function safeName(name: string): string { if (!/^[A-Za-z0-9_.-]{1,64}$/.test(name) || name.startsWith(".")) throw new Error("Invalid mod name."); return name; }
 
 export async function editModsTxt(directory: string, name: string, value: boolean | null): Promise<void> {
   const file = path.join(/* turbopackIgnore: true */ directory, "mods.txt");
-  const current = await readFile(file, "utf8").catch(() => "");
-  await mkdir(directory, { recursive: true });
-  const temporary = `${file}.psm-${randomUUID()}`;
-  await writeFile(temporary, setModsTxtEntry(current, name, value)); await rename(temporary, file);
+  await writeFileAtomic(file, setModsTxtEntry(await readOptional(file) ?? "", name, value));
 }
 
-async function readMarker(folder: string): Promise<ManagedMarker | null> {
-  try { return JSON.parse(await readFile(path.join(/* turbopackIgnore: true */ folder, MANAGED_MARKER), "utf8")) as ManagedMarker; } catch { return null; }
+async function modFolder(world: LuaWorld, name: string): Promise<{ directory: string; folder: string }> {
+  const directory = await resolveModsDirectory(ue4ssLayout(world));
+  const folder = path.join(/* turbopackIgnore: true */ directory, safeName(name));
+  if (!await isDirectory(folder)) throw new NotFoundError(`Lua mod ${name} not found.`);
+  return { directory, folder };
 }
 
 // Copies a library mod into the world and turns it on. Updating replaces only the files the
 // previous library copy installed, so settings files a mod wrote in the world survive.
 export async function installLuaMod(world: LuaWorld, artifactId: string, options: { replace?: boolean } = {}): Promise<void> {
   assertWorldStopped(world, STOP_FIRST);
-  const artifact = await getLuaArtifact(artifactId); if (!artifact) throw new Error("Mod library entry not found.");
+  const artifact = await getLuaArtifact(artifactId); if (!artifact) throw new NotFoundError("Mod library entry not found.");
   const archive = await loadLuaArtifact(artifact);
   const directory = await resolveModsDirectory(ue4ssLayout(world));
   const folder = path.join(/* turbopackIgnore: true */ directory, safeName(archive.name));
-  const marker = await readMarker(folder);
-  const occupied = await stat(folder).then(() => true, () => false);
-  if (occupied && !marker) {
-    if (!options.replace) throw new Error(`${archive.name} already exists in this world but was not installed from the Mods library. Use "Replace with library version".`);
-    await movePath(folder, path.join(/* turbopackIgnore: true */ paths.modTrash(world.id), `${archive.name}-${Date.now()}`));
-  }
+  const marker = await readMarker(folder, isMarkerObject);
+  await moveAsideUnmanaged(world, folder, archive.name, marker !== null, options.replace, "from the Mods library");
   const written = archive.files.map((file) => file.relative);
   for (const stale of (marker?.files ?? []).filter((file) => !written.includes(file))) await rm(insideFolder(folder, stale), { force: true });
   for (const file of archive.files) {
@@ -112,19 +110,17 @@ export async function installLuaMod(world: LuaWorld, artifactId: string, options
 
 export async function setLuaModEnabled(world: LuaWorld, name: string, enabled: boolean): Promise<void> {
   assertWorldStopped(world, STOP_FIRST);
-  const directory = await resolveModsDirectory(ue4ssLayout(world)); const folder = path.join(/* turbopackIgnore: true */ directory, safeName(name));
-  if (!await stat(folder).then((info) => info.isDirectory(), () => false)) throw new Error(`Lua mod ${name} not found.`);
+  const { directory, folder } = await modFolder(world, name);
   // enabled.txt loads a mod regardless of mods.txt, so a disabled mod keeps it parked.
   const forced = path.join(/* turbopackIgnore: true */ folder, "enabled.txt");
-  if (!enabled && await stat(forced).then(() => true, () => false)) await rename(forced, `${forced}.psm-disabled`);
+  if (!enabled && await exists(forced)) await rename(forced, `${forced}.psm-disabled`);
   await editModsTxt(directory, name, enabled);
 }
 
 // Moves the mod's folder to the manager's mod trash and drops its mods.txt line.
 export async function removeLuaMod(world: LuaWorld, name: string): Promise<void> {
   assertWorldStopped(world, STOP_FIRST);
-  const directory = await resolveModsDirectory(ue4ssLayout(world)); const folder = path.join(/* turbopackIgnore: true */ directory, safeName(name));
-  if (!await stat(folder).then((info) => info.isDirectory(), () => false)) throw new Error(`Lua mod ${name} not found.`);
+  const { directory, folder } = await modFolder(world, name);
   await movePath(folder, path.join(/* turbopackIgnore: true */ paths.modTrash(world.id), `${name}-${Date.now()}`));
   await editModsTxt(directory, name, null);
 }
@@ -137,21 +133,16 @@ export async function checkLuaModFiles(world: Pick<WorldView, "installDir" | "pl
   const results = [];
   for (const entry of entries.filter((item) => item.isDirectory())) {
     const folder = path.join(/* turbopackIgnore: true */ directory, entry.name);
-    const marker = await readMarker(folder); if (!marker?.artifactId || !Array.isArray(marker.files)) continue;
+    const marker = await readMarker(folder, isCompleteMarker); if (!marker) continue;
     const artifact = await getLuaArtifact(marker.artifactId);
     const archive = artifact && artifact.sha256 === marker.sha256 ? await loadLuaArtifact(artifact).catch(() => null) : null;
     const expected = new Map((archive?.files ?? []).map((file) => [file.relative, file]));
-    const missing: string[] = []; const changed: string[] = [];
-    for (const file of marker.files) {
-      const target = path.join(/* turbopackIgnore: true */ folder, ...file.split("/")); const wanted = expected.get(file);
-      const matches = wanted ? await fileMatches(target, marker.sha256, wanted) : await exists(target) || null;
-      if (matches === null) missing.push(file); else if (!matches) changed.push(file);
-    }
+    const { missing, changed } = await classifyInstalled(marker.files.map((file) => ({ file, target: path.join(/* turbopackIgnore: true */ folder, ...file.split("/")) })), expected, marker.sha256);
     results.push({ name: entry.name, artifactId: marker.artifactId, missing, changed, libraryAvailable: archive !== null });
   }
   return results;
 }
 
 export async function modsTxtState(directory: string, name: string): Promise<boolean> {
-  return parseModsTxt(await readFile(path.join(/* turbopackIgnore: true */ directory, "mods.txt"), "utf8").catch(() => "")).get(name) === true;
+  return parseModsTxt(await readOptional(path.join(/* turbopackIgnore: true */ directory, "mods.txt")) ?? "").get(name) === true;
 }

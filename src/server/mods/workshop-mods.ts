@@ -1,11 +1,12 @@
 import "server-only";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import type { WorkshopModView, WorkshopStatus } from "@/contracts/mod";
 import type { WorldView } from "@/contracts/world";
 import { ConflictError } from "@/server/errors";
+import { readOptional, writeFileAtomic } from "@/server/fs";
 import { assertWorldStopped } from "@/server/services/worlds";
+import { text } from "./managed-files";
 
 // Official layout: <install>/Mods/Workshop/<folder>/Info.json, toggled by
 // <install>/Mods/PalModSettings.ini (https://docs.palworldgame.com/settings-and-operation/mod/).
@@ -13,9 +14,7 @@ const MAX_FILE_BYTES = 256 * 1024;
 
 export interface PalModSettings { exists: boolean; globalEnable: boolean; activeMods: string[]; workshopRootDir: string | null; configVersion: string | null }
 
-async function readSmall(target: string): Promise<string | null> {
-  try { const info = await stat(target); return info.isFile() && info.size <= MAX_FILE_BYTES ? await readFile(target, "utf8") : null; } catch { return null; }
-}
+const readSmall = (target: string) => readOptional(target, MAX_FILE_BYTES);
 
 // Each value is taken from its own line only, so an empty WorkshopRootDir= can
 // never swallow the following ConfigVersion line.
@@ -33,8 +32,6 @@ export function parsePalModSettings(content: string | null): PalModSettings {
   }
   return settings;
 }
-
-function text(value: unknown): string | null { return typeof value === "string" && value.trim() ? value.trim() : null; }
 
 // A mod runs on a dedicated server when any InstallRule entry opts in with IsServer.
 export function parseInfoJson(content: string): Omit<WorkshopModView, "folder" | "active" | "error"> {
@@ -92,10 +89,7 @@ async function changeSettings(world: WorkshopWorld, change: (settings: PalModSet
   assertWorldStopped(world, "Stop the server before changing Workshop mods.");
   const file = path.join(/* turbopackIgnore: true */ world.installDir, "Mods", "PalModSettings.ini");
   const current = await readSmall(file);
-  const next = updatePalModSettings(current, change(parsePalModSettings(current)));
-  await mkdir(path.dirname(file), { recursive: true });
-  const temporary = `${file}.psm-${randomUUID()}`;
-  await writeFile(temporary, next); await rename(temporary, file);
+  await writeFileAtomic(file, updatePalModSettings(current, change(parsePalModSettings(current))));
 }
 
 export async function setWorkshopEnabled(world: WorkshopWorld, enabled: boolean): Promise<void> { await changeSettings(world, () => ({ globalEnable: enabled })); }

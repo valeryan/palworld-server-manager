@@ -1,5 +1,7 @@
 import "server-only";
-import { rm, stat } from "node:fs/promises";
+import { rm } from "node:fs/promises";
+import { NotFoundError } from "@/server/errors";
+import { isFile } from "@/server/fs";
 import { paths } from "@/server/paths";
 import { downloadVerified } from "@/server/services/archive";
 import { startJob } from "@/server/services/jobs";
@@ -10,7 +12,7 @@ const active = () => (globalThis.__psmModDownloads ??= new Set<string>());
 
 function artifact(id: string): CatalogArtifact {
   const found = MOD_CATALOG.find((entry) => entry.id === id);
-  if (!found) throw new Error("Mod library entry not found.");
+  if (!found) throw new NotFoundError("Mod library entry not found.");
   return found;
 }
 
@@ -18,7 +20,7 @@ function artifact(id: string): CatalogArtifact {
 export async function downloadArtifact(id: string): Promise<string> {
   const entry = artifact(id);
   if (active().has(entry.id)) throw new Error(`${entry.name} ${entry.version} is already downloading.`);
-  if (await stat(artifactPath(entry)).then((info) => info.isFile(), () => false)) throw new Error(`${entry.name} ${entry.version} is already in the library.`);
+  if (await isFile(artifactPath(entry))) throw new Error(`${entry.name} ${entry.version} is already in the library.`);
   active().add(entry.id);
   try {
     return await startJob(null, "mod-download", async (context) => {

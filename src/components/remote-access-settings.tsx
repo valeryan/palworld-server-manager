@@ -2,6 +2,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { remotePermissions } from "@/contracts/remote-access";
 import { fetchJson, requestJson } from "@/lib/http-client";
 import { useLocaleDateTime } from "@/lib/use-locale-format";
 import { useNoticeAction } from "@/lib/use-notice-action";
@@ -13,7 +14,7 @@ type Audit = { id: number; principalLabel: string; action: string; worldId: stri
 type Access = { settings: { enabled: boolean }; codes: Code[]; sessions: Session[]; audit: Audit[] };
 type World = { id: string; displayName: string };
 type Network = { configuredHost: "127.0.0.1" | "0.0.0.0"; activeHost: "127.0.0.1" | "0.0.0.0"; port: number; addresses: string[] };
-const permissionOptions = ["world.view", "world.lifecycle", "world.players", "world.messages"];
+const permissionOptions: readonly string[] = remotePermissions;
 function request<T>(body?: unknown): Promise<T> { return body === undefined ? fetchJson<T>("/api/remote/access") : requestJson<T>("/api/remote/access", { method: "POST", body: JSON.stringify(body) }); }
 
 export function RemoteAccessSettings({ onNotice }: { onNotice(message: string): void }) {

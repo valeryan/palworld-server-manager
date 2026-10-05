@@ -1,8 +1,13 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { JOB_STATES } from "@/contracts/job";
+import { SCHEDULE_ACTIONS, SCHEDULE_MODES } from "@/contracts/schedule";
+import { ARGUMENT_FORMATS, PLATFORMS, WORLD_STATUSES } from "@/contracts/world";
 
+// Enumerations are shared with the contracts; SQLite stores plain text, so changing them here
+// never changes the migration SQL.
 export const worlds = sqliteTable("worlds", {
   id: text("id").primaryKey(), displayName: text("display_name").notNull(), installDir: text("install_dir").notNull(),
-  platform: text("platform", { enum: ["linux", "windows"] }).notNull().default("linux"),
+  platform: text("platform", { enum: PLATFORMS }).notNull().default("linux"),
   gamePort: integer("game_port").notNull(), queryPort: integer("query_port").notNull(), restApiPort: integer("rest_api_port").notNull(), rconPort: integer("rcon_port").notNull(),
   adminPassword: text("admin_password").notNull().default(""), serverPassword: text("server_password").notNull().default(""),
   restApiEnabled: integer("rest_api_enabled", { mode: "boolean" }).notNull().default(true), rconEnabled: integer("rcon_enabled", { mode: "boolean" }).notNull().default(false),
@@ -10,9 +15,9 @@ export const worlds = sqliteTable("worlds", {
   crashGuard: integer("crash_guard", { mode: "boolean" }).notNull().default(true), legacyPerfFlags: integer("legacy_perf_flags", { mode: "boolean" }).notNull().default(true),
   extraArgs: text("extra_args").notNull().default(""), environment: text("environment", { mode: "json" }).$type<Record<string, string>>().notNull().default({}),
   wineBinary: text("wine_binary").notNull().default("wine"), winePrefix: text("wine_prefix"), wineLaunchFlags: text("wine_launch_flags").notNull().default(""),
-  status: text("status", { enum: ["stopped", "starting", "running", "stopping", "crashed", "unknown"] }).notNull().default("stopped"),
+  status: text("status", { enum: WORLD_STATUSES }).notNull().default("stopped"),
   processIdentity: text("process_identity", { mode: "json" }).$type<import("@/server/services/process-inspection").ProcessIdentity[]>(),
-  argumentFormat: text("argument_format", { enum: ["legacy", "windows"] }).notNull().default("legacy"),
+  argumentFormat: text("argument_format", { enum: ARGUMENT_FORMATS }).notNull().default("legacy"),
   processId: integer("process_id"), buildId: text("build_id"), latestBuildId: text("latest_build_id"),
   lastStartedAt: integer("last_started_at"), crashCount: integer("crash_count").notNull().default(0), modsEnabled: integer("mods_enabled", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
@@ -20,7 +25,7 @@ export const worlds = sqliteTable("worlds", {
 
 export const jobs = sqliteTable("jobs", {
   id: text("id").primaryKey(), worldId: text("world_id").references(() => worlds.id, { onDelete: "set null" }), kind: text("kind").notNull(),
-  state: text("state", { enum: ["queued", "running", "succeeded", "failed", "cancelled"] }).notNull(), progress: integer("progress").notNull().default(0),
+  state: text("state", { enum: JOB_STATES }).notNull(), progress: integer("progress").notNull().default(0),
   message: text("message").notNull().default(""), error: text("error"), createdAt: integer("created_at").notNull(), startedAt: integer("started_at"), finishedAt: integer("finished_at"),
 }, (table) => [index("jobs_world_created_idx").on(table.worldId, table.createdAt)]);
 
@@ -48,8 +53,8 @@ export const backupSettings = sqliteTable("backup_settings", {
 
 export const schedules = sqliteTable("schedules", {
   id: text("id").primaryKey(), worldId: text("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
-  action: text("action", { enum: ["backup", "restart", "stop", "update", "system_message", "onscreen_notice", "custom_http", "idle_stop"] }).notNull(),
-  mode: text("mode", { enum: ["interval", "daily", "minutes", "on_join"] }).notNull(), intervalHours: integer("interval_hours"),
+  action: text("action", { enum: SCHEDULE_ACTIONS }).notNull(),
+  mode: text("mode", { enum: SCHEDULE_MODES }).notNull(), intervalHours: integer("interval_hours"),
   intervalMinutes: integer("interval_minutes"), timeOfDay: text("time_of_day"), message: text("message"), joinMatch: text("join_match"), joinDelaySeconds: integer("join_delay_seconds"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   skipNext: integer("skip_next", { mode: "boolean" }).notNull().default(false), lastRunAt: integer("last_run_at"), nextRunAt: integer("next_run_at"), createdAt: integer("created_at").notNull(),
@@ -114,7 +119,7 @@ export const modArtifacts = sqliteTable("mod_artifacts", {
 // directory) limits removal and repair to files the manager wrote.
 export const modRuntimes = sqliteTable("mod_runtimes", {
   worldId: text("world_id").primaryKey().references(() => worlds.id, { onDelete: "cascade" }),
-  artifactId: text("artifact_id").notNull(), variant: text("variant", { enum: ["windows", "linux"] }).notNull(), version: text("version").notNull(), sha256: text("sha256").notNull(),
+  artifactId: text("artifact_id").notNull(), variant: text("variant", { enum: PLATFORMS }).notNull(), version: text("version").notNull(), sha256: text("sha256").notNull(),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   installedFiles: text("installed_files", { mode: "json" }).$type<string[]>().notNull(),
   earlyCrashes: integer("early_crashes").notNull().default(0), recoveryPaused: integer("recovery_paused", { mode: "boolean" }).notNull().default(false),

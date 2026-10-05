@@ -1,7 +1,4 @@
-import { errorResponse } from "@/server/http";
+import { route } from "@/server/http";
 import { libraryLuaMods, libraryRelays, modLibrary } from "@/server/mods/status";
 
-export async function GET() {
-  try { const [library, luaMods, relays] = await Promise.all([modLibrary(), libraryLuaMods(), libraryRelays()]); return Response.json({ ok: true, library, luaMods, relays }); }
-  catch (error) { return errorResponse(error); }
-}
+export const GET = route(async () => { const [library, luaMods, relays] = await Promise.all([modLibrary(), libraryLuaMods(), libraryRelays()]); return { library, luaMods, relays }; });

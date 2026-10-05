@@ -1,13 +1,5 @@
 import "server-only";
+import { serialize } from "@/server/serialize";
 
-let reservationQueue: Promise<unknown> = Promise.resolve();
-
-export async function withReservationLock<T>(work: () => Promise<T>): Promise<T> {
-  const previous = reservationQueue;
-  let release!: () => void;
-  const current = new Promise<void>((resolve) => { release = resolve; });
-  reservationQueue = previous.catch(() => undefined).then(() => current);
-  await previous.catch(() => undefined);
-  try { return await work(); }
-  finally { release(); }
-}
+/** Serialises every port and install-directory reservation check across all worlds. */
+export function withReservationLock<T>(work: () => Promise<T>): Promise<T> { return serialize("reservations", work); }

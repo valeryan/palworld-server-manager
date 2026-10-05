@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-export const jobStateSchema = z.enum(["queued", "running", "succeeded", "failed", "cancelled"]);
+export const JOB_STATES = ["queued", "running", "succeeded", "failed", "cancelled"] as const;
+export const jobStateSchema = z.enum(JOB_STATES);
 export type JobState = z.infer<typeof jobStateSchema>;
 
 export interface JobView {

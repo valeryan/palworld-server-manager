@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { JobView } from "@/contracts/job";
-import { worldRegistrationSchema, type WorldPorts, type WorldRegistration, type WorldView } from "@/contracts/world";
+import { worldRegistrationSchema, type PublicWorldView, type WorldPorts, type WorldRegistration } from "@/contracts/world";
 import { JobLogDialog } from "./job-log-dialog";
 import { JobRow } from "./job-row";
 import { AppShell } from "./app-shell";
@@ -18,7 +18,7 @@ import { SphereMark } from "./sphere-mark";
 import { WorldStatus } from "./world-status";
 import { usePlatformLabel, useHostPlatform } from "@/lib/use-platform-label";
 
-type SafeWorld = Omit<WorldView, "adminPassword" | "serverPassword" | "env">;
+type SafeWorld = PublicWorldView;
 
 // Blank port fields are omitted so the server allocates the next free ports.
 function portValue(value: FormDataEntryValue | null): number | undefined { return value === null || value === "" ? undefined : Number(value); }

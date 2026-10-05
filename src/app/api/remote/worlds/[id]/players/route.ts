@@ -1,8 +1,9 @@
+import { route } from "@/server/http";
 import { liveWorldStatus } from "@/server/services/observability";
-import { errorResponse } from "@/server/http";
 import { authorizeRemote } from "@/server/services/remote-access";
 
-export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
-  try { const { id } = await context.params; await authorizeRemote(request, "world.players", id); const status = await liveWorldStatus(id); return Response.json({ ok: true, reachable: status.reachable, players: status.players }); }
-  catch (error) { return errorResponse(error); }
-}
+export const GET = route<{ id: string }>(async (request, { id }) => {
+  await authorizeRemote(request, "world.players", id);
+  const status = await liveWorldStatus(id);
+  return { reachable: status.reachable, players: status.players };
+}, { admin: false });

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { authenticate } from "./fixtures";
 
 const themes = [
   { id: "pal", name: "Pal" },
@@ -12,10 +13,6 @@ const themes = [
   { id: "sol", name: "Sol" },
   { id: "ancient", name: "Ancient" },
 ] as const;
-
-async function authenticate(page: Page) {
-  await page.context().addCookies([{ name: "psm_admin", value: "e2e-admin", domain: "127.0.0.1", path: "/", httpOnly: true, sameSite: "Lax" }]);
-}
 
 async function persistedTheme(page: Page): Promise<string | undefined> {
   const response = await page.request.get("/api/settings");

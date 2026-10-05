@@ -1,7 +1,9 @@
-import { requireAdmin } from "@/server/http";
+import { ForbiddenError } from "@/server/errors";
+import { route } from "@/server/http";
 import { beginDrain } from "@/server/services/jobs";
-export async function POST(request: Request) {
-  const denied = requireAdmin(request); if (denied) return denied;
-  if (request.headers.get("x-psm-launch-session") !== process.env.PSM_LAUNCH_SESSION || !process.env.PSM_LAUNCH_SESSION) return Response.json({ ok: false }, { status: 403 });
-  return Response.json({ ok: true, active: beginDrain(), session: process.env.PSM_LAUNCH_SESSION });
-}
+
+// Only the Electron launcher that started this server may drain it.
+export const POST = route((request) => {
+  if (!process.env.PSM_LAUNCH_SESSION || request.headers.get("x-psm-launch-session") !== process.env.PSM_LAUNCH_SESSION) throw new ForbiddenError("Drain requests must come from this manager's launcher.");
+  return { active: beginDrain(), session: process.env.PSM_LAUNCH_SESSION };
+});

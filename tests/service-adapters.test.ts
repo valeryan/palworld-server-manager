@@ -1,10 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { chmod, mkdir, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createServer, type Server } from "node:net";
 import type { JobContext } from "@/server/services/jobs";
-import { prepareTestDatabase } from "./prepare-database";
+import { setupTestDataDirectory } from "./prepare-database";
 
 const waitFor = async (predicate: () => Promise<boolean>, message: string) => {
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -15,18 +14,14 @@ const waitFor = async (predicate: () => Promise<boolean>, message: string) => {
 };
 
 describe("service boundaries with isolated fakes", () => {
+  const dir = setupTestDataDirectory("psm-service-fakes-", { closeDatabase: true, dataSubdir: "manager-data" });
   let root = "";
   let processWorldId = "";
   let configurationWorldId = "";
   let server: Server | undefined;
   const originalFetch = globalThis.fetch;
 
-  beforeAll(async () => {
-    root = await mkdtemp(path.join(tmpdir(), "psm-service-fakes-"));
-    process.env.PALWORLD_MANAGER_DATA_DIR = path.join(root, "manager-data");
-    process.env.PALWORLD_MANAGER_DB = path.join(root, "manager-data", "registry-v3.sqlite");
-    await prepareTestDatabase(process.env.PALWORLD_MANAGER_DATA_DIR, process.env.PALWORLD_MANAGER_DB);
-  });
+  beforeAll(() => { root = dir.directory; });
 
   afterAll(async () => {
     globalThis.fetch = originalFetch;
@@ -34,9 +29,6 @@ describe("service boundaries with isolated fakes", () => {
     const { getWorld } = await import("@/server/services/worlds");
     const { stopWorld } = await import("@/server/services/processes");
     if (processWorldId && (await getWorld(processWorldId))?.processId) await stopWorld(processWorldId, true).catch(() => undefined);
-    const { sqliteClient } = await import("@/server/db");
-    sqliteClient().close(); globalThis.__psmDatabase = undefined;
-    await rm(root, { recursive: true, force: true });
   });
 
   it("drives lifecycle state through a fake PalServer process", async () => {
