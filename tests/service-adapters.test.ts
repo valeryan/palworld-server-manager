@@ -69,7 +69,7 @@ describe("service boundaries with isolated fakes", () => {
   });
 
   it("records succeeded and failed job states and enforces the per-world lock", async () => {
-    const { startJob, getJob, worldIsLocked } = await import("@/server/services/jobs");
+    const { startJob, getJob, listJobLogs, worldIsLocked } = await import("@/server/services/jobs");
     let release!: () => void;
     const held = new Promise<void>((resolve) => { release = resolve; });
     const first = await startJob(processWorldId, "fake-held", async ({ update, log }) => { await update(42, "Halfway"); log("fake output"); await held; });
@@ -82,6 +82,7 @@ describe("service boundaries with isolated fakes", () => {
     const failed = await startJob(processWorldId, "fake-failure", async () => { throw new Error("synthetic adapter failure"); });
     await waitFor(async () => (await getJob(failed))?.state === "failed" && !worldIsLocked(processWorldId), "Fake failed job did not finish cleanup.");
     expect(await getJob(failed)).toMatchObject({ state: "failed", error: "synthetic adapter failure", progress: 0 });
+    expect((await listJobLogs(failed)).map((line) => line.message)).toEqual(["Operation failed: synthetic adapter failure"]);
     expect(worldIsLocked(processWorldId)).toBe(false);
   });
 

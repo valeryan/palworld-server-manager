@@ -53,6 +53,10 @@ export async function startJob(worldId: string | null, kind: string, task: (cont
   catch (error) { controllers().delete(id); if (worldId) locks().delete(worldId); throw error; }
   void (async () => {
     let releaseInstallation: (() => Promise<void>) | undefined;
+    const log = (message: string) => {
+      sqliteClient().prepare("INSERT INTO job_logs (job_id,message,created_at) VALUES (?,?,?)").run(id, message, Date.now());
+      eventBus().publish({ type: "log", worldId: worldId ?? undefined, data: { jobId: id, message } });
+    };
     try {
       if (worldId) releaseInstallation = await claimOperationInstallation(worldId);
       await database().update(jobs).set({ state: "running", startedAt: Date.now(), message: jobStartingMessage(kind) }).where(eq(jobs.id, id));
@@ -64,16 +68,14 @@ export async function startJob(worldId: string | null, kind: string, task: (cont
           await database().update(jobs).set({ state: message === "Waiting for shared SteamCMD client" ? "queued" : "running", progress: Math.max(0, Math.min(100, Math.round(progress))), message }).where(eq(jobs.id, id));
           await publish(id);
         },
-        log: (message) => {
-          sqliteClient().prepare("INSERT INTO job_logs (job_id,message,created_at) VALUES (?,?,?)").run(id, message, Date.now());
-          eventBus().publish({ type: "log", worldId: worldId ?? undefined, data: { jobId: id, message } });
-        },
+        log,
       });
       controller.signal.throwIfAborted();
       const final = await getJob(id);
       await database().update(jobs).set({ state: "succeeded", progress: 100, message: final?.message.includes("restart required") ? final.message : jobSuccessMessage(kind), finishedAt: Date.now() }).where(eq(jobs.id, id));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      log(controller.signal.aborted ? "Operation cancelled." : `Operation failed: ${message}`);
       await database().update(jobs).set(controller.signal.aborted ? { state: "cancelled", message: "Cancelled", error: null, finishedAt: Date.now() } : { state: "failed", message: "Failed", error: message, finishedAt: Date.now() }).where(eq(jobs.id, id));
     } finally {
       if (releaseInstallation) await releaseInstallation().catch(() => undefined);
