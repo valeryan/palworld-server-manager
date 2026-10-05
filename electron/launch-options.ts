@@ -1,4 +1,7 @@
+import { windowsArguments } from "../src/lib/arguments";
+
 export type LaunchAtLoginOptions = {
+  argumentFormat?: "legacy" | "windows";
   startHidden: boolean;
   disableGpu: boolean;
   forceX11: boolean;
@@ -20,14 +23,14 @@ const reserved = new Set(["hidden", "user-data-dir", "disable-gpu", "ozone-platf
 
 export function normalizeLaunchAtLoginOptions(value: unknown): LaunchAtLoginOptions {
   const saved = value && typeof value === "object" ? value as Partial<LaunchAtLoginOptions> : {};
-  return { startHidden: saved.startHidden !== false, disableGpu: saved.disableGpu === true, forceX11: saved.forceX11 === true, customFlags: typeof saved.customFlags === "string" ? saved.customFlags : "" };
+  return { startHidden: saved.startHidden !== false, disableGpu: saved.disableGpu === true, forceX11: saved.forceX11 === true, customFlags: typeof saved.customFlags === "string" ? saved.customFlags : "", ...(saved.argumentFormat ? { argumentFormat: saved.argumentFormat } : {}) };
 }
 
-export function parseCustomLaunchFlags(value: string): string[] {
+export function parseCustomLaunchFlags(value: string, format: "legacy" | "windows" = "legacy"): string[] {
   if (value.length > 2_048) throw new Error("Custom launch flags cannot exceed 2,048 characters.");
   if (/[\r\n\0]/.test(value)) throw new Error("Custom launch flags cannot contain line breaks or NUL bytes.");
   const flags: string[] = []; let token = ""; let quote: "'" | '"' | null = null; let escaped = false;
-  for (const character of value.trim()) {
+  for (const character of (format === "windows" ? "" : value.trim())) {
     if (escaped) { token += character; escaped = false; continue; }
     if (character === "\\") { escaped = true; continue; }
     if (quote) { if (character === quote) quote = null; else token += character; continue; }
@@ -36,6 +39,7 @@ export function parseCustomLaunchFlags(value: string): string[] {
   }
   if (escaped || quote) throw new Error("Custom launch flags contain an unfinished quote or escape.");
   if (token) flags.push(token);
+  if (format === "windows") { flags.splice(0, flags.length, ...windowsArguments(value)); }
   if (flags.length > 32) throw new Error("Custom launch flags are limited to 32 arguments.");
   for (const flag of flags) {
     if (flag.length > 256 || !/^--[a-zA-Z0-9][a-zA-Z0-9-]*(?:=.*)?$/.test(flag)) throw new Error(`Invalid launch flag: ${flag}`);
@@ -46,5 +50,5 @@ export function parseCustomLaunchFlags(value: string): string[] {
 }
 
 export function launchAtLoginArguments(options: LaunchAtLoginOptions, preserved: string[] = []): string[] {
-  return [options.startHidden ? "--hidden" : "", options.disableGpu ? "--disable-gpu" : "", options.forceX11 ? "--ozone-platform=x11" : "", ...parseCustomLaunchFlags(options.customFlags), ...preserved].filter(Boolean);
+  return [options.startHidden ? "--hidden" : "", options.disableGpu ? "--disable-gpu" : "", options.forceX11 ? "--ozone-platform=x11" : "", ...parseCustomLaunchFlags(options.customFlags, options.argumentFormat), ...preserved].filter(Boolean);
 }

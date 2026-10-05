@@ -91,6 +91,7 @@ describe("service boundaries with isolated fakes", () => {
     expect(worldIsLocked(processWorldId)).toBe(true);
     await expect(startJob(processWorldId, "start", async () => undefined)).rejects.toThrow("Another operation");
     await expect(withWorldLock(processWorldId, async () => "second")).rejects.toThrow("Another operation");
+    await waitFor(async () => typeof release === "function", "the in-request change did not acquire its installation lease");
     release(); expect(await change).toBe("done");
     expect(worldIsLocked(processWorldId)).toBe(false);
     await expect(withWorldLock(processWorldId, async () => { throw new Error("change failed"); })).rejects.toThrow("change failed");
@@ -112,7 +113,7 @@ done
 mkdir -p "$install/steamapps"
 printf '#!/bin/sh\\nexit 0\\n' > "$install/PalServer.sh"
 chmod 700 "$install/PalServer.sh"
-printf '"AppState" { "buildid" "424242" }\\n' > "$install/steamapps/appmanifest_2394010.acf"
+printf '"AppState" { "appid" "2394010" "buildid" "424242" }\\n' > "$install/steamapps/appmanifest_2394010.acf"
 printf '; This shipped template comment must not be copied into the active file.\\n[/Script/Pal.PalGameWorldSettings]\\nOptionSettings=(ServerName="Default Palworld Server",PublicPort=8211,ServerReplicatePawnCullDistance=15000.000000,DenyTechnologyList=,RESTAPIEnabled=False,RESTAPIPort=8212,RCONEnabled=False,RCONPort=25575)\\n' > "$install/DefaultPalWorldSettings.ini"
 mkdir -p "$install/Pal/Saved/Config/LinuxServer"
 : > "$install/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini"
@@ -120,6 +121,7 @@ echo "login $PSM_STEAM_USERNAME $PSM_STEAM_PASSWORD"
 echo "Success! App '2394010' fully installed."
 `);
     await chmod(steam, 0o700);
+    await writeFile(path.join(steamDir, ".psm-ready.json"), JSON.stringify({ platform: "linux" }));
     process.env.PSM_STEAM_USERNAME = "fake-user"; process.env.PSM_STEAM_PASSWORD = "fake-password";
     globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ data: { "2394010": { depots: { branches: { public: { buildid: "424242" } } } } } }), { status: 200 })) as typeof fetch;
     const { createWorld, getWorld } = await import("@/server/services/worlds");

@@ -1,15 +1,18 @@
+import { privateFile } from "@/server/host";
 import "server-only";
+import { assertSupportedTarget } from "@/server/host";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { and, desc, eq } from "drizzle-orm";
 import { managedWorldSettingsSchema, type ManagedWorldSettings, type WorldView } from "@/contracts/world";
 import { decodeDefaultSettingValue, PALWORLD_MANAGER_SETTING_KEYS, PALWORLD_SETTING_FIELD_MAP } from "@/contracts/palworld-settings";
 import { database } from "@/server/db";
 import { configVersions, events, worlds, worldSettings } from "@/server/db/schema";
-import { canonicalInstallDir, getWorld, listWorlds, pathsOverlap } from "./worlds";
+import { canonicalInstallDir, validateInstallLocation, assertWorldOwnership, getWorld, listWorlds, pathsOverlap } from "./worlds";
 import { pruneConfigurationVersions } from "./retention";
 import { withReservationLock } from "./reservations";
+import { trackActiveChange } from "./jobs";
 
 export type AdvertisedPortState = { mode: "inherit"; effectivePort: number } | { mode: "override"; effectivePort: number } | { mode: "invalid"; raw: string; effectivePort: number };
 export class StaleSettingsRevisionError extends Error { constructor() { super("Settings changed since this page was loaded. Refresh and try again."); } }
@@ -17,11 +20,13 @@ const PORT_FIELDS = ["gamePort", "queryPort", "restApiPort", "rconPort"] as cons
 const queues = new Map<string, Promise<unknown>>();
 
 async function locked<T>(worldId: string, work: () => Promise<T>): Promise<T> {
+  return trackActiveChange(async () => {
   const previous = queues.get(worldId) ?? Promise.resolve(); let release!: () => void;
   const current = new Promise<void>((resolve) => { release = resolve; });
   const marker = previous.catch(() => undefined).then(() => current); queues.set(worldId, marker);
   await previous.catch(() => undefined);
   try { return await work(); } finally { release(); if (queues.get(worldId) === marker) queues.delete(worldId); }
+  });
 }
 
 export function advertisedPortState(raw: string | undefined, gamePort: number): AdvertisedPortState {
@@ -39,7 +44,7 @@ export function managedDisplayNameChange(previousName: string, previousRaw: stri
   if (previous && next && previousName === previous && previous !== next) { if (next.length > 80) throw new Error("Display Name cannot exceed 80 characters; set a shorter Display Name override."); return next; }
   return undefined;
 }
-function configPath(installDir: string, platform: "linux" | "windows") { return path.join(/* turbopackIgnore: true */ installDir, "Pal", "Saved", "Config", platform === "windows" ? "WindowsServer" : "LinuxServer", "PalWorldSettings.ini"); }
+export function configPath(installDir: string, platform: "linux" | "windows") { return path.join(/* turbopackIgnore: true */ installDir, "Pal", "Saved", "Config", platform === "windows" ? "WindowsServer" : "LinuxServer", "PalWorldSettings.ini"); }
 export function defaultConfigurationPath(installDir: string) { return path.join(/* turbopackIgnore: true */ installDir, "DefaultPalWorldSettings.ini"); }
 
 export function validateConfiguration(content: string) {
@@ -73,7 +78,7 @@ export function managedWorldChangesFromConfiguration(content: string) {
   return patch;
 }
 
-function managerFromWorld(world: WorldView): ManagedWorldSettings { return managedWorldSettingsSchema.parse({ displayName: world.displayName, installDir: world.installDir, platform: world.platform, gamePort: world.gamePort, queryPort: world.queryPort, restApiPort: world.restApiPort, rconPort: world.rconPort, restApiEnabled: world.restApiEnabled, rconEnabled: world.rconEnabled, communityServer: world.communityServer, autostart: world.autostart, crashGuard: world.crashGuard, legacyPerfFlags: world.legacyPerfFlags, extraArgs: world.extraArgs, env: world.env, wineBinary: world.wineBinary, winePrefix: world.winePrefix, wineLaunchFlags: world.wineLaunchFlags }); }
+function managerFromWorld(world: WorldView): ManagedWorldSettings { return managedWorldSettingsSchema.parse({ displayName: world.displayName, installDir: world.installDir, platform: world.platform, gamePort: world.gamePort, queryPort: world.queryPort, restApiPort: world.restApiPort, rconPort: world.rconPort, restApiEnabled: world.restApiEnabled, rconEnabled: world.rconEnabled, communityServer: world.communityServer, autostart: world.autostart, crashGuard: world.crashGuard, legacyPerfFlags: world.legacyPerfFlags, extraArgs: world.extraArgs, argumentFormat: world.argumentFormat, env: world.env, wineBinary: world.wineBinary, winePrefix: world.winePrefix, wineLaunchFlags: world.wineLaunchFlags }); }
 async function readOptional(filePath: string) { try { return await readFile(filePath, "utf8"); } catch { return null; } }
 type SettingsRow = typeof worldSettings.$inferSelect;
 function managerFromRow(row: SettingsRow) { return managedWorldSettingsSchema.parse(row.desiredManager); }
@@ -86,19 +91,23 @@ async function bootstrapUnlocked(worldId: string): Promise<SettingsRow> {
   try { if (activeHasContent) hash = semanticHash(active!); if (desired) { validateConfiguration(desired); const credentials = configurationCredentials(desired); const changes: Record<string, string> = {}; if (!credentials.adminPassword && world.adminPassword) changes.AdminPassword = JSON.stringify(world.adminPassword); if (!credentials.serverPassword && world.serverPassword) changes.ServerPassword = JSON.stringify(world.serverPassword); if (Object.keys(changes).length) { desired = applyConfigurationOptions(desired, changes); pending = true; } } }
   catch (cause) { drift = true; pending = true; error = `Existing PalWorldSettings.ini is malformed: ${cause instanceof Error ? cause.message : String(cause)}`; desired = activeHasContent ? active! : template ?? ""; }
   if (!desired) { drift = true; pending = true; error = "PalWorldSettings.ini and its shipped template are unavailable."; }
-  database().transaction((tx) => { tx.insert(worldSettings).values({ worldId, desiredManager: manager, desiredContent: desired, appliedContent: applied, desiredRevision: 1, appliedRevision: pending ? 0 : 1, appliedSemanticHash: hash, pendingSince: pending ? now : null, lastApplyError: error, drift, driftReason: drift ? error : null, updatedAt: now, appliedAt: pending ? null : now }).onConflictDoNothing().run(); if (!drift) tx.update(worlds).set({ adminPassword: "", serverPassword: "" }).where(eq(worlds.id, worldId)).run(); });
+  database().transaction((tx) => { tx.insert(worldSettings).values({ worldId, desiredManager: manager, desiredContent: desired, appliedContent: applied, desiredRevision: 1, appliedRevision: pending ? 0 : 1, managerAppliedRevision: pending ? 0 : 1, appliedSemanticHash: hash, pendingSince: pending ? now : null, lastApplyError: error, drift, driftReason: drift ? error : null, updatedAt: now, appliedAt: pending ? null : now }).onConflictDoNothing().run(); if (!drift) tx.update(worlds).set({ adminPassword: "", serverPassword: "" }).where(eq(worlds.id, worldId)).run(); });
   const [created] = await database().select().from(worldSettings).where(eq(worldSettings.worldId, worldId)).limit(1); if (!created) throw new Error("Failed to initialize world settings."); return created;
 }
 export async function bootstrapWorldSettings(worldId?: string) { if (worldId) { await locked(worldId, () => bootstrapUnlocked(worldId)); return; } for (const world of await listWorlds()) await locked(world.id, () => bootstrapUnlocked(world.id)); }
 async function rowFor(worldId: string) { return locked(worldId, () => bootstrapUnlocked(worldId)); }
 async function rowUnlocked(worldId: string) { const [row] = await database().select().from(worldSettings).where(eq(worldSettings.worldId, worldId)).limit(1); return row; }
-async function writeAtomic(filePath: string, content: string) { await mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 }); const temporary = `${filePath}.tmp-${randomUUID()}`; await writeFile(temporary, content, { encoding: "utf8", mode: 0o600 }); await chmod(temporary, 0o600); await rename(temporary, filePath); await chmod(filePath, 0o600); }
-function state(row: SettingsRow, world: WorldView) { const pendingApply = row.desiredRevision !== row.appliedRevision || row.drift; return { desiredRevision: row.desiredRevision, appliedRevision: row.appliedRevision, pendingApply, requiresRestart: pendingApply && ["running", "starting", "stopping"].includes(world.status), drift: row.drift, driftReason: row.driftReason, applyError: row.lastApplyError }; }
-function projection(manager: ManagedWorldSettings) { return { displayName: manager.displayName, installDir: manager.installDir, platform: manager.platform, gamePort: manager.gamePort, queryPort: manager.queryPort, restApiPort: manager.restApiPort, rconPort: manager.rconPort, restApiEnabled: manager.restApiEnabled, rconEnabled: manager.rconEnabled, communityServer: manager.communityServer, autostart: manager.autostart, crashGuard: manager.crashGuard, legacyPerfFlags: manager.legacyPerfFlags, extraArgs: manager.extraArgs, environment: manager.env, wineBinary: manager.wineBinary, winePrefix: manager.winePrefix, wineLaunchFlags: manager.wineLaunchFlags }; }
+export function configurationIsValid(content: string): boolean { try { validateConfiguration(content); return true; } catch { return false; } }
+
+async function writeAtomic(filePath: string, content: string) { await mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 }); const temporary = `${filePath}.tmp-${randomUUID()}`; await writeFile(temporary, content, { encoding: "utf8", mode: 0o600 }); await privateFile(temporary); await rename(temporary, filePath); await privateFile(filePath); }
+function state(row: SettingsRow, world: WorldView) { const pendingApply = row.desiredRevision !== row.appliedRevision || row.drift; return { desiredRevision: row.desiredRevision, appliedRevision: row.appliedRevision, managerAppliedRevision: row.managerAppliedRevision, configurationAvailable: configurationIsValid(row.desiredContent), pendingApply, requiresRestart: pendingApply && ["running", "starting", "stopping"].includes(world.status), drift: row.drift, driftReason: row.driftReason, applyError: row.lastApplyError }; }
+function projection(manager: ManagedWorldSettings) { return { displayName: manager.displayName, installDir: manager.installDir, platform: manager.platform, gamePort: manager.gamePort, queryPort: manager.queryPort, restApiPort: manager.restApiPort, rconPort: manager.rconPort, restApiEnabled: manager.restApiEnabled, rconEnabled: manager.rconEnabled, communityServer: manager.communityServer, autostart: manager.autostart, crashGuard: manager.crashGuard, legacyPerfFlags: manager.legacyPerfFlags, extraArgs: manager.extraArgs, argumentFormat: manager.argumentFormat ?? "legacy", environment: manager.env, wineBinary: manager.wineBinary, winePrefix: manager.winePrefix, wineLaunchFlags: manager.wineLaunchFlags }; }
 
 async function validateReservations(worldId: string, candidate: ManagedWorldSettings) {
+  assertSupportedTarget(candidate.platform);
   const desiredRows = await database().select().from(worldSettings); const desired = new Map(desiredRows.map((row) => [row.worldId, managerFromRow(row)]));
-  const candidatePath = await canonicalInstallDir(candidate.installDir);
+  const candidatePath = await validateInstallLocation(candidate.installDir);
+  await assertWorldOwnership(candidate);
   for (const other of await listWorlds()) { if (other.id === worldId) continue; for (const settings of [managerFromWorld(other), desired.get(other.id)].filter(Boolean) as ManagedWorldSettings[]) { if (pathsOverlap(candidatePath, await canonicalInstallDir(settings.installDir))) throw new Error(`Install directory overlaps with ${other.displayName}: ${settings.installDir}`); for (const field of PORT_FIELDS) for (const otherField of PORT_FIELDS) if (candidate[field] === settings[otherField]) throw new Error(`Port ${candidate[field]} is reserved by ${other.displayName} (${otherField}).`); } }
   if (new Set(PORT_FIELDS.map((field) => candidate[field])).size !== PORT_FIELDS.length) throw new Error("A world cannot reuse the same port for multiple services.");
 }
@@ -129,7 +138,7 @@ async function applyUnlocked(worldId: string, force = false) {
     if (row.desiredRevision === row.appliedRevision && !row.drift) return state(row, world);
     await writeAtomic(targetPath, row.desiredContent); const verified = await readFile(targetPath, "utf8"); if (semanticHash(verified) !== semanticHash(row.desiredContent)) throw new Error("Configuration readback did not match the desired option values.");
     const now = Date.now(); const hash = semanticHash(verified);
-    database().transaction((tx) => { tx.update(worlds).set({ ...projection(manager), adminPassword: "", serverPassword: "", updatedAt: now }).where(eq(worlds.id, worldId)).run(); tx.update(worldSettings).set({ appliedContent: verified, appliedRevision: row.desiredRevision, appliedSemanticHash: hash, pendingSince: null, lastApplyError: null, drift: false, driftReason: null, appliedAt: now, updatedAt: now }).where(eq(worldSettings.worldId, worldId)).run(); tx.insert(events).values({ worldId, kind: "settings", message: `Applied settings revision ${row.desiredRevision}`, createdAt: now }).run(); });
+    database().transaction((tx) => { tx.update(worlds).set({ ...projection(manager), adminPassword: "", serverPassword: "", updatedAt: now }).where(eq(worlds.id, worldId)).run(); tx.update(worldSettings).set({ appliedContent: verified, appliedRevision: row.desiredRevision, managerAppliedRevision: row.desiredRevision, appliedSemanticHash: hash, pendingSince: null, lastApplyError: null, drift: false, driftReason: null, appliedAt: now, updatedAt: now }).where(eq(worldSettings.worldId, worldId)).run(); tx.insert(events).values({ worldId, kind: "settings", message: `Applied settings revision ${row.desiredRevision}`, createdAt: now }).run(); });
     return state((await rowUnlocked(worldId))!, (await getWorld(worldId))!);
   } catch (cause) { await markFailure(worldId, cause instanceof Error ? cause.message : String(cause), row.drift || force); return state((await rowUnlocked(worldId))!, world); }
 }
@@ -146,12 +155,36 @@ export async function prepareWorldStart<T>(worldId: string, claim: (world: World
 }
 export async function readSettingsState(worldId: string) { const row = await rowFor(worldId); const world = await getWorld(worldId); if (!world) throw new Error("World not found."); return { ...state(row, world), desiredManager: managerFromRow(row), appliedManager: managerFromWorld(world), desiredContent: row.desiredContent, appliedContent: row.appliedContent }; }
 
-export async function saveDesiredSettings(worldId: string, input: { baseRevision: number; manager: ManagedWorldSettings; content: string; note?: string }) {
-  return locked(worldId, async () => { const row = await bootstrapUnlocked(worldId); if (row.desiredRevision !== input.baseRevision) throw new StaleSettingsRevisionError(); const parsedManager = managedWorldSettingsSchema.parse(input.manager); validateConfiguration(input.content); const now = Date.now(); const revision = row.desiredRevision + 1; let manager!: ManagedWorldSettings;
-    await withReservationLock(async () => { manager = managedWorldSettingsSchema.parse({ ...parsedManager, installDir: await canonicalInstallDir(parsedManager.installDir) }); await validateReservations(worldId, manager); database().transaction((tx) => { tx.update(worldSettings).set({ desiredManager: manager, desiredContent: input.content, desiredRevision: revision, pendingSince: row.pendingSince ?? now, lastApplyError: null, updatedAt: now }).where(eq(worldSettings.worldId, worldId)).run(); tx.insert(configVersions).values({ id: randomUUID(), worldId, fileName: "PalWorldSettings.ini", content: input.content, note: input.note ?? `desired revision ${revision}`, createdAt: now }).run(); tx.insert(events).values({ worldId, kind: "settings", message: `Saved desired settings revision ${revision}`, createdAt: now }).run(); }); }); await pruneConfigurationVersions(worldId).catch(() => undefined);
-    const world = await getWorld(worldId); if (!world) throw new Error("World not found."); return ["running", "starting", "stopping"].includes(world.status) || world.processId ? state((await rowUnlocked(worldId))!, world) : applyUnlocked(worldId);
+export async function saveDesiredSettings(worldId: string, input: { baseRevision: number; manager: ManagedWorldSettings; content?: string; note?: string }) {
+  return locked(worldId, async () => {
+    const row = await bootstrapUnlocked(worldId);
+    if (row.desiredRevision !== input.baseRevision) throw new StaleSettingsRevisionError();
+    const parsedManager = managedWorldSettingsSchema.parse(input.manager);
+    const managerOnly = input.content === undefined;
+    if (!managerOnly) validateConfiguration(input.content!);
+    const content = input.content ?? row.desiredContent;
+    const now = Date.now(); const revision = row.desiredRevision + 1;
+    const before = await getWorld(worldId); if (!before) throw new Error("World not found.");
+    const busy = ["running", "starting", "stopping", "unknown"].includes(before.status) || Boolean(before.processId);
+    const independent = managerOnly && !configurationIsValid(content);
+    await withReservationLock(async () => {
+      const manager = managedWorldSettingsSchema.parse({ ...parsedManager, installDir: await canonicalInstallDir(parsedManager.installDir) });
+      await validateReservations(worldId, manager);
+      database().transaction((tx) => {
+        tx.update(worldSettings).set({ desiredManager: manager, desiredContent: content, desiredRevision: revision, pendingSince: row.pendingSince ?? now,
+          ...(independent && !busy ? { managerAppliedRevision: revision } : {}),
+          lastApplyError: independent ? "Registration saved. Game configuration is unavailable; install or repair the server before applying game settings." : null, updatedAt: now }).where(eq(worldSettings.worldId, worldId)).run();
+        if (independent && !busy) tx.update(worlds).set({ ...projection(manager), updatedAt: now }).where(eq(worlds.id, worldId)).run();
+        if (!managerOnly) tx.insert(configVersions).values({ id: randomUUID(), worldId, fileName: "PalWorldSettings.ini", content, note: input.note ?? `desired revision ${revision}`, createdAt: now }).run();
+        tx.insert(events).values({ worldId, kind: "settings", message: `Saved ${managerOnly ? "registration" : "settings"} revision ${revision}`, createdAt: now }).run();
+      });
+    });
+    await pruneConfigurationVersions(worldId).catch(() => undefined);
+    if (busy || independent) return state((await rowUnlocked(worldId))!, (await getWorld(worldId))!);
+    return applyUnlocked(worldId);
   });
 }
+
 export async function readConfigurationCredentials(worldId: string) { return configurationCredentials((await rowFor(worldId)).appliedContent); }
 export async function readConfiguration(worldId: string) { const row = await rowFor(worldId); const world = await getWorld(worldId); if (!world) throw new Error("World not found."); const manager = managerFromRow(row); return { path: configPath(manager.installDir, manager.platform), exists: Boolean(row.desiredContent), content: row.desiredContent, running: world.status === "running", advertisedPort: advertisedPortState(parseConfigurationOptions(row.appliedContent).PublicPort, world.gamePort), ...state(row, world) }; }
 export async function saveConfiguration(worldId: string, content: string, baseRevision?: number) { const current = await readSettingsState(worldId); const manager = managedWorldSettingsSchema.parse({ ...current.desiredManager, ...managedWorldChangesFromConfiguration(content) }); return saveDesiredSettings(worldId, { baseRevision: baseRevision ?? current.desiredRevision, manager, content, note: "saved" }); }
@@ -171,7 +204,7 @@ export function managedConfigurationChanges(world: Pick<ManagedWorldSettings, "r
 export async function syncManagedConfiguration(worldId: string, options: ManagedConfigurationOptions = {}) { const current = await readSettingsState(worldId); let source = current.desiredContent; const initialized = !current.appliedContent.trim(); if (!source.trim()) source = await readOptional(defaultConfigurationPath(current.desiredManager.installDir)) ?? ""; if (!source) return { synchronized: false, initialized: false, reason: "The shipped default configuration is not available yet." }; const changes = managedConfigurationChanges(current.desiredManager, { syncPublicPort: initialized || options.syncPublicPort }); if (initialized) { const world = await getWorld(worldId); if (!world) throw new Error("World not found."); const credentials = configurationCredentials(source); if (!credentials.adminPassword && world.adminPassword) changes.AdminPassword = JSON.stringify(world.adminPassword); if (!credentials.serverPassword && world.serverPassword) changes.ServerPassword = JSON.stringify(world.serverPassword); if (current.desiredManager.restApiEnabled && !credentials.adminPassword && !world.adminPassword) changes.AdminPassword = JSON.stringify(randomBytes(18).toString("base64url")); } let content = applyConfigurationOptions(source, changes); if (initialized) content = serializeConfigurationOptions(parseConfigurationOptions(content)); const saved = await saveDesiredSettings(worldId, { baseRevision: current.desiredRevision, manager: current.desiredManager, content, note: initialized ? "initialized from shipped defaults" : "synchronized manager settings" }); const application = initialized && current.drift ? await applyDesiredSettings(worldId, { force: true }) : saved; return { synchronized: true, initialized, ...application }; }
 export async function listConfigurationVersions(worldId: string) { const records = await database().select().from(configVersions).where(eq(configVersions.worldId, worldId)).orderBy(desc(configVersions.createdAt)).limit(50); return records.map(({ content, ...record }) => ({ ...record, sizeBytes: Buffer.byteLength(content) })); }
 export async function restoreConfiguration(worldId: string, versionId: string, baseRevision?: number) { const [version] = await database().select().from(configVersions).where(and(eq(configVersions.id, versionId), eq(configVersions.worldId, worldId))).limit(1); if (!version) throw new Error("Configuration version not found."); const current = await readSettingsState(worldId); validateConfiguration(version.content); const manager = managedWorldSettingsSchema.parse({ ...current.desiredManager, ...managedWorldChangesFromConfiguration(version.content) }); return { ...await saveDesiredSettings(worldId, { baseRevision: baseRevision ?? current.desiredRevision, manager, content: version.content, note: `restored from ${versionId}` }), content: version.content }; }
-export async function reconcileConfiguration(worldId: string, action: "import-file" | "reapply-desired") { return locked(worldId, async () => { const row = await bootstrapUnlocked(worldId); const world = await getWorld(worldId); if (!world) throw new Error("World not found."); if (["running", "starting", "stopping"].includes(world.status) || world.processId) throw new Error("Stop the world before reconciling its configuration file."); if (action === "reapply-desired") return applyUnlocked(worldId, true); const previousManager = managerFromRow(row); const content = await readFile(configPath(previousManager.installDir, previousManager.platform), "utf8"); validateConfiguration(content); const manager = managedWorldSettingsSchema.parse({ ...previousManager, ...managedWorldChangesFromConfiguration(content) }); const now = Date.now(); const revision = row.desiredRevision + 1; await withReservationLock(async () => { await validateReservations(worldId, manager); database().transaction((tx) => { tx.update(worlds).set({ ...projection(manager), adminPassword: "", serverPassword: "", updatedAt: now }).where(eq(worlds.id, worldId)).run(); tx.update(worldSettings).set({ desiredManager: manager, desiredContent: content, appliedContent: content, desiredRevision: revision, appliedRevision: revision, appliedSemanticHash: semanticHash(content), pendingSince: null, lastApplyError: null, drift: false, driftReason: null, updatedAt: now, appliedAt: now }).where(eq(worldSettings.worldId, worldId)).run(); tx.insert(configVersions).values({ id: randomUUID(), worldId, fileName: "PalWorldSettings.ini", content, note: "imported external file", createdAt: now }).run(); }); }); return state((await rowUnlocked(worldId))!, (await getWorld(worldId))!); }); }
+export async function reconcileConfiguration(worldId: string, action: "import-file" | "reapply-desired") { return locked(worldId, async () => { const row = await bootstrapUnlocked(worldId); const world = await getWorld(worldId); if (!world) throw new Error("World not found."); if (["running", "starting", "stopping"].includes(world.status) || world.processId) throw new Error("Stop the world before reconciling its configuration file."); if (action === "reapply-desired") return applyUnlocked(worldId, true); const previousManager = managerFromRow(row); const content = await readFile(configPath(previousManager.installDir, previousManager.platform), "utf8"); validateConfiguration(content); const manager = managedWorldSettingsSchema.parse({ ...previousManager, ...managedWorldChangesFromConfiguration(content) }); const now = Date.now(); const revision = row.desiredRevision + 1; await withReservationLock(async () => { await validateReservations(worldId, manager); database().transaction((tx) => { tx.update(worlds).set({ ...projection(manager), adminPassword: "", serverPassword: "", updatedAt: now }).where(eq(worlds.id, worldId)).run(); tx.update(worldSettings).set({ desiredManager: manager, desiredContent: content, appliedContent: content, desiredRevision: revision, appliedRevision: revision, managerAppliedRevision: revision, appliedSemanticHash: semanticHash(content), pendingSince: null, lastApplyError: null, drift: false, driftReason: null, updatedAt: now, appliedAt: now }).where(eq(worldSettings.worldId, worldId)).run(); tx.insert(configVersions).values({ id: randomUUID(), worldId, fileName: "PalWorldSettings.ini", content, note: "imported external file", createdAt: now }).run(); }); }); return state((await rowUnlocked(worldId))!, (await getWorld(worldId))!); }); }
 
 export async function adoptRestoredConfiguration(worldId: string, content: string, replaceFilesystem?: () => Promise<() => Promise<void>>) {
   validateConfiguration(content);
@@ -187,7 +220,7 @@ export async function adoptRestoredConfiguration(worldId: string, content: strin
       const rollback = await replaceFilesystem?.();
       try { database().transaction((tx) => {
         tx.update(worlds).set({ ...projection(manager), adminPassword: "", serverPassword: "", updatedAt: now }).where(eq(worlds.id, worldId)).run();
-        tx.update(worldSettings).set({ desiredManager: manager, desiredContent: content, appliedContent: content, desiredRevision: revision, appliedRevision: revision, appliedSemanticHash: semanticHash(content), pendingSince: null, lastApplyError: null, drift: false, driftReason: null, updatedAt: now, appliedAt: now }).where(eq(worldSettings.worldId, worldId)).run();
+        tx.update(worldSettings).set({ desiredManager: manager, desiredContent: content, appliedContent: content, desiredRevision: revision, appliedRevision: revision, managerAppliedRevision: revision, appliedSemanticHash: semanticHash(content), pendingSince: null, lastApplyError: null, drift: false, driftReason: null, updatedAt: now, appliedAt: now }).where(eq(worldSettings.worldId, worldId)).run();
         tx.insert(configVersions).values({ id: randomUUID(), worldId, fileName: "PalWorldSettings.ini", content, note: "adopted from backup restore", createdAt: now }).run();
       }); } catch (cause) {
         if (rollback) {

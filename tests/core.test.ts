@@ -105,7 +105,7 @@ describe("world isolation", () => {
   });
   it("rejects unsupported or credential-bearing registration documents", () => {
     const base = { format: "psm-next/world-registration", version: 1, exportedAt: new Date().toISOString(), sourceWorldId: "source", world: { displayName: "Portable", installDir: "/srv/pal/portable" } };
-    expect(() => worldRegistrationSchema.parse({ ...base, version: 2 })).toThrow();
+    expect(() => worldRegistrationSchema.parse({ ...base, version: 3 })).toThrow();
     expect(() => worldRegistrationSchema.parse({ ...base, world: { ...base.world, adminPassword: "secret" } })).toThrow();
   });
 });

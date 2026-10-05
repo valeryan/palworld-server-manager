@@ -5,24 +5,36 @@ import { cp, mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
 import type AdmZip from "adm-zip";
 import type { JobContext } from "./jobs";
 
-// Rejects any entry that would land outside the extraction root.
+// Apply portable extraction rules before any write, including Windows aliases on Linux.
+export function safeArchivePath(name: string): boolean {
+  const normalized = name.replaceAll("\\", "/");
+  if (!normalized || normalized.startsWith("/") || /[\x00-\x1f:]/.test(normalized)) return false;
+  const parts = normalized.replace(/\/$/, "").split("/");
+  return parts.every((part) => part !== "" && part !== "." && part !== ".." && !/[ .]$/.test(part) && !/[<>"|?*]/.test(part) && !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part));
+}
 export function safeEntries(zip: AdmZip): boolean {
-  return zip.getEntries().every((entry) => {
-    const normalized = path.posix.normalize(entry.entryName.replaceAll("\\", "/"));
-    return normalized !== ".." && !normalized.startsWith("../") && !path.posix.isAbsolute(normalized);
-  });
+  const seen = new Set<string>(); const files = new Set<string>();
+  for (const entry of zip.getEntries()) {
+    if (!safeArchivePath(entry.entryName) || ((entry.attr >>> 16) & 0o170000) === 0o120000) return false;
+    const key = entry.entryName.replaceAll("\\", "/").replace(/\/$/, "").toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key); if (!entry.isDirectory) files.add(key);
+  }
+  for (const key of seen) { const parts = key.split("/"); while (parts.length > 1) { parts.pop(); if (files.has(parts.join("/"))) return false; } }
+  return true;
 }
 
 // The path of an entry below an archive folder. The check runs again after the folder is removed:
 // "Mod/../../x" is safe as a whole entry but escapes the folder once "Mod/" is gone.
 export function relativeEntry(entryName: string, root: string): string {
   const relative = path.posix.normalize(entryName.replaceAll("\\", "/").slice(root.length));
-  if (relative === "." || relative === ".." || relative.startsWith("../") || path.posix.isAbsolute(relative)) throw new Error("The archive contains unsafe paths.");
+  if (!safeArchivePath(relative) || relative === "." || relative === ".." || relative.startsWith("../") || path.posix.isAbsolute(relative)) throw new Error("The archive contains unsafe paths.");
   return relative;
 }
 
 // Keeps a written path inside the folder it belongs to, whatever the relative path says.
 export function insideFolder(folder: string, relative: string): string {
+  if (!safeArchivePath(relative)) throw new Error("Refusing to write outside the extraction root or use an unsafe archive path.");
   const target = path.resolve(/* turbopackIgnore: true */ folder, ...relative.split("/"));
   if (!target.startsWith(`${path.resolve(/* turbopackIgnore: true */ folder)}${path.sep}`)) throw new Error(`Refusing to write outside ${folder}: ${relative}`);
   return target;

@@ -8,7 +8,8 @@ import { decodeDefaultSettingValue, decodeSettingValue, PALWORLD_SETTING_FIELD_M
 import type { WorldRegistration } from "@/contracts/world";
 import { settingFieldKey, settingGroupKey } from "@/lib/localization-resources";
 import { SettingHelp } from "./setting-help";
-import { usePlatformLabel } from "@/lib/use-platform-label";
+import { windowsArguments } from "@/lib/arguments";
+import { usePlatformLabel, useHostPlatform } from "@/lib/use-platform-label";
 
 type Value = PalworldSettingValue;
 type Structured = {
@@ -60,7 +61,7 @@ export function StructuredSettings({ worldId, onNotice }: { worldId: string; onN
 }
 
 function StructuredForm({ worldId, configuration, admin, appliedAdmin, onNotice }: { worldId: string; configuration: Structured; admin: AdminConfiguration; appliedAdmin: AdminConfiguration; onNotice(message: string): void }) {
-  const { t } = useTranslation(); const platformLabel = usePlatformLabel();
+  const { t } = useTranslation(); const platformLabel = usePlatformLabel(); const host = useHostPlatform();
   const router = useRouter();
   const client = useQueryClient();
   const importInput = useRef<HTMLInputElement>(null);
@@ -129,7 +130,7 @@ function StructuredForm({ worldId, configuration, admin, appliedAdmin, onNotice 
       ...(managerChangedKeys.has("publicPort") ? { publicPortOverride: manager.publicPort.trim() ? parsePort(manager.publicPort, t("properties.publicPort")) : null } : {}),
       ...(managerChangedKeys.has("communityServer") ? { communityServer: manager.communityServer } : {}),
       ...(managerChangedKeys.has("autostart") ? { autostart: manager.autostart } : {}), ...(managerChangedKeys.has("crashGuard") ? { crashGuard: manager.crashGuard } : {}),
-      ...(managerChangedKeys.has("legacyPerfFlags") ? { legacyPerfFlags: manager.legacyPerfFlags } : {}), ...(managerChangedKeys.has("extraArgs") ? { extraArgs: manager.extraArgs } : {}),
+      ...(managerChangedKeys.has("legacyPerfFlags") ? { legacyPerfFlags: manager.legacyPerfFlags } : {}), ...(managerChangedKeys.has("extraArgs") ? { extraArgs: manager.extraArgs, ...(host === "win32" ? { argumentFormat: "windows" } : {}) } : {}),
       ...(parsedEnvironment ? { env: parsedEnvironment } : {}), ...(managerChangedKeys.has("wineBinary") ? { wineBinary: manager.wineBinary } : {}),
       ...(managerChangedKeys.has("winePrefix") ? { winePrefix: manager.winePrefix.trim() || null } : {}), ...(managerChangedKeys.has("wineLaunchFlags") ? { wineLaunchFlags: manager.wineLaunchFlags } : {}),
       ...(managerChangedKeys.has("restApiEnabled") ? { restApiEnabled: manager.restApiEnabled } : {}),
@@ -205,9 +206,14 @@ function StructuredForm({ worldId, configuration, admin, appliedAdmin, onNotice 
     if (key === "restApiEnabled" || key === "rconEnabled") { const text = t(key === "restApiEnabled" ? "properties.restApi" : "properties.rcon"); return <label className={`manager-field service-toggle ${changedClass}`}>{label(text)}<button type="button" className={`toggle ${manager[key] ? "on" : ""}`} disabled={managerLocked} aria-label={text} aria-pressed={manager[key]} onClick={() => setManagerValue(key, !manager[key])}><i />{t(manager[key] ? "common.on" : "common.off")}</button></label>; }
     if (key === "restApiPort" || key === "rconPort") { const text = t(key === "restApiPort" ? "properties.restPort" : "properties.rconPort"); return <label className={`manager-field service-port ${changedClass}`}>{label(text)}<input aria-label={text} type="number" min={1} max={65535} value={manager[key]} disabled={managerLocked} onChange={(event) => setManagerValue(key, event.target.value)} /></label>; }
     if (key === "autostart" || key === "crashGuard" || key === "legacyPerfFlags") { const text = t(key === "autostart" ? "properties.autostart" : key === "crashGuard" ? "properties.crashRecovery" : "properties.performance"); return <label className={`manager-field ${changedClass}`}>{label(text)}<button type="button" className={`toggle ${manager[key] ? "on" : ""}`} disabled={key === "legacyPerfFlags" && managerLocked} aria-label={text} aria-pressed={manager[key]} onClick={() => setManagerValue(key, !manager[key])}><i />{t(manager[key] ? "common.on" : "common.off")}</button></label>; }
-    if (key === "platform") return <label className={`manager-field ${changedClass}`}>{label(t("properties.platform"))}<select aria-label={t("properties.platform")} value={manager.platform} disabled={managerLocked} onChange={(event) => setManagerValue("platform", event.target.value as "linux" | "windows")}><option value="linux">{platformLabel("linux")}</option><option value="windows">{platformLabel("windows")}</option></select></label>;
+    if (key === "platform") return <label className={`manager-field ${changedClass}`}>{label(t("properties.platform"))}<select aria-label={t("properties.platform")} value={manager.platform} disabled={managerLocked} onChange={(event) => setManagerValue("platform", event.target.value as "linux" | "windows")}><option value="linux" disabled={host === "win32"}>{platformLabel("linux")}</option><option value="windows">{platformLabel("windows")}</option></select></label>;
     if (key === "installDir") return <label className={`manager-field ${changedClass}`}>{label(t("properties.installDirectory"))}<span className="path-picker"><input aria-label={t("properties.installDirectory")} required value={manager.installDir} disabled={managerLocked} onChange={(event) => setManagerValue("installDir", event.target.value)} /><button type="button" disabled={managerLocked} onClick={() => void chooseDirectory()}>{t("properties.browse")}</button></span></label>;
     if (key === "environment") return <label className={`manager-field ${changedClass}`}>{label(t("properties.environment"))}<textarea className="environment-editor" aria-label={t("properties.environment")} value={manager.environment} disabled={managerLocked} onChange={(event) => setManagerValue("environment", event.target.value)} spellCheck={false} /></label>;
+    if (key.startsWith("wine") && (host !== "linux" || manager.platform !== "windows")) return null;
+    if (key === "extraArgs" && host === "win32") {
+      let preview: string; try { preview = JSON.stringify(windowsArguments(manager.extraArgs)); } catch (error) { preview = error instanceof Error ? error.message : String(error); }
+      return <label className={`manager-field ${changedClass}`}>{label(t("properties.extraArgs"))}<input value={manager.extraArgs} disabled={managerLocked} onChange={(event) => setManagerValue("extraArgs", event.target.value)} /><small>Editing uses Windows quoting. Arguments after save: <code>{preview}</code></small></label>;
+    }
     const textKeys = { extraArgs: "properties.extraArgs", wineBinary: "properties.wineBinary", winePrefix: "properties.winePrefix", wineLaunchFlags: "properties.wineFlags" } as const;
     if (key in textKeys) { const typedKey = key as keyof typeof textKeys; const text = t(textKeys[typedKey]); return <label className={`manager-field ${changedClass}`}>{label(text)}<input aria-label={text} value={manager[typedKey]} disabled={managerLocked} onChange={(event) => setManagerValue(typedKey, event.target.value)} /></label>; }
     return <div className="registration-actions"><p>{t("properties.security")}</p><div className="management-actions"><button type="button" className="button ghost" disabled={managementPending} onClick={() => void exportRegistration()}>{t("properties.export")}</button><button type="button" className="button danger" disabled={managementPending || worldRunning} onClick={() => void unregister()}>{t("properties.unregister")}</button></div></div>;

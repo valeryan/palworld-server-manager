@@ -32,7 +32,7 @@ export async function applicationUpdateStatus(currentVersion: string, options: {
     candidates.sort((a, b) => compareSemanticVersions(b.version, a.version) ?? 0); const latest = candidates[0];
     const status = latest && (compareSemanticVersions(latest.version, currentVersion) ?? 0) > 0 ? { currentVersion, channel, publishedVersion: latest.version, updateAvailable: true, releaseUrl: latest.url, publishedAt: latest.publishedAt, checkedAt: new Date(now).toISOString() } : empty();
     cache().set(key, { expiresAt: now + CACHE_MS, status }); return status;
-  } catch { const status = empty(); cache().set(key, { expiresAt: now + CACHE_MS, status }); return status; }
+  } catch (error) { const status = { ...empty(), error: error instanceof Error ? error.message : "Update check failed." }; cache().set(key, { expiresAt: now + 60_000, status }); return status; }
 }
 
 export function clearApplicationUpdateCache(): void { cache().clear(); }

@@ -13,6 +13,7 @@ export const releasedMigrations = [
   { name: "20260929043011_drop_legacy_imports", hash: "939685d3970b05028e74fe41a065a55720ba7c3acbe2b61743a0384f8f4a2210" },
   { name: "20260929044619_mod_runtimes", hash: "2a39d0503b7b70348dd4226ba7bc01f04aeee5fd88240fc63e0f6ba224bf9c37" },
   { name: "20260929214411_mod_artifacts", hash: "3d89923e50e0aad27f55db085fed7aef38251819e515ea708f4e3cbefbdf0ee2" },
+  { name: "20261005003801_native_windows_runtime", hash: "f584505da29987f81566aa95e087410207690b637e2a5a1ae42f0b1eb9ec6043" },
 ] as const;
 
 export function migrationDigest(): string { return createHash("sha256").update(releasedMigrations.map((item) => `${item.name}:${item.hash}`).join("\n")).digest("hex"); }

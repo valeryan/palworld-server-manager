@@ -5,8 +5,8 @@ import { events, schedules, sessions } from "@/server/db/schema";
 import { listWorlds, getWorld } from "./worlds";
 import { reconcileProcesses, restartWorld, startWorld, stopWorld } from "./processes";
 import { bootstrapWorldSettings } from "./configuration";
-import { startJob, type JobContext } from "./jobs";
-import { createBackup } from "./backups";
+import { startJob, reconcileInterruptedJobs, type JobContext } from "./jobs";
+import { createBackup, recoverInterruptedRestores } from "./backups";
 import { installOrUpdate } from "./steamcmd";
 import { nextRun, parseCustomHttp } from "./schedules";
 import { palworldRest } from "./rest";
@@ -173,7 +173,7 @@ async function presenceTick(): Promise<void> {
 }
 
 export async function runtimeTick(now = Date.now()): Promise<void> {
-  if (globalThis.__psmRuntimeTicking) return;
+  if (globalThis.__psmRuntimeTicking || globalThis.__psmDraining) return;
   globalThis.__psmRuntimeTicking = true;
   try {
     await presenceTick(); await handleIdleSchedules(now); await handleTimedSchedules(now);
@@ -186,11 +186,14 @@ export async function runtimeTick(now = Date.now()): Promise<void> {
 
 export async function startRuntime(): Promise<void> {
   if (globalThis.__psmRuntimeStarted) return;
-  globalThis.__psmRuntimeStarted = true;
+  await recoverInterruptedRestores();
+  await reconcileInterruptedJobs();
   await bootstrapWorldSettings();
   await reconcileProcesses();
-  for (const world of await listWorlds()) if (world.autostart && world.status !== "running" && world.status !== "starting") await startJob(world.id, "autostart", async () => startWorld(world.id));
+  for (const schedule of await database().select().from(schedules)) if (schedule.nextRunAt && schedule.nextRunAt < Date.now()) await database().update(schedules).set({ nextRunAt: nextRun(schedule) }).where(eq(schedules.id, schedule.id));
+  for (const world of await listWorlds()) if (world.autostart && ["stopped", "crashed"].includes(world.status)) await startJob(world.id, "autostart", async () => startWorld(world.id));
   void runtimeTick().catch((error) => log(null, "scheduler", `Runtime tick failed: ${error instanceof Error ? error.message : String(error)}`));
   globalThis.__psmSchedulerTimer = setInterval(() => void runtimeTick().catch((error) => log(null, "scheduler", `Runtime tick failed: ${error instanceof Error ? error.message : String(error)}`)), 10_000);
   globalThis.__psmSchedulerTimer.unref();
+  globalThis.__psmRuntimeStarted = true;
 }

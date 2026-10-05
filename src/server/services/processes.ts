@@ -1,16 +1,22 @@
+import { hostPlatform } from "@/server/host";
 import "server-only";
-import { createWriteStream, existsSync } from "node:fs";
+import { assertSupportedTarget } from "@/server/host";
+import { windowsArguments } from "@/lib/arguments";
+import { createWriteStream, existsSync, openSync, closeSync, appendFileSync } from "node:fs";
 import path from "node:path";
+import { writeFile, readFile, rm } from "node:fs/promises";
+import { processSnapshot, ownedTree, sameProcess, type ProcessIdentity } from "./process-inspection";
+import { inspectPrerequisites } from "./prerequisites";
 import { spawn, type ChildProcess } from "node:child_process";
 import killTree from "tree-kill";
 import type { WorldView } from "@/contracts/world";
 import { paths } from "@/server/paths";
 import { database } from "@/server/db";
-import { worlds } from "@/server/db/schema";
+import { events, worlds } from "@/server/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { eventBus } from "./events";
 import { getWorld, listWorlds, setRuntimeState } from "./worlds";
-import { applyDesiredSettings, prepareWorldStart } from "./configuration";
+import { applyDesiredSettings, prepareWorldStart, syncManagedConfiguration } from "./configuration";
 import { palworldRest } from "./rest";
 import { effectiveWinePrefix, prepareWinePrefix, runsUnderWine, serverWineOverrides, stopWineServer } from "./wine";
 import { applyUe4ssLaunch, recordHealthyExit, recordUnexpectedExit } from "@/server/mods/ue4ss-runtime";
@@ -46,14 +52,15 @@ export function parseArguments(value: string): string[] {
 }
 
 export function commandFor(world: WorldView): { command: string; args: string[]; env: NodeJS.ProcessEnv } {
+  assertSupportedTarget(world.platform);
   const serverArgs = [
     `-port=${world.gamePort}`, `-queryport=${world.queryPort}`,
-    world.communityServer ? "-publiclobby" : "",
+    ...(world.communityServer ? ["-publiclobby"] : []),
     ...(world.restApiEnabled ? ["-RESTAPIEnabled=true", `-RESTAPIPort=${world.restApiPort}`] : []),
     ...(world.rconEnabled ? ["-RCONEnabled=true", `-RCONPort=${world.rconPort}`] : []),
     ...(world.legacyPerfFlags ? ["-useperfthreads", "-NoAsyncLoadingThread", "-UseMultithreadForDS"] : []),
-    ...parseArguments(world.extraArgs),
-  ].filter(Boolean);
+    ...(world.argumentFormat === "windows" ? windowsArguments(world.extraArgs) : parseArguments(world.extraArgs)),
+  ];
   const env: NodeJS.ProcessEnv = { ...process.env, ...world.env };
   if (runsUnderWine(world)) {
     // World environment values win so a prefix or debug channel can still be set deliberately.
@@ -65,97 +72,192 @@ export function commandFor(world: WorldView): { command: string; args: string[];
   return { command: world.platform === "windows" ? path.join(/* turbopackIgnore: true */ world.installDir, "PalServer.exe") : path.join(/* turbopackIgnore: true */ world.installDir, "PalServer.sh"), args: serverArgs, env };
 }
 
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const launchLease = (world: WorldView) => path.join(/* turbopackIgnore: true */ world.installDir, ".psm-runtime-owner.json");
+type RuntimeLease = { profile: string; owner: ProcessIdentity; processes: ProcessIdentity[] };
+async function identities(worldId: string): Promise<ProcessIdentity[]> {
+  const [row] = await database().select({ identity: worlds.processIdentity }).from(worlds).where(eq(worlds.id, worldId)); return row?.identity ?? [];
+}
+async function persistIdentity(world: WorldView, processes: ProcessIdentity[]): Promise<void> {
+  await database().update(worlds).set({ processIdentity: processes }).where(eq(worlds.id, world.id));
+  const file = launchLease(world);
+  const lease = JSON.parse(await readFile(file, "utf8")) as RuntimeLease;
+  if (lease.profile !== paths.data()) throw new Error("This installation belongs to another manager profile.");
+  const temporary = `${file}.tmp-${process.pid}`;
+  await writeFile(temporary, JSON.stringify({ ...lease, processes }), { mode: 0o600 });
+  await process.getBuiltinModule("node:fs/promises").rename(temporary, file);
+}
+async function claimInstallation(world: WorldView, snapshot: ProcessIdentity[]): Promise<void> {
+  const file = launchLease(world);
+  try {
+    const lease = JSON.parse(await readFile(file, "utf8")) as RuntimeLease;
+    if (snapshot.some((row) => sameProcess(lease.owner, row)) || ownedTree(lease.processes, snapshot).length) throw new Error("This installation is already owned by a running manager or game server.");
+    await rm(file);
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  const owner = snapshot.find((row) => row.pid === process.pid);
+  if (!owner?.executable) throw new Error("Cannot establish manager process identity.");
+  await writeFile(file, JSON.stringify({ profile: paths.data(), owner, processes: [] } satisfies RuntimeLease), { flag: "wx", mode: 0o600 });
+}
+async function releaseInstallation(world: WorldView): Promise<void> {
+  const file = launchLease(world);
+  const lease = await readFile(file, "utf8").then((text) => JSON.parse(text) as RuntimeLease).catch(() => null);
+  if (lease?.profile === paths.data()) await rm(file, { force: true });
+}
+function belongsToInstall(entry: ProcessIdentity, world: WorldView): boolean {
+  const relative = path.relative(world.installDir, entry.executable);
+  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
 export async function startWorld(worldId: string): Promise<void> {
+  const candidate = await getWorld(worldId);
+  if (candidate) { const { inspectInstallation } = await import("./installation"); if ((await inspectInstallation(candidate.installDir, candidate.platform)).canInitialize) await syncManagedConfiguration(worldId); }
   const { world, command, args, env } = await prepareWorldStart(worldId, async (world) => {
     const prepared = commandFor(world);
+    if (world.platform === "windows") { const { inspectInstallation } = await import("./installation"); if (!(await inspectInstallation(world.installDir, world.platform)).executable) throw new Error("Windows server files are missing or incomplete; repair the installation before starting."); }
     if (!executableAvailable(prepared.command, prepared.env)) throw new Error(`Server executable is not available: ${prepared.command}`);
+    const prerequisite = await inspectPrerequisites(world);
+    if (prerequisite.state === "missing") throw new Error(prerequisite.detail);
     await applyUe4ssLaunch(world, prepared.env);
-    await setRuntimeState(worldId, "starting", null);
     return { world, ...prepared };
   });
-  const logPath = path.join(paths.worldLogs(worldId), `server-${new Date().toISOString().replace(/[:.]/g, "-")}.log`);
-  const stream = createWriteStream(logPath, { flags: "a" });
-  try { await prepareWinePrefix({ ...world, winePrefix: env.WINEPREFIX ?? world.winePrefix }, env, (line) => stream.write(`${line}\n`)); }
-  catch (error) {
-    stream.end(`[manager] Wine prefix preparation failed: ${error instanceof Error ? error.message : String(error)}\n`);
-    await setRuntimeState(worldId, "stopped", null);
-    throw new Error(`Wine prefix preparation failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  await resetBroadcastQueue(world).catch(() => undefined);
+  const before = await processSnapshot();
+  // An untracked server in this installation must be resolved before launching a duplicate.
+  if (before.some((entry) => belongsToInstall(entry, world))) throw new Error("A server process already uses this installation; its ownership must be resolved before starting.");
+  await claimInstallation(world, before);
+  await setRuntimeState(worldId, "starting", null);
   const launchedAt = Date.now();
-  const child = spawn(command, args, { cwd: world.installDir, env, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-  // The log closes once the process's output has fully drained ("close"), not when a pipe ends,
-  // so the exit line and any late output are never written to a closed stream.
-  child.stdout?.pipe(stream, { end: false }); child.stderr?.pipe(stream, { end: false });
-  child.on("close", () => { if (!stream.writableEnded) stream.end(); });
-  child.on("error", async (error) => { if (!stream.writableEnded) stream.write(`\n[manager] ${error.message}\n`); await setRuntimeState(worldId, "crashed", null); });
-  child.on("exit", async (code, signal) => {
-    children().delete(worldId); if (!stream.writableEnded) stream.write(`\n[manager] exited code=${code ?? "null"} signal=${signal ?? "none"}\n`);
-    await stopDeathCapture(world).catch(() => undefined);
-    const latest = await getWorld(worldId); const expected = latest?.status === "stopping";
-    // A controlled stop remains transitional until stopWorld has projected the
-    // latest desired revision after the process is confirmed gone.
-    if (!expected) {
-      await setRuntimeState(worldId, code === 0 ? "stopped" : "crashed", null);
-      await applyDesiredSettings(worldId).catch(() => undefined);
+  let exitCode: number | null = null;
+  const logPath = path.join(/* turbopackIgnore: true */ paths.worldLogs(worldId), `server-${new Date().toISOString().replace(/[:.]/g, "-")}.log`);
+  try {
+    const stream = createWriteStream(logPath, { flags: "a" });
+    try { await prepareWinePrefix({ ...world, winePrefix: env.WINEPREFIX ?? world.winePrefix }, env, (line) => stream.write(`${line}\n`)); }
+    finally { await new Promise<void>((resolve) => stream.end(resolve)); }
+    await resetBroadcastQueue(world).catch(() => undefined);
+    // File descriptors, rather than manager-owned pipes, let the real server survive manager exit.
+    const output = openSync(logPath, "a", 0o600);
+    let child: ChildProcess;
+    try { child = spawn(command, args, { cwd: world.installDir, env, detached: true, stdio: ["ignore", output, output], windowsHide: true }); }
+    finally { closeSync(output); }
+    let launchError: Error | undefined;
+    child.once("error", (error) => { launchError = error; });
+    await new Promise<void>((resolve) => { child.once("spawn", resolve); child.once("error", () => resolve()); });
+    if (launchError) throw launchError;
+    child.unref(); children().set(worldId, child);
+    child.once("exit", (code, signal) => { exitCode = code; children().delete(worldId); appendFileSync(logPath, `\n[manager] launcher exited code=${code} signal=${signal}\n`); });
+    let tracked: ProcessIdentity[] = [];
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const snapshot = await processSnapshot();
+      const root = snapshot.find((entry) => entry.pid === child.pid);
+      tracked = ownedTree([...tracked, ...(root ? [root] : [])], snapshot);
+      // Some native launchers exit before the first host snapshot. Accept only new executables
+      // inside the exclusively claimed installation, never another world's process.
+      for (const entry of snapshot) if (belongsToInstall(entry, world) && !before.some((old) => sameProcess(old, entry)) && !tracked.some((old) => sameProcess(old, entry))) tracked.push(entry);
+      await persistIdentity(world, tracked);
+      if (attempt < 2) await delay(250);
     }
-    // Measured from this launch: lastStartedAt is only written once the server survives startup.
-    const uptimeMs = Date.now() - launchedAt;
-    if (expected || code === 0) await recordHealthyExit(worldId).catch(() => undefined);
-    const pauseRecovery = !expected && code !== 0 ? await recordUnexpectedExit(worldId, { code, uptimeMs }).catch(() => false) : false;
-    if (!expected && code !== 0 && latest?.crashGuard && !pauseRecovery) {
-      await database().update(worlds).set({ crashCount: sql`${worlds.crashCount} + 1` }).where(eq(worlds.id, worldId));
-      setTimeout(() => void import("./jobs").then(({ startJob }) => startJob(worldId, "crash-recovery", async () => startWorld(worldId))).catch(() => undefined), 5_000);
-    }
-  });
-  children().set(worldId, child);
-  startDeathCapture(world);
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  if (!processIsAlive(child.pid ?? null)) throw new Error("Server process exited during startup; inspect the world log for details.");
-  await database().update(worlds).set({ lastStartedAt: Date.now(), updatedAt: Date.now() }).where(eq(worlds.id, worldId));
-  await setRuntimeState(worldId, "running", child.pid ?? null);
+    if (!tracked.length) throw new Error("Server exited during startup; inspect its log and prerequisite diagnostics.");
+    await database().update(worlds).set({ lastStartedAt: Date.now(), updatedAt: Date.now() }).where(eq(worlds.id, worldId));
+    await setRuntimeState(worldId, "running", tracked[0]!.pid);
+    startDeathCapture(world);
+    startProcessMonitor();
+  } catch (error) {
+    const tracked = await identities(worldId);
+    // Retain ownership if inspection failed or the spawned server might still be alive.
+    const live = await processSnapshot().then((snapshot) => ownedTree(tracked, snapshot)).catch(() => null);
+    if (live && !live.length && !children().get(worldId)?.pid) { await releaseInstallation(world); await setRuntimeState(worldId, "crashed", null); await recordUnexpectedExit(worldId, { code: exitCode, uptimeMs: Date.now() - launchedAt }).catch(() => undefined); }
+    else await setRuntimeState(worldId, "unknown", children().get(worldId)?.pid ?? live?.[0]?.pid ?? null);
+    throw error;
+  }
 }
-
+async function verifiedProcesses(world: WorldView): Promise<ProcessIdentity[]> {
+  const roots = await identities(world.id);
+  if (!roots.length && (world.processId || world.status === "unknown")) throw new Error("Cannot verify ownership of this saved PID. Inspect the server process before changing it.");
+  const snapshot = await processSnapshot();
+  if (roots.some((root) => snapshot.some((row) => row.pid === root.pid && !sameProcess(root, row)))) throw new Error("Saved process identity no longer matches. Refusing to target a reused PID.");
+  const live = ownedTree(roots, snapshot);
+  if (live.length) await persistIdentity(world, live);
+  return live;
+}
 export async function stopWorld(worldId: string, force = false, options: { waitSeconds?: number; message?: string } = {}): Promise<void> {
   const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
-  if (!world.processId || !processIsAlive(world.processId)) {
-    // The launcher is gone, but under Wine the game server can outlive it.
-    await stopWineServer(world, force);
-    await setRuntimeState(worldId, "stopped", null);
-    const application = await applyDesiredSettings(worldId);
-    if (application.pendingApply) throw new Error(`Server stopped; settings remain pending${application.applyError ? `: ${application.applyError}` : "."}`);
-    return;
+  let live = await verifiedProcesses(world);
+  await setRuntimeState(worldId, "stopping", live[0]?.pid ?? null);
+  let graceful = false;
+  if (live.length && !force && world.restApiEnabled) {
+    try { await palworldRest.save(world); await palworldRest.shutdown(world, options.waitSeconds ?? 15, options.message ?? "Server shutting down."); graceful = true; } catch { /* Report forced fallback through the operation log/state. */ }
   }
-  await setRuntimeState(worldId, "stopping", world.processId);
-  let gracefulShutdownRequested = false;
-  if (!force && world.restApiEnabled) {
-    try {
-      await palworldRest.save(world).catch(() => undefined);
-      await palworldRest.shutdown(world, options.waitSeconds ?? 15, options.message ?? "Server shutting down.");
-      gracefulShutdownRequested = true;
-    } catch { /* REST may not be ready; signal fallback below remains safe. */ }
+  const deadline = Date.now() + (graceful ? ((options.waitSeconds ?? 15) + 10) * 1000 : 0);
+  while (live.length && Date.now() < deadline) { await delay(500); live = await verifiedProcesses(world); }
+  if (live.length) {
+    await database().insert(events).values({ worldId, kind: "lifecycle", message: force ? "Forced termination requested; verifying the owned server process tree has exited." : "Graceful shutdown did not complete; terminating the owned server process tree.", createdAt: Date.now() });
+    for (const identity of live.reverse()) {
+      const current = (await processSnapshot()).find((row) => sameProcess(identity, row));
+      if (!current) continue;
+      await new Promise<void>((resolve, reject) => killTree(current.pid, hostPlatform() === "win32" || force ? "SIGKILL" : "SIGTERM", (error) => error && !/no such process/i.test(error.message) ? reject(error) : resolve()));
+    }
+    const forceAt = Date.now() + 3_000;
+    while ((live = await verifiedProcesses(world)).length && Date.now() < forceAt) await delay(250);
+    for (const identity of live) {
+      if (!(await processSnapshot()).some((row) => sameProcess(identity, row))) continue;
+      await new Promise<void>((resolve, reject) => killTree(identity.pid, "SIGKILL", (error) => error ? reject(error) : resolve()));
+    }
   }
-  const gracefulDeadline = Date.now() + (force || !gracefulShutdownRequested ? 0 : ((options.waitSeconds ?? 15) + 10) * 1_000);
-  while (processIsAlive(world.processId) && Date.now() < gracefulDeadline) await new Promise((resolve) => setTimeout(resolve, 250));
-  if (processIsAlive(world.processId)) await new Promise<void>((resolve, reject) => killTree(world.processId!, force ? "SIGKILL" : "SIGTERM", (error) => error ? reject(error) : resolve()));
-  const deadline = Date.now() + (force ? 3_000 : 10_000);
-  while (processIsAlive(world.processId) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 250));
-  if (processIsAlive(world.processId)) await new Promise<void>((resolve, reject) => killTree(world.processId!, "SIGKILL", (error) => error ? reject(error) : resolve()));
   await stopWineServer(world, force);
+  for (let attempt = 0; attempt < 20 && (await verifiedProcesses(world)).length; attempt++) await delay(250);
+  if ((await verifiedProcesses(world)).length) { await setRuntimeState(worldId, "unknown", world.processId); throw new Error("Server processes are still alive; conflicting actions remain blocked."); }
+  await stopDeathCapture(world).catch(() => undefined);
+  await database().update(worlds).set({ processIdentity: null }).where(eq(worlds.id, worldId));
+  await releaseInstallation(world);
   await setRuntimeState(worldId, "stopped", null);
+  await recordHealthyExit(worldId).catch(() => undefined);
   const application = await applyDesiredSettings(worldId);
   if (application.pendingApply) throw new Error(`Server stopped; settings remain pending${application.applyError ? `: ${application.applyError}` : "."}`);
 }
-
 export async function restartWorld(worldId: string, options: { waitSeconds?: number; message?: string } = {}): Promise<void> { await stopWorld(worldId, false, options); await startWorld(worldId); }
 
+declare global { var __psmProcessTimer: NodeJS.Timeout | undefined; var __psmReconciling: boolean | undefined; var __psmInspectionError: string | undefined; }
+function startProcessMonitor() {
+  if (globalThis.__psmProcessTimer) return;
+  globalThis.__psmProcessTimer = setInterval(() => { if (!globalThis.__psmDraining) void reconcileProcesses().catch(() => undefined); }, 2_000);
+  globalThis.__psmProcessTimer.unref();
+}
 export async function reconcileProcesses(): Promise<void> {
-  for (const world of await listWorlds()) {
-    const alive = processIsAlive(world.processId);
-    if (alive && world.status !== "running") await setRuntimeState(world.id, "running", world.processId);
-    // Resume death capture for servers that kept running while the manager was closed.
-    if (alive) startDeathCapture(world);
-    if (!alive && (world.processId || world.status !== "stopped")) await setRuntimeState(world.id, world.status === "running" ? "crashed" : "stopped", null);
-  }
+  if (globalThis.__psmReconciling) return; globalThis.__psmReconciling = true;
+  try {
+    const registered = await listWorlds();
+    if (!registered.some((world) => world.processId || ["running", "starting", "stopping"].includes(world.status))) return;
+    let snapshot: ProcessIdentity[];
+    try { snapshot = await processSnapshot(); globalThis.__psmInspectionError = undefined; }
+    catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      for (const world of registered) if (world.processId || world.status === "running") await setRuntimeState(world.id, "unknown", world.processId);
+      if (globalThis.__psmInspectionError !== message) { globalThis.__psmInspectionError = message; console.error(`Process inspection failed; ownership remains unverified: ${message}`); }
+      startProcessMonitor(); return;
+    }
+    for (const world of registered) {
+      if (world.status === "starting" && !world.processId && children().has(world.id)) continue;
+      const roots = await identities(world.id);
+      if (!roots.length && world.processId) { await setRuntimeState(world.id, "unknown", world.processId); continue; }
+      const live = ownedTree(roots, snapshot);
+      if (live.length) {
+        try { await persistIdentity(world, live); } catch { await setRuntimeState(world.id, "unknown", world.processId); continue; }
+        if (world.status !== "stopping") await setRuntimeState(world.id, "running", live[0]!.pid);
+        startDeathCapture(world); continue;
+      }
+      if (world.status === "stopping") continue;
+      if (world.processId || world.status === "running") {
+        const reused = roots.some((root) => snapshot.some((entry) => entry.pid === root.pid && !sameProcess(root, entry)));
+        if (reused) { await setRuntimeState(world.id, "unknown", world.processId); continue; }
+        await stopDeathCapture(world).catch(() => undefined); await releaseInstallation(world);
+        await database().update(worlds).set({ processIdentity: null }).where(eq(worlds.id, world.id));
+        await setRuntimeState(world.id, "crashed", null);
+        const pause = await recordUnexpectedExit(world.id, { code: null, uptimeMs: world.lastStartedAt ? Date.now() - world.lastStartedAt : 0 }).catch(() => true);
+        if (world.crashGuard && !pause && !globalThis.__psmDraining) {
+          await database().update(worlds).set({ crashCount: sql`${worlds.crashCount} + 1` }).where(eq(worlds.id, world.id));
+          const timer = setTimeout(() => { if (!globalThis.__psmDraining) void import("./jobs").then(({ startJob }) => startJob(world.id, "crash-recovery", async () => startWorld(world.id))).catch(() => undefined); }, 5_000); timer.unref();
+        }
+      }
+    }
+    startProcessMonitor();
+  } finally { globalThis.__psmReconciling = false; }
   eventBus().publish({ type: "system", data: { action: "processes-reconciled" } });
 }

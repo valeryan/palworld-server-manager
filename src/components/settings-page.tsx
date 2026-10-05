@@ -1,4 +1,5 @@
 "use client";
+import { useHostPlatform } from "@/lib/use-platform-label";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import Image from "next/image";
@@ -25,12 +26,14 @@ async function responseJson<T>(input: RequestInfo, init?: RequestInit): Promise<
 }
 
 export function SettingsPage() {
+  const host = useHostPlatform();
   const { t, i18n } = useTranslation();
   const { theme: activeTheme, setTheme } = useTheme();
   const languageFile = useRef<HTMLInputElement>(null);
   const query = useQuery({ queryKey: ["app-settings"], queryFn: async () => (await responseJson<{ settings: Paths }>("/api/settings")).settings });
   const languages = useQuery({ queryKey: ["languages"], queryFn: async () => (await responseJson<{ catalog: LanguageCatalog }>("/api/i18n/languages")).catalog });
   const [closeToTray, setCloseToTray] = useState(true);
+  const [loginDisabledByOS, setLoginDisabledByOS] = useState(false);
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
   const [launchOptions, setLaunchOptions] = useState(initialLaunchOptions);
   const [managerPort, setManagerPort] = useState("4318");
@@ -55,6 +58,7 @@ export function SettingsPage() {
 
   useEffect(() => {
     const desktop = window.psmDesktop; if (!desktop) return;
+    void desktop.getLoginStatus().then((state) => setLoginDisabledByOS(state.disabledByOS)).catch(() => undefined);
     void Promise.all([desktop.getCloseToTray(), desktop.getLaunchAtLogin(), desktop.getLaunchAtLoginOptions(), desktop.getManagerPort()]).then(([close, launch, options, manager]) => {
       setCloseToTray(close); setLaunchAtLogin(launch); setLaunchOptions(options); setManagerPort(String(manager.configured)); setActiveManagerPort(manager.active); setDesktopReady(true);
     });
@@ -145,11 +149,12 @@ export function SettingsPage() {
       </section>
       <section><div><h2>{t("settings.tray.title")}{help("settings.tray.title", "settings.tray.description")}</h2></div><button className={`toggle ${closeToTray ? "on" : ""}`} disabled={!desktopReady} onClick={() => void toggleClose()}><i />{t(closeToTray ? "common.on" : "common.off")}</button></section>
       <section className="settings-launch">
+        {loginDisabledByOS && <p role="status">Launch at login is configured but disabled in Windows Startup settings.</p>}
         <div className="settings-section-heading"><div><h2>{t("settings.launch.title")}{help("settings.launch.title", "settings.launch.description", "settings.launch.compatibilityHelp")}</h2></div><button className={`toggle ${launchAtLogin ? "on" : ""}`} disabled={!desktopReady} onClick={() => void toggleLaunch()}><i />{t(launchAtLogin ? "common.on" : "common.off")}</button></div>
         <div className="launch-option-grid">
           <label><input type="checkbox" checked={launchOptions.startHidden} onChange={(event) => setLaunchOption("startHidden", event.target.checked)} /><span><strong>{t("settings.launch.hidden")}{help("settings.launch.hidden", "settings.launch.hiddenHelp")}</strong></span></label>
           <label><input type="checkbox" checked={launchOptions.disableGpu} onChange={(event) => setLaunchOption("disableGpu", event.target.checked)} /><span><strong>{t("settings.launch.gpu")}{help("settings.launch.gpu", "settings.launch.gpuHelp")}</strong></span></label>
-          <label><input type="checkbox" checked={launchOptions.forceX11} onChange={(event) => setLaunchOption("forceX11", event.target.checked)} /><span><strong>{t("settings.launch.x11")}{help("settings.launch.x11", "settings.launch.x11Help")}</strong></span></label>
+          {host === "linux" && <label><input type="checkbox" checked={launchOptions.forceX11} onChange={(event) => setLaunchOption("forceX11", event.target.checked)} /><span><strong>{t("settings.launch.x11")}{help("settings.launch.x11", "settings.launch.x11Help")}</strong></span></label>}
         </div>
         <label className="custom-launch-flags"><span><strong>{t("settings.launch.flags")}{help("settings.launch.flags", "settings.launch.flagsHelp")}</strong></span><input value={launchOptions.customFlags} onChange={(event) => setLaunchOption("customFlags", event.target.value)} placeholder={t("settings.launch.flagsPlaceholder")} spellCheck={false} /></label>
         <div className="launch-options-footer"><button className="button primary" disabled={!desktopReady || savingLaunchOptions} onClick={() => void saveLaunchOptions()}>{t(savingLaunchOptions ? "common.saving" : "settings.launch.save")}</button></div>
@@ -166,6 +171,7 @@ export function SettingsPage() {
       <section className="settings-updates"><div><h2>{t("settings.updates.title")}{help("settings.updates.title", "settings.updates.description")}</h2></div><div className="language-control">
         {query.data ? <><label><span>{t("settings.updates.channel")}{help("settings.updates.channel", "settings.updates.channelHelp")}</span><select value={query.data.updateChannel} disabled={savingChannel || Boolean(query.data.updateChecksDisabled)} onChange={(event) => void chooseUpdateChannel(event.target.value as UpdateChannel)}>{updateChannels.map((channel) => <option key={channel} value={channel}>{t(`settings.updates.option.${channel}`)}</option>)}</select></label>{query.data.updateChecksDisabled && <p className="muted">{t("settings.updates.development")}</p>}</> : <p>{t("settings.updates.loading")}</p>}
       </div></section>
+      <p>{host === "win32" ? "Application updates are manual: quit after operations finish, run the new Setup installer or replace the Portable EXE while retaining PSM-Data, then reopen." : "Application updates are manual: quit after operations finish, download and launch the new AppImage. Keep the previous version until startup succeeds."}</p>
       <section className="settings-paths"><div><h2>{t("settings.data.title")}{help("settings.data.title", "settings.data.description")}</h2></div>{query.data && <dl><div><dt>{t("settings.data.directory")}</dt><dd>{query.data.dataDirectory}</dd></div><div><dt>{t("settings.data.database")}</dt><dd>{query.data.database}</dd></div><div><dt>{t("settings.data.steamcmd")}</dt><dd>{query.data.steamCmd}</dd></div><div><dt>{t("settings.data.logs")}</dt><dd>{query.data.logs}</dd></div></dl>}<button className="button ghost" disabled={!desktopReady || !query.data} onClick={() => void window.psmDesktop?.openPath(query.data!.dataDirectory)}>{t("settings.data.open")}</button></section>
     </div>
   </AppShell></Tooltip.Provider>;

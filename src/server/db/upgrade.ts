@@ -1,6 +1,7 @@
+import { privateFile } from "@/server/host";
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync as DatabaseConnection } from "node:sqlite";
-import { chmod, copyFile, mkdir, rename, rm, stat } from "node:fs/promises";
+import { copyFile, mkdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { drizzle } from "drizzle-orm/node-sqlite";
 import { migrate } from "drizzle-orm/node-sqlite/migrator";
@@ -67,13 +68,13 @@ async function verifyDatabaseFile(filePath: string): Promise<void> {
 }
 async function createBackup(client: DatabaseConnection, target: string): Promise<void> {
   const temporary = `${target}.tmp-${randomUUID()}`;
-  try { await backup(client, temporary); await chmod(temporary, 0o600); await verifyDatabaseFile(temporary); await rename(temporary, target); await chmod(target, 0o600); }
+  try { await backup(client, temporary); await privateFile(temporary); await verifyDatabaseFile(temporary); await rename(temporary, target); await privateFile(target); }
   finally { await rm(temporary, { force: true }); }
 }
 async function replaceDatabase(source: string, target: string): Promise<void> {
   const temporary = `${target}.restore-${randomUUID()}`;
-  await copyFile(source, temporary); await chmod(temporary, 0o600); await verifyDatabaseFile(temporary);
-  await rm(`${target}-wal`, { force: true }); await rm(`${target}-shm`, { force: true }); await rename(temporary, target); await chmod(target, 0o600);
+  await copyFile(source, temporary); await privateFile(temporary); await verifyDatabaseFile(temporary);
+  await rm(`${target}-wal`, { force: true }); await rm(`${target}-shm`, { force: true }); await rename(temporary, target); await privateFile(target);
 }
 
 export async function runDatabasePreflight(options: PreflightOptions): Promise<PreflightResult> {
@@ -81,9 +82,10 @@ export async function runDatabasePreflight(options: PreflightOptions): Promise<P
   await resolved.onProgress?.("preparing");
   await mkdir(path.dirname(resolved.databasePath), { recursive: true, mode: 0o700 }); verifyMigrationFiles(resolved.migrationsFolder);
   const existed = (await stat(resolved.databasePath).catch(() => null))?.isFile() === true;
-  const client = new DatabaseSync(resolved.databasePath, { timeout: 5_000 }); configure(client); await chmod(resolved.databasePath, 0o600);
+  const client = new DatabaseSync(resolved.databasePath, { timeout: 5_000 });
   let snapshot: string | null = null; let sourceSchemaHead: string | null = null; let pending = false;
   try {
+    configure(client); await privateFile(resolved.databasePath);
     integrity(client); const applied = appliedMigrations(client);
     if (!applied.length && existed && applicationTables(client).length) throw new Error("The existing database has application tables but no recognized migration history.");
     validateApplied(applied); sourceSchemaHead = applied.at(-1)?.name ?? null; pending = applied.length < releasedMigrations.length;

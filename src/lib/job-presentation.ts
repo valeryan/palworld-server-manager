@@ -6,6 +6,8 @@ const jobLabels: Record<string, string> = {
   restart: "Restart server",
   autostart: "Automatic server start",
   "crash-recovery": "Crash recovery",
+  "steamcmd-bootstrap": "Prepare SteamCMD",
+  "repair-prerequisites": "Repair Windows prerequisites",
   install: "Install server",
   update: "Update server",
   "check-update": "Check for updates",

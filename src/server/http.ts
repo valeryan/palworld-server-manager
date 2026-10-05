@@ -10,6 +10,9 @@ export function errorResponse(error: unknown): Response {
 }
 
 export function requireAdmin(request: Request): Response | null {
+  if (globalThis.__psmDraining && !["GET", "HEAD"].includes(request.method) && !/\/runtime\/drain$|\/cancel$/.test(new URL(request.url).pathname)) return Response.json({ ok: false, error: "The manager is quitting; new changes are disabled." }, { status: 503 });
+  const worldMutation = !["GET", "HEAD"].includes(request.method) && new URL(request.url).pathname.match(/^\/api\/worlds\/([^/]+)(?!.*\/actions$)/);
+  if (worldMutation && globalThis.__psmWorldLocks?.has(worldMutation[1]!)) return Response.json({ ok: false, error: "Another operation is already running for this world." }, { status: 409 });
   const expected = process.env.PSM_ADMIN_TOKEN;
   if (!expected) return process.env.NODE_ENV === "development" ? null : Response.json({ ok: false, error: "Desktop authentication is unavailable." }, { status: 503 });
   const cookie = request.headers.get("cookie") ?? "";
