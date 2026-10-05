@@ -1,3 +1,4 @@
+import { splitConfigurationOptions } from "../src/lib/palworld-ini";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -9,17 +10,7 @@ const provenancePath = path.join(process.cwd(), "tests/fixtures/DefaultPalWorldS
 function parse(content: string): Record<string, string> {
   const body = content.match(/OptionSettings=\((.*)\)/s)?.[1];
   if (body == null) throw new Error("Template does not contain OptionSettings=(...).");
-  const tokens: string[] = []; let start = 0; let quoted = false; let escaped = false; let depth = 0;
-  for (let index = 0; index < body.length; index += 1) {
-    const character = body[index]!;
-    if (escaped) { escaped = false; continue; }
-    if (quoted && character === "\\") { escaped = true; continue; }
-    if (character === '"') quoted = !quoted;
-    else if (!quoted && character === "(") depth += 1;
-    else if (!quoted && character === ")") depth -= 1;
-    else if (!quoted && depth === 0 && character === ",") { tokens.push(body.slice(start, index)); start = index + 1; }
-  }
-  tokens.push(body.slice(start));
+  const tokens = splitConfigurationOptions(body);
   return Object.fromEntries(tokens.map((token) => { const separator = token.indexOf("="); return [token.slice(0, separator).trim(), token.slice(separator + 1).trim()]; }));
 }
 

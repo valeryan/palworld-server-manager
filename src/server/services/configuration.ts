@@ -1,3 +1,5 @@
+import { validateConfiguration, parseConfigurationOptions, serializeConfigurationOptions, applyConfigurationOptions, configurationCredentials, configurationIsValid } from "@/lib/palworld-ini";
+export { validateConfiguration, parseConfigurationOptions, serializeConfigurationOptions, applyConfigurationOptions, configurationCredentials, configurationIsValid } from "@/lib/palworld-ini";
 import { privateFile } from "@/server/host";
 import "server-only";
 import { assertSupportedTarget } from "@/server/host";
@@ -47,30 +49,8 @@ export function managedDisplayNameChange(previousName: string, previousRaw: stri
 export function configPath(installDir: string, platform: "linux" | "windows") { return path.join(/* turbopackIgnore: true */ installDir, "Pal", "Saved", "Config", platform === "windows" ? "WindowsServer" : "LinuxServer", "PalWorldSettings.ini"); }
 export function defaultConfigurationPath(installDir: string) { return path.join(/* turbopackIgnore: true */ installDir, "DefaultPalWorldSettings.ini"); }
 
-export function validateConfiguration(content: string) {
-  if (Buffer.byteLength(content) > 2_000_000) throw new Error("Configuration exceeds the 2 MB safety limit.");
-  if (content.includes("\0")) throw new Error("Configuration contains a NUL byte.");
-  const match = content.match(/OptionSettings=\((.*)\)/s); if (!match) throw new Error("Configuration must contain OptionSettings=(...).");
-  let quoted = false; let escaped = false; let depth = 0;
-  for (const character of match[1] ?? "") { if (escaped) { escaped = false; continue; } if (character === "\\" && quoted) { escaped = true; continue; } if (character === '"') quoted = !quoted; else if (!quoted && character === "(") depth++; else if (!quoted && character === ")") depth--; if (depth < 0) throw new Error("OptionSettings contains unbalanced parentheses."); }
-  if (quoted || depth !== 0) throw new Error("OptionSettings contains unbalanced quotes or parentheses.");
-}
-function splitOptions(body: string) {
-  const parts: string[] = []; let start = 0; let quoted = false; let escaped = false; let depth = 0;
-  for (let index = 0; index < body.length; index++) { const character = body[index]; if (escaped) { escaped = false; continue; } if (character === "\\" && quoted) { escaped = true; continue; } if (character === '"') { quoted = !quoted; continue; } if (!quoted && character === "(") depth++; else if (!quoted && character === ")") depth--; else if (!quoted && depth === 0 && character === ",") { parts.push(body.slice(start, index)); start = index + 1; } }
-  parts.push(body.slice(start)); return parts.filter((part) => part.trim());
-}
-export function parseConfigurationOptions(content: string): Record<string, string> { const body = content.match(/OptionSettings=\((.*)\)/s)?.[1]; if (body == null) return {}; return Object.fromEntries(splitOptions(body).flatMap((part) => { const separator = part.indexOf("="); return separator > 0 ? [[part.slice(0, separator).trim(), part.slice(separator + 1).trim()]] : []; })); }
-export function serializeConfigurationOptions(options: Record<string, string>) { return `[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(${Object.entries(options).map(([key, value]) => `${key}=${value}`).join(",")})\n`; }
-export function applyConfigurationOptions(content: string, changes: Record<string, string>) {
-  const match = content.match(/OptionSettings=\((.*)\)/s); if (!match || match.index == null) throw new Error("Configuration must contain OptionSettings=(...).");
-  const tokens = splitOptions(match[1] ?? ""); const positions = new Map(tokens.map((part, index) => [part.slice(0, part.indexOf("=")).trim(), index]));
-  for (const [key, value] of Object.entries(changes)) { if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(key)) throw new Error(`Invalid configuration key: ${key}`); if (/[\r\n\0]/.test(value) || value.length > 8_192) throw new Error(`Invalid configuration value for ${key}.`); const token = `${key}=${value}`; const index = positions.get(key); if (index == null) { positions.set(key, tokens.length); tokens.push(token); } else tokens[index] = token; }
-  const start = match.index + "OptionSettings=(".length; const result = `${content.slice(0, start)}${tokens.join(",")}${content.slice(start + (match[1]?.length ?? 0))}`; validateConfiguration(result); return result;
-}
 function semanticHash(content: string) { validateConfiguration(content); return createHash("sha256").update(JSON.stringify(Object.entries(parseConfigurationOptions(content)).sort(([a], [b]) => a.localeCompare(b)))).digest("hex"); }
-function decodeString(value: string, key: string) { try { const decoded: unknown = JSON.parse(value); if (typeof decoded === "string") return decoded; } catch { /* below */ } throw new Error(`${key} must be a quoted string.`); }
-export function configurationCredentials(content: string) { const options = parseConfigurationOptions(content); return { adminPassword: Object.hasOwn(options, "AdminPassword") ? decodeString(options.AdminPassword!, "AdminPassword") : "", serverPassword: Object.hasOwn(options, "ServerPassword") ? decodeString(options.ServerPassword!, "ServerPassword") : "" }; }
+
 export function managedWorldChangesFromConfiguration(content: string) {
   const options = parseConfigurationOptions(content); const patch: Record<string, boolean | number> = {};
   for (const [option, field] of [["RESTAPIEnabled", "restApiEnabled"], ["RCONEnabled", "rconEnabled"]] as const) { if (!Object.hasOwn(options, option)) continue; const raw = options[option]!.toLowerCase(); if (raw !== "true" && raw !== "false") throw new Error(`${option} must be True or False.`); patch[field] = raw === "true"; }
@@ -97,7 +77,6 @@ async function bootstrapUnlocked(worldId: string): Promise<SettingsRow> {
 export async function bootstrapWorldSettings(worldId?: string) { if (worldId) { await locked(worldId, () => bootstrapUnlocked(worldId)); return; } for (const world of await listWorlds()) await locked(world.id, () => bootstrapUnlocked(world.id)); }
 async function rowFor(worldId: string) { return locked(worldId, () => bootstrapUnlocked(worldId)); }
 async function rowUnlocked(worldId: string) { const [row] = await database().select().from(worldSettings).where(eq(worldSettings.worldId, worldId)).limit(1); return row; }
-export function configurationIsValid(content: string): boolean { try { validateConfiguration(content); return true; } catch { return false; } }
 
 async function writeAtomic(filePath: string, content: string) { await mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 }); const temporary = `${filePath}.tmp-${randomUUID()}`; await writeFile(temporary, content, { encoding: "utf8", mode: 0o600 }); await privateFile(temporary); await rename(temporary, filePath); await privateFile(filePath); }
 function state(row: SettingsRow, world: WorldView) { const pendingApply = row.desiredRevision !== row.appliedRevision || row.drift; return { desiredRevision: row.desiredRevision, appliedRevision: row.appliedRevision, managerAppliedRevision: row.managerAppliedRevision, configurationAvailable: configurationIsValid(row.desiredContent), pendingApply, requiresRestart: pendingApply && ["running", "starting", "stopping"].includes(world.status), drift: row.drift, driftReason: row.driftReason, applyError: row.lastApplyError }; }
