@@ -8,6 +8,7 @@ import { spawn } from "node:child_process";
 import killTree from "tree-kill";
 import AdmZip from "adm-zip";
 import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import { safeEntries } from "./archive";
 import { assertSupportedTarget } from "@/server/host";
 import { processSnapshot, sameProcess, type ProcessIdentity } from "./process-inspection";
@@ -29,6 +30,7 @@ function binary(): string { return path.join(/* turbopackIgnore: true */ paths.s
 // This file survives manager death, including the interval between spawn and identity recording.
 // A stale lease is reclaimed only after a host snapshot proves no SteamCMD worker remains.
 type Lease = { id: string; owner: ProcessIdentity; worker?: ProcessIdentity };
+class SteamCmdWorkerUncertainError extends Error {}
 let queue: Promise<void> = Promise.resolve();
 async function exclusive<T>(context: JobContext, task: () => Promise<T>): Promise<T> {
   let release!: () => void; const previous = queue;
@@ -48,7 +50,10 @@ async function exclusive<T>(context: JobContext, task: () => Promise<T>): Promis
       await rm(leasePath);
     } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     await writeFile(leasePath, JSON.stringify({ id: randomUUID(), owner }), { flag: "wx", mode: 0o600 });
-    try { return await task(); } finally { await rm(leasePath, { force: true }); }
+    let retainLease = false;
+    try { return await task(); }
+    catch (error) { retainLease = error instanceof SteamCmdWorkerUncertainError; throw error; }
+    finally { if (!retainLease) await rm(leasePath, { force: true }); }
   } finally { release(); }
 }
 
@@ -99,6 +104,25 @@ async function run(command: string, args: string[], cwd: string, context: JobCon
   });
 }
 
+// Self-update can replace/relaunch the client. Closing the original child's pipes is
+// insufficient evidence that it is safe to retry or move/remove its working directory.
+async function waitForBootstrapWorkers(staging: string): Promise<void> {
+  if (hostPlatform() !== "win32") return;
+  const deadline = Date.now() + 15_000;
+  while (true) {
+    let snapshot: ProcessIdentity[];
+    try { snapshot = await processSnapshot(); }
+    catch { throw new SteamCmdWorkerUncertainError("Cannot verify whether the SteamCMD updater has exited. Its staged files and lock were preserved. Restart the manager after the updater exits before retrying."); }
+    const active = snapshot.some((worker) => {
+      const relative = path.relative(staging.toLowerCase(), worker.executable.toLowerCase());
+      return relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+    });
+    if (!active) return;
+    if (Date.now() >= deadline) throw new SteamCmdWorkerUncertainError("A SteamCMD updater is still running. Its staged files and lock were preserved. Wait for it to exit, then restart the manager before retrying.");
+    await delay(250);
+  }
+}
+
 async function bootstrap(context: JobContext): Promise<void> {
   const root = paths.steamCmd(); const spec = steamCmdHost();
   const marker = path.join(/* turbopackIgnore: true */ root, ".psm-ready.json");
@@ -129,15 +153,29 @@ async function bootstrap(context: JobContext): Promise<void> {
     const client = path.join(/* turbopackIgnore: true */ staging, spec.executable);
     if (!(await stat(client)).isFile() || (await stat(client)).size === 0) throw new Error("SteamCMD archive is missing a usable client.");
     await context.update(7, "Initializing SteamCMD client");
-    const initialized = await run(client, ["+quit"], staging, context);
-    if (initialized.code !== 0) throw new Error(`SteamCMD initialization failed (${initialized.code}). Inspect operation output and host runtime dependencies.`);
+    for (let attempt = 1; ; attempt += 1) {
+      const initialized = await run(client, ["+quit"], staging, context);
+      context.log(`SteamCMD initialization attempt ${attempt} exited with code ${initialized.code}.`);
+      await waitForBootstrapWorkers(staging);
+      context.signal.throwIfAborted();
+      if (initialized.code === 0) break;
+      // Observed on the fresh Windows client: the updater finishes successfully but
+      // the original bootstrapper returns 7. Require a new, successful probe; never
+      // treat the update message or exit 7 alone as a ready client.
+      const updated = hostPlatform() === "win32" && initialized.code === 7 && /Update complete, launching/i.test(initialized.output);
+      if (!updated || attempt >= 3) throw new Error(`SteamCMD initialization failed (exit ${initialized.code}, attempt ${attempt}). Inspect operation output and retry.`);
+      context.log("SteamCMD updated itself; checking the updated client before installing the game.");
+    }
     context.signal.throwIfAborted();
     await rm(archive, { force: true });
     // Promote only a client which completed its own initialization. Keep the lease in root.
     const { readdir } = await import("node:fs/promises");
     for (const name of await readdir(staging)) { const target = path.join(/* turbopackIgnore: true */ root, name); await rm(target, { recursive: true, force: true }); await rename(path.join(/* turbopackIgnore: true */ staging, name), target); }
     await writeFile(marker, JSON.stringify({ platform: hostPlatform(), initializedAt: Date.now() }));
-  } finally { await rm(staging, { recursive: true, force: true }); }
+  } finally {
+    await waitForBootstrapWorkers(staging);
+    await rm(staging, { recursive: true, force: true });
+  }
 }
 export async function ensureSteamCmd(context: JobContext): Promise<void> { return exclusive(context, () => bootstrap(context)); }
 
