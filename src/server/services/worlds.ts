@@ -218,11 +218,6 @@ export async function setRuntimeState(id: string, status: WorldView["status"], p
   eventBus().publish({ type: "world", worldId: id, data: { action: "status", status, processId } });
 }
 
-export async function installationExists(world: WorldView): Promise<boolean> {
-  const executable = world.platform === "windows" ? "PalServer.exe" : "PalServer.sh";
-  try { await access(path.join(/* turbopackIgnore: true */ world.installDir, executable)); return true; } catch { return false; }
-}
-
 export async function validateInstallLocation(candidate: string): Promise<string> {
   const canonical = await canonicalInstallDir(candidate);
   if (canonical === path.parse(canonical).root) throw new Error("An installation cannot use a drive or filesystem root.");

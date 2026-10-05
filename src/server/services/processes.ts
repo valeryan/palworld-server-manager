@@ -25,11 +25,6 @@ import { resetBroadcastQueue, startDeathCapture, stopDeathCapture } from "@/serv
 declare global { var __psmChildren: Map<string, ChildProcess> | undefined; }
 const children = () => (globalThis.__psmChildren ??= new Map<string, ChildProcess>());
 
-export function processIsAlive(pid: number | null): boolean {
-  if (!pid || pid <= 0) return false;
-  try { process.kill(pid, 0); return true; } catch { return false; }
-}
-
 function executableAvailable(command: string, env: NodeJS.ProcessEnv): boolean {
   if (command.includes(path.sep)) return existsSync(command);
   return (env.PATH ?? "").split(path.delimiter).some((directory) => existsSync(path.join(/* turbopackIgnore: true */ directory, command)));
