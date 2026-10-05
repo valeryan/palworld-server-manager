@@ -4,11 +4,15 @@ Clean Next.js 16 and Electron rewrite focused on reliable management of multiple
 
 This is a personal, independently maintained hard fork and is not affiliated with or endorsed by the original project.
 
-## Requirements
+## Windows downloads
+
+Windows 11 x64 builds are available as **Setup** and **Portable** EXEs. Setup stores manager data in your user profile; Portable keeps `PSM-Data` beside the EXE. Keep that folder when replacing Portable. Use writable local NTFS storage; network/UNC locations are unsupported. Windows builds are unsigned.
+
+## Development requirements
 
 - Node.js 24 (`.nvmrc`)
 - npm 11+
-- Linux is the first packaging target
+- Linux (Windows executables are cross-built through Wine)
 
 With `nvm`, run `nvm use` from the repository to select the version recorded in `.nvmrc`.
 
