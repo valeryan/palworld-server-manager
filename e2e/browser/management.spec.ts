@@ -277,9 +277,10 @@ test("adopts and manages an isolated world through critical browser workflows", 
     const payload = await response.json() as { configuration: { pendingApply: boolean; appliedOptions: Record<string, string> } };
     return `${payload.configuration.pendingApply}:${payload.configuration.appliedOptions.AdminPassword}`;
   }).toBe('false:"staged-while-running"');
-  await page.route(`**/api/worlds/${worldId}/logs`, (route) => route.fulfill({ json: {
-    ok: true, logs: { files: ["fixture.log"], selected: "fixture.log", content: "Server ready\nPlayer fixture joined\n" },
-  } }));
+  let logReadFails = false;
+  await page.route(`**/api/worlds/${worldId}/logs`, (route) => route.fulfill(logReadFails
+    ? { status: 500, json: { error: "Access denied reading server logs" } }
+    : { json: { ok: true, logs: { files: ["fixture.log"], selected: "fixture.log", content: "Server ready\nPlayer fixture joined\n" } } }));
   await page.getByRole("button", { name: "Console", exact: true }).click();
   await page.getByRole("button", { name: "Refresh now", exact: true }).click();
   const consoleOutput = page.locator(".console-panel .console-output");
@@ -292,6 +293,12 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await page.getByRole("button", { name: "Pause live updates" }).click();
   await expect(page.getByRole("button", { name: "Resume live updates" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Download full log" })).toHaveAttribute("href", `/api/worlds/${worldId}/logs/download?file=fixture.log`);
+  logReadFails = true;
+  await page.getByRole("button", { name: "Refresh now", exact: true }).click();
+  await expect(page.locator(".world-tab-panel").getByRole("alert")).toContainText("Access denied reading server logs");
+  logReadFails = false;
+  await page.getByRole("button", { name: "Refresh now", exact: true }).click();
+  await expect(page.locator(".world-tab-panel").getByRole("alert")).toBeHidden();
   const announcementInput = page.getByPlaceholder("Announcement to all online players");
   await expect(announcementInput).toBeDisabled();
   await page.route(`**/api/worlds/${worldId}`, async (route) => {

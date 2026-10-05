@@ -103,6 +103,20 @@ describe("service boundaries with isolated fakes", () => {
     expect(await getWorld(processWorldId)).toMatchObject({ status: "stopped", processId: null });
   });
 
+  it.skipIf(process.getuid?.() === 0)("returns captured server output and reports log-directory read failures", async () => {
+    const { worldLogs, worldLogFile } = await import("@/server/services/observability");
+    const { paths } = await import("@/server/paths");
+    const file = "server-fixture.log";
+    await writeFile(path.join(paths.worldLogs(processWorldId), file), "Running Palworld dedicated server\n");
+    expect(await worldLogs(processWorldId, file)).toMatchObject({ selected: file, content: "Running Palworld dedicated server\n" });
+    const directory = paths.worldLogs(processWorldId);
+    await chmod(directory, 0o300);
+    try {
+      await expect(worldLogs(processWorldId)).rejects.toMatchObject({ code: "EACCES" });
+      await expect(worldLogFile(processWorldId, file)).rejects.toMatchObject({ code: "EACCES" });
+    } finally { await chmod(directory, 0o700); }
+  });
+
   it("records succeeded and failed job states and enforces the per-world lock", async () => {
     const { startJob, getJob, listJobLogs, worldIsLocked } = await import("@/server/services/jobs");
     let release!: () => void;
