@@ -22,6 +22,27 @@ import { effectiveWinePrefix, prepareWinePrefix, runsUnderWine, serverWineOverri
 import { applyUe4ssLaunch, recordHealthyExit, recordUnexpectedExit } from "@/server/mods/ue4ss-runtime";
 import { resetBroadcastQueue, startDeathCapture, stopDeathCapture } from "@/server/mods/relays";
 
+// A process snapshot must not overwrite a concurrent start/stop. Jobs have their own
+// admission lock; this lock also covers background inspection and delayed recovery.
+declare global { var __psmLifecycleLocks: Map<string, Promise<void>> | undefined; var __psmRecoveryTimers: Map<string, NodeJS.Timeout> | undefined; }
+const lifecycleLocks = () => (globalThis.__psmLifecycleLocks ??= new Map<string, Promise<void>>());
+const recoveryTimers = () => (globalThis.__psmRecoveryTimers ??= new Map<string, NodeJS.Timeout>());
+function tryLifecycleLock(worldId: string): (() => void) | null {
+  if (lifecycleLocks().has(worldId)) return null;
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => { release = resolve; });
+  lifecycleLocks().set(worldId, pending);
+  return () => { lifecycleLocks().delete(worldId); release(); };
+}
+async function withLifecycleLock<T>(worldId: string, work: () => Promise<T>): Promise<T> {
+  let release: (() => void) | null;
+  while (!(release = tryLifecycleLock(worldId))) await lifecycleLocks().get(worldId);
+  try { return await work(); } finally { release(); }
+}
+function cancelRecovery(worldId: string): void {
+  clearTimeout(recoveryTimers().get(worldId)); recoveryTimers().delete(worldId);
+}
+
 declare global { var __psmChildren: Map<string, ChildProcess> | undefined; }
 const children = () => (globalThis.__psmChildren ??= new Map<string, ChildProcess>());
 
@@ -103,6 +124,10 @@ function belongsToInstall(entry: ProcessIdentity, world: WorldView): boolean {
   return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 export async function startWorld(worldId: string): Promise<void> {
+  cancelRecovery(worldId);
+  return withLifecycleLock(worldId, () => startWorldProcess(worldId));
+}
+async function startWorldProcess(worldId: string): Promise<void> {
   const candidate = await getWorld(worldId);
   if (candidate) { const { inspectInstallation } = await import("./installation"); if ((await inspectInstallation(candidate.installDir, candidate.platform)).canInitialize) await syncManagedConfiguration(worldId); }
   const { world, command, args, env } = await prepareWorldStart(worldId, async (world) => {
@@ -173,6 +198,14 @@ async function verifiedProcesses(world: WorldView): Promise<ProcessIdentity[]> {
   return live;
 }
 export async function stopWorld(worldId: string, force = false, options: { waitSeconds?: number; message?: string } = {}): Promise<void> {
+  cancelRecovery(worldId);
+  return withLifecycleLock(worldId, async () => {
+    // Inspection may have scheduled recovery while Stop waited for its snapshot.
+    cancelRecovery(worldId);
+    await stopWorldProcess(worldId, force, options);
+  });
+}
+async function stopWorldProcess(worldId: string, force: boolean, options: { waitSeconds?: number; message?: string }): Promise<void> {
   const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
   let live = await verifiedProcesses(world);
   await setRuntimeState(worldId, "stopping", live[0]?.pid ?? null);
@@ -217,8 +250,16 @@ function startProcessMonitor() {
 }
 export async function reconcileProcesses(): Promise<void> {
   if (globalThis.__psmReconciling) return; globalThis.__psmReconciling = true;
+  const releases: Array<() => void> = [];
   try {
-    const registered = await listWorlds();
+    const registered: WorldView[] = [];
+    for (const candidate of await listWorlds()) {
+      const release = tryLifecycleLock(candidate.id);
+      if (!release) continue;
+      releases.push(release);
+      const current = await getWorld(candidate.id);
+      if (current) registered.push(current);
+    }
     if (!registered.some((world) => world.processId || ["running", "starting", "stopping"].includes(world.status))) return;
     let snapshot: ProcessIdentity[];
     try { snapshot = await processSnapshot(); globalThis.__psmInspectionError = undefined; }
@@ -248,11 +289,21 @@ export async function reconcileProcesses(): Promise<void> {
         const pause = await recordUnexpectedExit(world.id, { code: null, uptimeMs: world.lastStartedAt ? Date.now() - world.lastStartedAt : 0 }).catch(() => true);
         if (world.crashGuard && !pause && !globalThis.__psmDraining) {
           await database().update(worlds).set({ crashCount: sql`${worlds.crashCount} + 1` }).where(eq(worlds.id, world.id));
-          const timer = setTimeout(() => { if (!globalThis.__psmDraining) void import("./jobs").then(({ startJob }) => startJob(world.id, "crash-recovery", async () => startWorld(world.id))).catch(() => undefined); }, 5_000); timer.unref();
+          cancelRecovery(world.id);
+          const timer = setTimeout(() => {
+            recoveryTimers().delete(world.id);
+            if (globalThis.__psmDraining) return;
+            void import("./jobs").then(({ startJob }) => startJob(world.id, "crash-recovery", () => withLifecycleLock(world.id, async () => {
+              const current = await getWorld(world.id);
+              if (!current || current.status !== "crashed" || !current.crashGuard || current.lastStartedAt !== world.lastStartedAt || globalThis.__psmDraining) return;
+              await startWorldProcess(world.id);
+            }))).catch(() => undefined);
+          }, 5_000);
+          recoveryTimers().set(world.id, timer); timer.unref();
         }
       }
     }
     startProcessMonitor();
-  } finally { globalThis.__psmReconciling = false; }
+  } finally { for (const release of releases) release(); globalThis.__psmReconciling = false; }
   eventBus().publish({ type: "system", data: { action: "processes-reconciled" } });
 }

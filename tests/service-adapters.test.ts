@@ -50,7 +50,7 @@ describe("service boundaries with isolated fakes", () => {
     const [{ createWorld, getWorld, setRuntimeState }, { startWorld, stopWorld, reconcileProcesses }] = await Promise.all([
       import("@/server/services/worlds"), import("@/server/services/processes"),
     ]);
-    const world = await createWorld({ displayName: "Fake process", installDir, gamePort: 39111, queryPort: 39112, restApiPort: 39113, rconPort: 39114, restApiEnabled: false, crashGuard: false });
+    const world = await createWorld({ displayName: "Fake process", installDir, gamePort: 39111, queryPort: 39112, restApiPort: 39113, rconPort: 39114, restApiEnabled: false, crashGuard: true });
     if (process.platform !== "win32") {
       for (const suffix of ["", "-wal", "-shm"]) {
         expect((await stat(`${process.env.PALWORLD_MANAGER_DB}${suffix}`)).mode & 0o777).toBe(0o600);
@@ -64,8 +64,43 @@ describe("service boundaries with isolated fakes", () => {
     await setRuntimeState(world.id, "starting", running!.processId);
     await reconcileProcesses();
     expect(await getWorld(world.id)).toMatchObject({ status: "running", processId: running!.processId });
-    await stopWorld(world.id, true);
+    // Pause WMI-/proc-style inspection after it has read the registered running state.
+    // Stop must wait for that inspection, rather than letting a stale snapshot resurrect
+    // the world or mark the intentional exit as a crash.
+    const inspection = await import("@/server/services/process-inspection");
+    const snapshot = inspection.processSnapshot;
+    let release!: () => void; let entered!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const ready = new Promise<void>((resolve) => { entered = resolve; });
+    const spy = vi.spyOn(inspection, "processSnapshot").mockImplementationOnce(async () => { entered(); await gate; return snapshot(); });
+    const reconciling = reconcileProcesses();
+    await ready;
+    let stopped = false;
+    const stopping = stopWorld(world.id, true).then(() => { stopped = true; });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(stopped).toBe(false);
+    } finally { release(); await Promise.all([reconciling, stopping]); spy.mockRestore(); }
+    await reconcileProcesses();
     expect(await getWorld(world.id)).toMatchObject({ status: "stopped", processId: null });
+    expect(globalThis.__psmRecoveryTimers?.has(world.id) ?? false).toBe(false);
+  });
+
+  it("cancels pending crash recovery when the user stops the crashed world", async () => {
+    const { startWorld, stopWorld, reconcileProcesses } = await import("@/server/services/processes");
+    const { getWorld } = await import("@/server/services/worlds");
+    const { processSnapshot } = await import("@/server/services/process-inspection");
+    await startWorld(processWorldId);
+    const world = (await getWorld(processWorldId))!;
+    process.kill(-world.processId!, "SIGKILL");
+    await waitFor(async () => !(await processSnapshot()).some((entry) => entry.pid === world.processId), "Fake server did not exit.");
+    await reconcileProcesses();
+    expect(await getWorld(processWorldId)).toMatchObject({ status: "crashed" });
+    expect(globalThis.__psmRecoveryTimers?.has(processWorldId)).toBe(true);
+    await stopWorld(processWorldId, true);
+    expect(globalThis.__psmRecoveryTimers?.has(processWorldId)).toBe(false);
+    await reconcileProcesses();
+    expect(await getWorld(processWorldId)).toMatchObject({ status: "stopped", processId: null });
   });
 
   it("records succeeded and failed job states and enforces the per-world lock", async () => {
