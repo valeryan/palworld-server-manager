@@ -77,9 +77,10 @@ describe("service boundaries with isolated fakes", () => {
     expect(worldIsLocked(processWorldId)).toBe(true);
     await expect(startJob(processWorldId, "overlap", async () => undefined)).rejects.toThrow("Another operation");
     release();
-    await waitFor(async () => (await getJob(first))?.state === "succeeded", "Fake held job did not succeed.");
+    // Terminal state is persisted before the asynchronous installation lease is released.
+    await waitFor(async () => (await getJob(first))?.state === "succeeded" && !worldIsLocked(processWorldId), "Fake held job did not finish cleanup.");
     const failed = await startJob(processWorldId, "fake-failure", async () => { throw new Error("synthetic adapter failure"); });
-    await waitFor(async () => (await getJob(failed))?.state === "failed", "Fake failed job did not settle.");
+    await waitFor(async () => (await getJob(failed))?.state === "failed" && !worldIsLocked(processWorldId), "Fake failed job did not finish cleanup.");
     expect(await getJob(failed)).toMatchObject({ state: "failed", error: "synthetic adapter failure", progress: 0 });
     expect(worldIsLocked(processWorldId)).toBe(false);
   });
