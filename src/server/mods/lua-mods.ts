@@ -6,6 +6,7 @@ import type { LuaModView } from "@/contracts/mod";
 import type { WorldView } from "@/contracts/world";
 import { paths } from "@/server/paths";
 import { fileMatches, insideFolder, movePath } from "@/server/services/archive";
+import { assertWorldStopped } from "@/server/services/worlds";
 import { getLuaArtifact, loadLuaArtifact } from "./lua-library";
 import { resolveModsDirectory, ue4ssLayout } from "./ue4ss";
 
@@ -65,10 +66,10 @@ export function setModsTxtEntry(content: string, name: string, value: boolean | 
   return lines.length ? `${lines.join(newline)}${newline}` : "";
 }
 
-type LuaWorld = Pick<WorldView, "id" | "installDir" | "platform" | "status">;
+type LuaWorld = Pick<WorldView, "id" | "installDir" | "platform" | "status" | "processId">;
 interface ManagedMarker { artifactId: string; name: string; sha256: string; files: string[] }
 
-function assertStopped(world: LuaWorld): void { if (world.status !== "stopped" && world.status !== "crashed") throw new Error("Stop the server before changing Lua mods."); }
+const STOP_FIRST = "Stop the server before changing Lua mods.";
 function safeName(name: string): string { if (!/^[A-Za-z0-9_.-]{1,64}$/.test(name) || name.startsWith(".")) throw new Error("Invalid mod name."); return name; }
 
 export async function editModsTxt(directory: string, name: string, value: boolean | null): Promise<void> {
@@ -86,7 +87,7 @@ async function readMarker(folder: string): Promise<ManagedMarker | null> {
 // Copies a library mod into the world and turns it on. Updating replaces only the files the
 // previous library copy installed, so settings files a mod wrote in the world survive.
 export async function installLuaMod(world: LuaWorld, artifactId: string, options: { replace?: boolean } = {}): Promise<void> {
-  assertStopped(world);
+  assertWorldStopped(world, STOP_FIRST);
   const artifact = await getLuaArtifact(artifactId); if (!artifact) throw new Error("Mod library entry not found.");
   const archive = await loadLuaArtifact(artifact);
   const directory = await resolveModsDirectory(ue4ssLayout(world));
@@ -110,7 +111,7 @@ export async function installLuaMod(world: LuaWorld, artifactId: string, options
 }
 
 export async function setLuaModEnabled(world: LuaWorld, name: string, enabled: boolean): Promise<void> {
-  assertStopped(world);
+  assertWorldStopped(world, STOP_FIRST);
   const directory = await resolveModsDirectory(ue4ssLayout(world)); const folder = path.join(/* turbopackIgnore: true */ directory, safeName(name));
   if (!await stat(folder).then((info) => info.isDirectory(), () => false)) throw new Error(`Lua mod ${name} not found.`);
   // enabled.txt loads a mod regardless of mods.txt, so a disabled mod keeps it parked.
@@ -121,7 +122,7 @@ export async function setLuaModEnabled(world: LuaWorld, name: string, enabled: b
 
 // Moves the mod's folder to the manager's mod trash and drops its mods.txt line.
 export async function removeLuaMod(world: LuaWorld, name: string): Promise<void> {
-  assertStopped(world);
+  assertWorldStopped(world, STOP_FIRST);
   const directory = await resolveModsDirectory(ue4ssLayout(world)); const folder = path.join(/* turbopackIgnore: true */ directory, safeName(name));
   if (!await stat(folder).then((info) => info.isDirectory(), () => false)) throw new Error(`Lua mod ${name} not found.`);
   await movePath(folder, path.join(/* turbopackIgnore: true */ paths.modTrash(world.id), `${name}-${Date.now()}`));

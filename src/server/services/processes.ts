@@ -2,19 +2,20 @@ import { hostPlatform } from "@/server/host";
 import "server-only";
 import { assertSupportedTarget } from "@/server/host";
 import { windowsArguments } from "@/lib/arguments";
-import { createWriteStream, existsSync, openSync, closeSync, appendFileSync } from "node:fs";
+import { createWriteStream, existsSync, openSync, closeSync } from "node:fs";
 import path from "node:path";
-import { writeFile, readFile, rm } from "node:fs/promises";
+import { appendFile, writeFile, readFile, rename, rm } from "node:fs/promises";
+import { errorMessage } from "@/lib/errors";
 import { processSnapshot, ownedTree, sameProcess, type ProcessIdentity } from "./process-inspection";
 import { inspectPrerequisites } from "./prerequisites";
 import { spawn, type ChildProcess } from "node:child_process";
 import killTree from "tree-kill";
-import type { WorldView } from "@/contracts/world";
+import { worldBusy, type WorldView } from "@/contracts/world";
 import { paths } from "@/server/paths";
 import { database } from "@/server/db";
 import { events, worlds } from "@/server/db/schema";
 import { eq, sql } from "drizzle-orm";
-import { getWorld, listWorlds, setRuntimeState } from "./worlds";
+import { getWorld, listWorlds, requireWorld, setRuntimeState } from "./worlds";
 import { applyDesiredSettings, prepareWorldStart, syncManagedConfiguration } from "./configuration";
 import { palworldRest } from "./rest";
 import { effectiveWinePrefix, prepareWinePrefix, runsUnderWine, serverWineOverrides, stopWineServer } from "./wine";
@@ -109,7 +110,7 @@ async function persistIdentity(world: WorldView, processes: ProcessIdentity[]): 
   if (lease.profile !== paths.data()) throw new Error("This installation belongs to another manager profile.");
   const temporary = `${file}.tmp-${process.pid}`;
   await writeFile(temporary, JSON.stringify({ ...lease, processes }), { mode: 0o600 });
-  await process.getBuiltinModule("node:fs/promises").rename(temporary, file);
+  await rename(temporary, file);
 }
 async function claimInstallation(world: WorldView, snapshot: ProcessIdentity[]): Promise<void> {
   const file = launchLease(world);
@@ -157,6 +158,7 @@ async function startWorldProcess(worldId: string): Promise<void> {
   const logPath = path.join(/* turbopackIgnore: true */ paths.worldLogs(worldId), `server-${new Date().toISOString().replace(/[:.]/g, "-")}.log`);
   try {
     const stream = createWriteStream(logPath, { flags: "a" });
+    stream.on("error", (error) => console.error(`Server log ${logPath} is not writable: ${error.message}`));
     try { await prepareWinePrefix({ ...world, winePrefix: env.WINEPREFIX ?? world.winePrefix }, env, (line) => stream.write(`${line}\n`)); }
     finally { await new Promise<void>((resolve) => stream.end(resolve)); }
     await resetBroadcastQueue(world).catch(() => undefined);
@@ -170,7 +172,7 @@ async function startWorldProcess(worldId: string): Promise<void> {
     await new Promise<void>((resolve) => { child.once("spawn", resolve); child.once("error", () => resolve()); });
     if (launchError) throw launchError;
     child.unref(); children().set(worldId, child);
-    child.once("exit", (code, signal) => { exitCode = code; children().delete(worldId); appendFileSync(logPath, `\n[manager] launcher exited code=${code} signal=${signal}\n`); });
+    child.once("exit", (code, signal) => { exitCode = code; children().delete(worldId); void appendFile(logPath, `\n[manager] launcher exited code=${code} signal=${signal}\n`).catch(() => undefined); });
     let tracked: ProcessIdentity[] = [];
     for (let attempt = 0; attempt < 3; attempt++) {
       const snapshot = await processSnapshot();
@@ -214,12 +216,13 @@ export async function stopWorld(worldId: string, force = false, options: { waitS
   });
 }
 async function stopWorldProcess(worldId: string, force: boolean, options: { waitSeconds?: number; message?: string }): Promise<void> {
-  const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
+  const world = await requireWorld(worldId);
   let live = await verifiedProcesses(world);
   await setRuntimeState(worldId, "stopping", live[0]?.pid ?? null);
   let graceful = false;
   if (live.length && !force && world.restApiEnabled) {
-    try { await palworldRest.save(world); await palworldRest.shutdown(world, options.waitSeconds ?? 15, options.message ?? "Server shutting down."); graceful = true; } catch { /* Report forced fallback through the operation log/state. */ }
+    try { await palworldRest.save(world); await palworldRest.shutdown(world, options.waitSeconds ?? 15, options.message ?? "Server shutting down."); graceful = true; }
+    catch (error) { await database().insert(events).values({ worldId, kind: "lifecycle", message: `Graceful shutdown request failed; terminating the process tree instead: ${errorMessage(error)}`, createdAt: Date.now() }); }
   }
   const deadline = Date.now() + (graceful ? ((options.waitSeconds ?? 15) + 10) * 1000 : 0);
   while (live.length && Date.now() < deadline) { await delay(500); live = await verifiedProcesses(world); }
@@ -253,7 +256,13 @@ export async function restartWorld(worldId: string, options: { waitSeconds?: num
 declare global { var __psmProcessTimer: NodeJS.Timeout | undefined; var __psmReconciling: boolean | undefined; var __psmInspectionError: string | undefined; }
 function startProcessMonitor() {
   if (globalThis.__psmProcessTimer) return;
-  globalThis.__psmProcessTimer = setInterval(() => { if (!globalThis.__psmDraining) void reconcileProcesses().catch(() => undefined); }, 2_000);
+  globalThis.__psmProcessTimer = setInterval(() => {
+    if (globalThis.__psmDraining) return;
+    void reconcileProcesses().catch((error) => {
+      const message = errorMessage(error);
+      if (globalThis.__psmInspectionError !== message) { globalThis.__psmInspectionError = message; console.error(`Process reconciliation failed: ${message}`); }
+    });
+  }, 2_000);
   globalThis.__psmProcessTimer.unref();
 }
 export async function reconcileProcesses(): Promise<void> {
@@ -268,7 +277,7 @@ export async function reconcileProcesses(): Promise<void> {
       const current = await getWorld(candidate.id);
       if (current) registered.push(current);
     }
-    if (!registered.some((world) => world.processId || ["running", "starting", "stopping"].includes(world.status))) return;
+    if (!registered.some((world) => worldBusy(world))) return;
     let snapshot: ProcessIdentity[];
     try { snapshot = await processSnapshot(); globalThis.__psmInspectionError = undefined; }
     catch (error) {
@@ -305,7 +314,7 @@ export async function reconcileProcesses(): Promise<void> {
               const current = await getWorld(world.id);
               if (!current || current.status !== "crashed" || !current.crashGuard || current.lastStartedAt !== world.lastStartedAt || globalThis.__psmDraining) return;
               await startWorldProcess(world.id);
-            }))).catch(() => undefined);
+            }))).catch((error) => database().insert(events).values({ worldId: world.id, kind: "lifecycle", message: `Crash recovery could not start: ${errorMessage(error)}`, createdAt: Date.now() }).catch(() => undefined));
           }, 5_000);
           recoveryTimers().set(world.id, timer); timer.unref();
         }

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { errorResponse } from "@/server/http";
 import { startJob } from "@/server/services/jobs";
 import { startWorld, stopWorld } from "@/server/services/processes";
-import { auditPrincipal, authorizeRemote, remoteAccessErrorResponse } from "@/server/services/remote-access";
+import { auditPrincipal, authorizeRemote } from "@/server/services/remote-access";
 import { getWorld } from "@/server/services/worlds";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -17,5 +17,5 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     });
     await auditPrincipal(request, principal, `world.${input.action}`, id, `${input.action} requested for ${world.displayName}`);
     return Response.json({ ok: true, jobId }, { status: 202 });
-  } catch (error) { return remoteAccessErrorResponse(error) ?? errorResponse(error); }
+  } catch (error) { return errorResponse(error); }
 }

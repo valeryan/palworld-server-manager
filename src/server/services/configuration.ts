@@ -7,11 +7,12 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { and, desc, eq } from "drizzle-orm";
-import { managedWorldSettingsSchema, type ManagedWorldSettings, type WorldView } from "@/contracts/world";
+import { managedWorldSettingsSchema, worldBusy, type ManagedWorldSettings, type WorldView } from "@/contracts/world";
+import { ConflictError } from "@/server/errors";
 import { decodeDefaultSettingValue, PALWORLD_MANAGER_SETTING_KEYS, PALWORLD_SETTING_FIELD_MAP } from "@/contracts/palworld-settings";
 import { database } from "@/server/db";
 import { configVersions, events, worlds, worldSettings } from "@/server/db/schema";
-import { canonicalInstallDir, validateInstallLocation, assertWorldOwnership, getWorld, listWorlds, pathsOverlap } from "./worlds";
+import { canonicalInstallDir, validateInstallLocation, assertWorldOwnership, getWorld, listWorlds, pathsOverlap, requireWorld } from "./worlds";
 import { pruneConfigurationVersions } from "./retention";
 import { withReservationLock } from "./reservations";
 import { trackActiveChange } from "./jobs";
@@ -26,11 +27,12 @@ export type AdvertisedPortState = {
   raw: string;
   effectivePort: number;
 };
-export class StaleSettingsRevisionError extends Error {
+export class StaleSettingsRevisionError extends ConflictError {
   constructor() {
     super("Settings changed since this page was loaded. Refresh and try again.");
   }
 }
+type Transaction = Parameters<Parameters<ReturnType<typeof database>["transaction"]>[0]>[0];
 const PORT_FIELDS = ["gamePort", "queryPort", "restApiPort", "rconPort"] as const;
 const queues = new Map<string, Promise<unknown>>();
 async function locked<T>(worldId: string, work: () => Promise<T>): Promise<T> {
@@ -155,6 +157,57 @@ async function readOptional(filePath: string) {
     return null;
   }
 }
+// The shipped DefaultPalWorldSettings.ini as parsed options, or null when it is absent or malformed.
+async function readShippedDefaults(installDir: string): Promise<Record<string, string> | null> {
+  try {
+    const content = await readFile(defaultConfigurationPath(installDir), "utf8");
+    validateConfiguration(content);
+    return parseConfigurationOptions(content);
+  } catch {
+    return null;
+  }
+}
+// Game credentials live only in the INI. Copies left in the registry by older builds are carried
+// over once, when the INI has none of its own.
+function legacyCredentialChanges(content: string, world: Pick<WorldView, "adminPassword" | "serverPassword">): Record<string, string> {
+  const credentials = configurationCredentials(content);
+  const changes: Record<string, string> = {};
+  if (!credentials.adminPassword && world.adminPassword) changes.AdminPassword = JSON.stringify(world.adminPassword);
+  if (!credentials.serverPassword && world.serverPassword) changes.ServerPassword = JSON.stringify(world.serverPassword);
+  return changes;
+}
+// Records a configuration that is on disk and in effect: desired and applied both move to `revision`.
+function commitApplied(tx: Transaction, worldId: string, manager: ManagedWorldSettings, content: string, revision: number, now: number, note: string) {
+  tx.update(worlds).set({
+    ...projection(manager),
+    adminPassword: "",
+    serverPassword: "",
+    updatedAt: now
+  }).where(eq(worlds.id, worldId)).run();
+  tx.update(worldSettings).set({
+    desiredManager: manager,
+    desiredContent: content,
+    appliedContent: content,
+    desiredRevision: revision,
+    appliedRevision: revision,
+    managerAppliedRevision: revision,
+    appliedSemanticHash: semanticHash(content),
+    pendingSince: null,
+    lastApplyError: null,
+    drift: false,
+    driftReason: null,
+    updatedAt: now,
+    appliedAt: now
+  }).where(eq(worldSettings.worldId, worldId)).run();
+  tx.insert(configVersions).values({
+    id: randomUUID(),
+    worldId,
+    fileName: "PalWorldSettings.ini",
+    content,
+    note,
+    createdAt: now
+  }).run();
+}
 type SettingsRow = typeof worldSettings.$inferSelect;
 function managerFromRow(row: SettingsRow) {
   return managedWorldSettingsSchema.parse(row.desiredManager);
@@ -162,8 +215,7 @@ function managerFromRow(row: SettingsRow) {
 async function bootstrapUnlocked(worldId: string): Promise<SettingsRow> {
   const [existing] = await database().select().from(worldSettings).where(eq(worldSettings.worldId, worldId)).limit(1);
   if (existing) return existing;
-  const world = await getWorld(worldId);
-  if (!world) throw new Error("World not found.");
+  const world = await requireWorld(worldId);
   const manager = managerFromWorld(world);
   const active = await readOptional(configPath(world.installDir, world.platform));
   const activeHasContent = Boolean(active?.trim());
@@ -179,10 +231,7 @@ async function bootstrapUnlocked(worldId: string): Promise<SettingsRow> {
     if (activeHasContent) hash = semanticHash(active!);
     if (desired) {
       validateConfiguration(desired);
-      const credentials = configurationCredentials(desired);
-      const changes: Record<string, string> = {};
-      if (!credentials.adminPassword && world.adminPassword) changes.AdminPassword = JSON.stringify(world.adminPassword);
-      if (!credentials.serverPassword && world.serverPassword) changes.ServerPassword = JSON.stringify(world.serverPassword);
+      const changes = legacyCredentialChanges(desired, world);
       if (Object.keys(changes).length) {
         desired = applyConfigurationOptions(desired, changes);
         pending = true;
@@ -261,7 +310,7 @@ function state(row: SettingsRow, world: WorldView) {
     managerAppliedRevision: row.managerAppliedRevision,
     configurationAvailable: configurationIsValid(row.desiredContent),
     pendingApply,
-    requiresRestart: pendingApply && ["running", "starting", "stopping"].includes(world.status),
+    requiresRestart: pendingApply && worldBusy(world),
     drift: row.drift,
     driftReason: row.driftReason,
     applyError: row.lastApplyError
@@ -316,10 +365,14 @@ async function markFailure(worldId: string, message: string, drift = false) {
 }
 async function applyUnlocked(worldId: string, force = false) {
   const row = await bootstrapUnlocked(worldId);
-  const world = await getWorld(worldId);
-  if (!world) throw new Error("World not found.");
-  if (["running", "starting", "stopping"].includes(world.status) || world.processId) return state(row, world);
+  const world = await requireWorld(worldId);
+  // Ownership marked unknown is treated as live: the file is never rewritten under a server that may still be running.
+  if (worldBusy(world, { includeUnknown: true })) return state(row, world);
   const manager = managerFromRow(row);
+  const failApply = async (message: string) => {
+    await markFailure(worldId, message, true);
+    return state((await rowUnlocked(worldId))!, world);
+  };
   try {
     validateConfiguration(row.desiredContent);
     const currentPath = configPath(world.installDir, world.platform);
@@ -330,18 +383,12 @@ async function applyUnlocked(worldId: string, force = false) {
       try {
         diskHash = semanticHash(disk);
       } catch {
-        const message = "PalWorldSettings.ini is malformed. Import a valid file or reapply desired settings before starting.";
-        await markFailure(worldId, message, true);
-        return state((await rowUnlocked(worldId))!, world);
+        return failApply("PalWorldSettings.ini is malformed. Import a valid file or reapply desired settings before starting.");
       }
     }
     const desiredHash = semanticHash(row.desiredContent);
     if (!force && row.drift) return state(row, world);
-    if (!force && row.appliedSemanticHash && diskHash !== row.appliedSemanticHash && diskHash !== desiredHash) {
-      const message = "PalWorldSettings.ini was changed outside the manager or removed. Import it or reapply desired settings before starting.";
-      await markFailure(worldId, message, true);
-      return state((await rowUnlocked(worldId))!, world);
-    }
+    if (!force && row.appliedSemanticHash && diskHash !== row.appliedSemanticHash && diskHash !== desiredHash) return failApply("PalWorldSettings.ini was changed outside the manager or removed. Import it or reapply desired settings before starting.");
     if (!force && path.resolve(/* turbopackIgnore: true */targetPath) !== path.resolve(/* turbopackIgnore: true */currentPath)) {
       const targetDisk = await readOptional(targetPath);
       if (targetDisk?.trim()) {
@@ -349,15 +396,9 @@ async function applyUnlocked(worldId: string, force = false) {
         try {
           targetHash = semanticHash(targetDisk);
         } catch {
-          const message = "The destination PalWorldSettings.ini is malformed. Remove it or explicitly reapply desired settings before moving this world.";
-          await markFailure(worldId, message, true);
-          return state((await rowUnlocked(worldId))!, world);
+          return failApply("The destination PalWorldSettings.ini is malformed. Remove it or explicitly reapply desired settings before moving this world.");
         }
-        if (targetHash !== desiredHash) {
-          const message = "The destination already contains a different PalWorldSettings.ini. Import it or explicitly reapply desired settings before moving this world.";
-          await markFailure(worldId, message, true);
-          return state((await rowUnlocked(worldId))!, world);
-        }
+        if (targetHash !== desiredHash) return failApply("The destination already contains a different PalWorldSettings.ini. Import it or explicitly reapply desired settings before moving this world.");
       }
     }
     if (row.desiredRevision === row.appliedRevision && !row.drift) return state(row, world);
@@ -407,16 +448,14 @@ export async function prepareWorldStart<T>(worldId: string, claim: (world: World
   return locked(worldId, async () => {
     const application = await applyUnlocked(worldId);
     if (application.pendingApply) throw new Error(`Server start blocked because settings could not be applied${application.applyError ? `: ${application.applyError}` : "."}`);
-    const world = await getWorld(worldId);
-    if (!world) throw new Error("World not found.");
-    if (["running", "starting", "stopping"].includes(world.status) || world.processId) throw new Error("World is already running or changing state.");
+    const world = await requireWorld(worldId);
+    if (worldBusy(world)) throw new ConflictError("World is already running or changing state.");
     return claim(world);
   });
 }
 export async function readSettingsState(worldId: string) {
   const row = await rowFor(worldId);
-  const world = await getWorld(worldId);
-  if (!world) throw new Error("World not found.");
+  const world = await requireWorld(worldId);
   return {
     ...state(row, world),
     desiredManager: managerFromRow(row),
@@ -440,9 +479,8 @@ export async function saveDesiredSettings(worldId: string, input: {
     const content = input.content ?? row.desiredContent;
     const now = Date.now();
     const revision = row.desiredRevision + 1;
-    const before = await getWorld(worldId);
-    if (!before) throw new Error("World not found.");
-    const busy = ["running", "starting", "stopping", "unknown"].includes(before.status) || Boolean(before.processId);
+    const before = await requireWorld(worldId);
+    const busy = worldBusy(before, { includeUnknown: true });
     const independent = managerOnly && !configurationIsValid(content);
     await withReservationLock(async () => {
       const manager = managedWorldSettingsSchema.parse({
@@ -492,8 +530,7 @@ export async function readConfigurationCredentials(worldId: string) {
 }
 export async function readConfiguration(worldId: string) {
   const row = await rowFor(worldId);
-  const world = await getWorld(worldId);
-  if (!world) throw new Error("World not found.");
+  const world = await requireWorld(worldId);
   const manager = managerFromRow(row);
   return {
     path: configPath(manager.installDir, manager.platform),
@@ -519,17 +556,11 @@ export async function saveConfiguration(worldId: string, content: string, baseRe
 }
 export async function readConfigurationOptions(worldId: string) {
   const row = await rowFor(worldId);
-  const world = await getWorld(worldId);
-  if (!world) throw new Error("World not found.");
+  const world = await requireWorld(worldId);
   const desiredManager = managerFromRow(row);
-  let templateOptions: Record<string, string> = {};
-  let available = false;
-  try {
-    const content = await readFile(defaultConfigurationPath(desiredManager.installDir), "utf8");
-    validateConfiguration(content);
-    templateOptions = parseConfigurationOptions(content);
-    available = true;
-  } catch {/* reported */}
+  const shipped = await readShippedDefaults(desiredManager.installDir);
+  const templateOptions = shipped ?? {};
+  const available = shipped !== null;
   const desiredAll = parseConfigurationOptions(row.desiredContent);
   const appliedAll = parseConfigurationOptions(row.appliedContent);
   const known = new Set([...PALWORLD_SETTING_FIELD_MAP.keys(), ...PALWORLD_MANAGER_SETTING_KEYS]);
@@ -559,14 +590,8 @@ export async function readConfigurationOptions(worldId: string) {
 export async function resolveShippedDefaultChanges(worldId: string, keys: readonly string[]) {
   if (!keys.length) return {};
   const current = await readSettingsState(worldId);
-  let defaults: Record<string, string>;
-  try {
-    const content = await readFile(defaultConfigurationPath(current.desiredManager.installDir), "utf8");
-    validateConfiguration(content);
-    defaults = parseConfigurationOptions(content);
-  } catch {
-    throw new Error("The shipped default configuration is unavailable or malformed.");
-  }
+  const defaults = await readShippedDefaults(current.desiredManager.installDir);
+  if (!defaults) throw new Error("The shipped default configuration is unavailable or malformed.");
   const managers = new Set<string>(PALWORLD_MANAGER_SETTING_KEYS);
   return Object.fromEntries(keys.map(key => {
     const field = PALWORLD_SETTING_FIELD_MAP.get(key);
@@ -610,11 +635,9 @@ export async function syncManagedConfiguration(worldId: string, options: Managed
     syncPublicPort: initialized || options.syncPublicPort
   });
   if (initialized) {
-    const world = await getWorld(worldId);
-    if (!world) throw new Error("World not found.");
+    const world = await requireWorld(worldId);
     const credentials = configurationCredentials(source);
-    if (!credentials.adminPassword && world.adminPassword) changes.AdminPassword = JSON.stringify(world.adminPassword);
-    if (!credentials.serverPassword && world.serverPassword) changes.ServerPassword = JSON.stringify(world.serverPassword);
+    Object.assign(changes, legacyCredentialChanges(source, world));
     if (current.desiredManager.restApiEnabled && !credentials.adminPassword && !world.adminPassword) changes.AdminPassword = JSON.stringify(randomBytes(18).toString("base64url"));
   }
   let content = applyConfigurationOptions(source, changes);
@@ -666,9 +689,8 @@ export async function restoreConfiguration(worldId: string, versionId: string, b
 export async function reconcileConfiguration(worldId: string, action: "import-file" | "reapply-desired") {
   return locked(worldId, async () => {
     const row = await bootstrapUnlocked(worldId);
-    const world = await getWorld(worldId);
-    if (!world) throw new Error("World not found.");
-    if (["running", "starting", "stopping"].includes(world.status) || world.processId) throw new Error("Stop the world before reconciling its configuration file.");
+    const world = await requireWorld(worldId);
+    if (worldBusy(world)) throw new ConflictError("Stop the world before reconciling its configuration file.");
     if (action === "reapply-desired") return applyUnlocked(worldId, true);
     const previousManager = managerFromRow(row);
     const content = await readFile(configPath(previousManager.installDir, previousManager.platform), "utf8");
@@ -681,37 +703,7 @@ export async function reconcileConfiguration(worldId: string, action: "import-fi
     const revision = row.desiredRevision + 1;
     await withReservationLock(async () => {
       await validateReservations(worldId, manager);
-      database().transaction(tx => {
-        tx.update(worlds).set({
-          ...projection(manager),
-          adminPassword: "",
-          serverPassword: "",
-          updatedAt: now
-        }).where(eq(worlds.id, worldId)).run();
-        tx.update(worldSettings).set({
-          desiredManager: manager,
-          desiredContent: content,
-          appliedContent: content,
-          desiredRevision: revision,
-          appliedRevision: revision,
-          managerAppliedRevision: revision,
-          appliedSemanticHash: semanticHash(content),
-          pendingSince: null,
-          lastApplyError: null,
-          drift: false,
-          driftReason: null,
-          updatedAt: now,
-          appliedAt: now
-        }).where(eq(worldSettings.worldId, worldId)).run();
-        tx.insert(configVersions).values({
-          id: randomUUID(),
-          worldId,
-          fileName: "PalWorldSettings.ini",
-          content,
-          note: "imported external file",
-          createdAt: now
-        }).run();
-      });
+      database().transaction(tx => commitApplied(tx, worldId, manager, content, revision, now, "imported external file"));
     });
     return state((await rowUnlocked(worldId))!, (await getWorld(worldId))!);
   });
@@ -720,9 +712,8 @@ export async function adoptRestoredConfiguration(worldId: string, content: strin
   validateConfiguration(content);
   return locked(worldId, async () => {
     const row = await bootstrapUnlocked(worldId);
-    const world = await getWorld(worldId);
-    if (!world) throw new Error("World not found.");
-    if (["running", "starting", "stopping"].includes(world.status) || world.processId) throw new Error("Stop the server before restoring a backup.");
+    const world = await requireWorld(worldId);
+    if (worldBusy(world)) throw new ConflictError("Stop the server before restoring a backup.");
     // The backup was restored into the applied world's save tree. Discard any
     // unrelated staged manager projection so the adopted database state points
     // at the filesystem that was actually replaced.
@@ -736,37 +727,7 @@ export async function adoptRestoredConfiguration(worldId: string, content: strin
       await validateReservations(worldId, manager);
       const rollback = await replaceFilesystem?.();
       try {
-        database().transaction(tx => {
-          tx.update(worlds).set({
-            ...projection(manager),
-            adminPassword: "",
-            serverPassword: "",
-            updatedAt: now
-          }).where(eq(worlds.id, worldId)).run();
-          tx.update(worldSettings).set({
-            desiredManager: manager,
-            desiredContent: content,
-            appliedContent: content,
-            desiredRevision: revision,
-            appliedRevision: revision,
-            managerAppliedRevision: revision,
-            appliedSemanticHash: semanticHash(content),
-            pendingSince: null,
-            lastApplyError: null,
-            drift: false,
-            driftReason: null,
-            updatedAt: now,
-            appliedAt: now
-          }).where(eq(worldSettings.worldId, worldId)).run();
-          tx.insert(configVersions).values({
-            id: randomUUID(),
-            worldId,
-            fileName: "PalWorldSettings.ini",
-            content,
-            note: "adopted from backup restore",
-            createdAt: now
-          }).run();
-        });
+        database().transaction(tx => commitApplied(tx, worldId, manager, content, revision, now, "adopted from backup restore"));
       } catch (cause) {
         if (rollback) {
           try {

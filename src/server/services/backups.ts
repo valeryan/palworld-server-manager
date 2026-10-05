@@ -11,8 +11,8 @@ import type { JobContext } from "./jobs";
 import { database } from "@/server/db";
 import { backupSettings, backups, worldSettings } from "@/server/db/schema";
 import { paths } from "@/server/paths";
-import { getWorld } from "./worlds";
-import { listWorlds, pathsOverlap, canonicalInstallDir } from "./worlds";
+import { NotFoundError } from "@/server/errors";
+import { assertWorldStopped, canonicalInstallDir, getWorld, listWorlds, pathsOverlap, requireWorld } from "./worlds";
 import { worldIsLocked } from "./jobs";
 import { adoptRestoredConfiguration, validateConfiguration } from "./configuration";
 import { safeEntries } from "./archive";
@@ -20,7 +20,7 @@ import { safeEntries } from "./archive";
 function saveDirectory(installDir: string): string { return path.join(/* turbopackIgnore: true */ installDir, "Pal", "Saved"); }
 
 export async function createBackup(worldId: string, reason: string, context: JobContext): Promise<string> {
-  const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
+  const world = await requireWorld(worldId);
   const source = saveDirectory(world.installDir);
   await stat(source).catch(() => { throw new Error(`Save directory does not exist: ${source}`); });
   await context.update(10, "Collecting save files");
@@ -41,10 +41,10 @@ export async function createBackup(worldId: string, reason: string, context: Job
 }
 
 export async function restoreBackup(worldId: string, backupId: string, context: JobContext): Promise<void> {
-  const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
-  if (world.status !== "stopped" || world.processId) throw new Error("Stop the server before restoring a backup.");
+  const world = await requireWorld(worldId);
+  assertWorldStopped(world, "Stop the server before restoring a backup.");
   const [record] = await database().select().from(backups).where(eq(backups.id, backupId)).limit(1);
-  if (!record || record.worldId !== worldId) throw new Error("Backup not found for this world.");
+  if (!record || record.worldId !== worldId) throw new NotFoundError("Backup not found for this world.");
   const zip = new AdmZip(record.filePath);
   if (!zip.test() || !safeEntries(zip)) throw new Error("Backup is corrupt or contains unsafe paths.");
   const settingsEntry = zip.getEntry(`Saved/Config/${world.platform === "windows" ? "WindowsServer" : "LinuxServer"}/PalWorldSettings.ini`);
@@ -64,13 +64,16 @@ export async function restoreBackup(worldId: string, backupId: string, context: 
   await writeFile(journal, JSON.stringify({ worldId, saved, staging, displaced }), { flag: "wx", mode: 0o600 });
   try {
     await adoptRestoredConfiguration(worldId, restoredConfiguration, async () => {
-      const { rename } = await import("node:fs/promises");
       await rename(saved, displaced);
       try { await rename(extracted, saved); }
       catch (cause) { await rename(displaced, saved); throw cause; }
       return async () => { await rm(saved, { recursive: true, force: true }); await rename(displaced, saved); };
     });
     await rm(journal);
+  } catch (error) {
+    // Only a failed rollback leaves the save tree displaced; the journal then stays for startup recovery.
+    if (!(error instanceof AggregateError)) await rm(journal, { force: true });
+    throw error;
   } finally {
     await rm(staging, { recursive: true, force: true });
   }
@@ -81,12 +84,12 @@ export async function listBackups(worldId: string) { return database().select().
 
 export async function getBackup(worldId: string, backupId: string) {
   const [record] = await database().select().from(backups).where(eq(backups.id, backupId)).limit(1);
-  if (!record || record.worldId !== worldId) throw new Error("Backup not found for this world.");
+  if (!record || record.worldId !== worldId) throw new NotFoundError("Backup not found for this world.");
   return record;
 }
 
 export async function getBackupSettings(worldId: string) {
-  if (!await getWorld(worldId)) throw new Error("World not found.");
+  await requireWorld(worldId);
   const [record] = await database().select().from(backupSettings).where(eq(backupSettings.worldId, worldId)).limit(1);
   return { destinationDir: record?.destinationDir ?? null, retentionCount: record?.retentionCount ?? 0 } satisfies BackupSettingsInput;
 }
@@ -111,7 +114,7 @@ async function validateDestination(worldId: string, candidate: string | null): P
 }
 
 export async function updateBackupSettings(worldId: string, value: unknown) {
-  if (!await getWorld(worldId)) throw new Error("World not found.");
+  await requireWorld(worldId);
   const input = backupSettingsSchema.parse(value);
   const destinationDir = await validateDestination(worldId, input.destinationDir);
   const record = { worldId, destinationDir, retentionCount: input.retentionCount, updatedAt: Date.now() };

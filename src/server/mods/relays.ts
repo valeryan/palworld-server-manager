@@ -11,6 +11,7 @@ import { paths } from "@/server/paths";
 import { movePath } from "@/server/services/archive";
 import { palworldRest } from "@/server/services/rest";
 import { runsUnderWine } from "@/server/services/wine";
+import { assertWorldStopped } from "@/server/services/worlds";
 import { editModsTxt, MANAGED_MARKER, modsTxtState, parseModsTxt } from "./lua-mods";
 import { resolveModsDirectory, ue4ssLayout } from "./ue4ss";
 import { runtimeRow } from "./ue4ss-runtime";
@@ -21,7 +22,7 @@ export const RELAYS: Record<RelayId, { folder: string; placeholder: string; file
   broadcast: { folder: "PSMBroadcast", placeholder: "__PSM_QUEUE_PATH__", file: "psm-broadcast.jsonl" },
 };
 
-type RelayWorld = Pick<WorldView, "id" | "installDir" | "platform" | "status">;
+type RelayWorld = Pick<WorldView, "id" | "installDir" | "platform" | "status" | "processId">;
 interface RelayMarker { builtin: RelayId; version: number; sha256: string }
 
 function bundledScript(relay: RelayId): string { return path.join(/* turbopackIgnore: true */ process.cwd(), "src", "server", "mods", "lua", RELAYS[relay].folder, "Scripts", "main.lua"); }
@@ -44,7 +45,6 @@ async function folderOf(world: Pick<WorldView, "installDir" | "platform">, relay
 async function readMarker(folder: string): Promise<RelayMarker | null> {
   try { const marker = JSON.parse(await readFile(path.join(/* turbopackIgnore: true */ folder, MANAGED_MARKER), "utf8")) as RelayMarker; return marker.builtin ? marker : null; } catch { return null; }
 }
-function assertStopped(world: RelayWorld): void { if (world.status !== "stopped" && world.status !== "crashed") throw new Error("Stop the server before changing PSM relays."); }
 
 export async function relayStatus(world: Pick<WorldView, "id" | "installDir" | "platform">): Promise<RelayView[]> {
   const runtime = await runtimeRow(world.id);
@@ -61,7 +61,7 @@ export async function relayStatus(world: Pick<WorldView, "id" | "installDir" | "
 
 // Writes the bundled relay into the world with this world's paths filled in, and turns it on.
 export async function installRelay(world: RelayWorld, relay: RelayId, options: { replace?: boolean } = {}): Promise<void> {
-  assertStopped(world);
+  assertWorldStopped(world, "Stop the server before changing PSM relays.");
   const source = await readFile(bundledScript(relay), "utf8");
   const { directory, folder } = await folderOf(world, relay);
   const present = await stat(folder).then(() => true, () => false);

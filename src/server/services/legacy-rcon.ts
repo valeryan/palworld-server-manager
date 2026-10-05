@@ -2,7 +2,8 @@ import "server-only";
 import { createConnection, type Socket } from "node:net";
 import { database } from "@/server/db";
 import { events } from "@/server/db/schema";
-import { getWorld } from "./worlds";
+import { ConflictError } from "@/server/errors";
+import { requireWorld } from "./worlds";
 import { readConfigurationCredentials } from "./configuration";
 
 type RconPacket = { id: number; type: number; payload: string };
@@ -82,12 +83,11 @@ async function execute(host: string, port: number, password: string, command: st
 }
 
 export async function runLegacyRconCommand(worldId: string, command: string): Promise<string> {
-  const world = await getWorld(worldId);
-  if (!world) throw new Error("World not found.");
-  if (world.status !== "running") throw new Error("Start the server before using the legacy RCON console.");
-  if (!world.rconEnabled) throw new Error("Legacy RCON is disabled for this world.");
+  const world = await requireWorld(worldId);
+  if (world.status !== "running") throw new ConflictError("Start the server before using the legacy RCON console.");
+  if (!world.rconEnabled) throw new ConflictError("Legacy RCON is disabled for this world.");
   const { adminPassword } = await readConfigurationCredentials(worldId);
-  if (!adminPassword) throw new Error("Set an administrator password before using legacy RCON.");
+  if (!adminPassword) throw new ConflictError("Set an administrator password before using legacy RCON.");
   const output = await execute("127.0.0.1", world.rconPort, adminPassword, command);
   await database().insert(events).values({ worldId, kind: "legacy-rcon", message: `Ran RCON command: ${command.split(/\s+/, 1)[0]}`, createdAt: Date.now() });
   return output;

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchJson, requestJson } from "@/lib/http-client";
+import { fetchBlob, fetchJson, requestJson } from "@/lib/http-client";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -37,5 +37,18 @@ describe("manager JSON requests", () => {
     await expect(fetchJson("/api/jobs")).rejects.toThrow("Network unavailable");
     await expect(requestJson("/api/jobs")).rejects.toBe(cancelled);
     await expect(fetchJson("/api/jobs")).rejects.toBeInstanceOf(SyntaxError);
+  });
+
+  it("downloads binary responses and surfaces JSON failure messages", async () => {
+    const fetcher = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(new Blob(["zip-bytes"], { type: "application/zip" })))
+      .mockResolvedValueOnce(Response.json({ error: "World not found." }, { status: 404 }))
+      .mockResolvedValueOnce(new Response("gateway down", { status: 502 }));
+    const blob = await fetchBlob("/api/worlds/fixture/configuration/export");
+    expect(await blob.text()).toBe("zip-bytes");
+    expect(blob.type).toBe("application/zip");
+    expect(fetcher).toHaveBeenCalledWith("/api/worlds/fixture/configuration/export", undefined);
+    await expect(fetchBlob("/api/worlds/missing/configuration/export")).rejects.toThrow("World not found.");
+    await expect(fetchBlob("/api/worlds/fixture/configuration/export")).rejects.toThrow("Request failed (502)");
   });
 });

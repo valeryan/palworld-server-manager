@@ -2,7 +2,9 @@ import "server-only";
 import { and, eq } from "drizzle-orm";
 import { database } from "@/server/db";
 import { events, schedules, sessions } from "@/server/db/schema";
-import { listWorlds, getWorld } from "./worlds";
+import { isWorldStopped } from "@/contracts/world";
+import { errorMessage } from "@/lib/errors";
+import { listWorlds, getWorld, requireWorld } from "./worlds";
 import { reconcileProcesses, restartWorld, startWorld, stopWorld } from "./processes";
 import { bootstrapWorldSettings } from "./configuration";
 import { startJob, reconcileInterruptedJobs, type JobContext } from "./jobs";
@@ -79,7 +81,7 @@ async function queueSchedule(schedule: ScheduleRow): Promise<boolean> {
       const waitSeconds = await warnBeforeShutdown(schedule.worldId, "stop", context.signal);
       await context.update(70, "Stopping server"); await stopWorld(schedule.worldId, false, { waitSeconds, message: "Scheduled shutdown." });
     } else if (schedule.action === "update") {
-      const before = await getWorld(schedule.worldId); if (!before) throw new Error("World not found.");
+      const before = await requireWorld(schedule.worldId);
       const wasRunning = before.status === "running";
       if (wasRunning) { const waitSeconds = await warnBeforeShutdown(schedule.worldId, "update", context.signal); await stopWorld(schedule.worldId, false, { waitSeconds, message: "Scheduled update." }); }
       await safetyBackup(schedule, "pre-scheduled-update", context);
@@ -110,7 +112,11 @@ async function handleTimedSchedules(now: number): Promise<void> {
     try {
       if (!await queueSchedule(schedule)) continue;
       await database().update(schedules).set({ lastRunAt: now, nextRunAt: following }).where(eq(schedules.id, schedule.id));
-    } catch (error) { await log(schedule.worldId, "scheduler", `Could not queue ${schedule.action}: ${error instanceof Error ? error.message : String(error)}`); }
+    } catch (error) {
+      // Move on to the next scheduled time instead of retrying (and logging) every tick while the world is busy.
+      await database().update(schedules).set({ nextRunAt: following }).where(eq(schedules.id, schedule.id));
+      await log(schedule.worldId, "scheduler", `Could not queue ${schedule.action}; it will be tried again at the next scheduled time: ${errorMessage(error)}`);
+    }
   }
 }
 
@@ -127,7 +133,10 @@ async function handleIdleSchedules(now: number): Promise<void> {
     if (schedule.nextRunAt > now) continue;
     if (schedule.skipNext) { await database().update(schedules).set({ skipNext: false, nextRunAt: reset }).where(eq(schedules.id, schedule.id)); continue; }
     try { if (await queueSchedule(schedule)) await database().update(schedules).set({ lastRunAt: now, nextRunAt: reset }).where(eq(schedules.id, schedule.id)); }
-    catch (error) { await log(schedule.worldId, "scheduler", `Could not queue idle stop: ${error instanceof Error ? error.message : String(error)}`); }
+    catch (error) {
+      await database().update(schedules).set({ nextRunAt: reset }).where(eq(schedules.id, schedule.id));
+      await log(schedule.worldId, "scheduler", `Could not queue idle stop; the idle timer was restarted: ${errorMessage(error)}`);
+    }
   }
 }
 
@@ -144,7 +153,7 @@ async function deliverJoinSchedule(schedule: ScheduleRow, player: Player): Promi
       if (schedule.action === "onscreen_notice") await deliverNotice(world, message); else await palworldRest.announce(world, message);
     });
     await database().update(schedules).set({ lastRunAt: Date.now() }).where(eq(schedules.id, schedule.id));
-  } catch (error) { await log(schedule.worldId, "scheduler", `Could not send join message: ${error instanceof Error ? error.message : String(error)}`); }
+  } catch (error) { await log(schedule.worldId, "scheduler", `Could not send join message: ${errorMessage(error)}`); }
 }
 
 async function fireJoinSchedules(worldId: string, player: Player): Promise<void> {
@@ -152,7 +161,7 @@ async function fireJoinSchedules(worldId: string, player: Player): Promise<void>
   for (const schedule of records.filter((item) => item.mode === "on_join" && (item.action === "system_message" || item.action === "onscreen_notice"))) {
     if (schedule.joinMatch && schedule.joinMatch.toLocaleLowerCase() !== player.name.toLocaleLowerCase()) continue;
     if (schedule.skipNext) { await database().update(schedules).set({ skipNext: false }).where(eq(schedules.id, schedule.id)); continue; }
-    void deliverJoinSchedule(schedule, player);
+    void deliverJoinSchedule(schedule, player).catch((error) => log(schedule.worldId, "scheduler", `Join message failed: ${errorMessage(error)}`).catch(() => undefined));
   }
 }
 
@@ -184,16 +193,35 @@ export async function runtimeTick(now = Date.now()): Promise<void> {
   finally { globalThis.__psmRuntimeTicking = false; }
 }
 
+// Each boot step stands on its own: a failure is recorded as an event and the manager still comes
+// up, so one bad world or journal cannot leave the whole application unreachable.
+async function bootStep(name: string, work: () => Promise<void>): Promise<void> {
+  try { await work(); }
+  catch (error) {
+    const message = `Startup step "${name}" failed: ${errorMessage(error)}`;
+    console.error(message);
+    await log(null, "startup", message).catch(() => undefined);
+  }
+}
+
 export async function startRuntime(): Promise<void> {
   if (globalThis.__psmRuntimeStarted) return;
-  await recoverInterruptedRestores();
-  await reconcileInterruptedJobs();
-  await bootstrapWorldSettings();
-  await reconcileProcesses();
-  for (const schedule of await database().select().from(schedules)) if (schedule.nextRunAt && schedule.nextRunAt < Date.now()) await database().update(schedules).set({ nextRunAt: nextRun(schedule) }).where(eq(schedules.id, schedule.id));
-  for (const world of await listWorlds()) if (world.autostart && ["stopped", "crashed"].includes(world.status)) await startJob(world.id, "autostart", async () => startWorld(world.id));
-  void runtimeTick().catch((error) => log(null, "scheduler", `Runtime tick failed: ${error instanceof Error ? error.message : String(error)}`));
-  globalThis.__psmSchedulerTimer = setInterval(() => void runtimeTick().catch((error) => log(null, "scheduler", `Runtime tick failed: ${error instanceof Error ? error.message : String(error)}`)), 10_000);
-  globalThis.__psmSchedulerTimer.unref();
   globalThis.__psmRuntimeStarted = true;
+  await bootStep("restore recovery", recoverInterruptedRestores);
+  await bootStep("interrupted operation recovery", reconcileInterruptedJobs);
+  await bootStep("settings bootstrap", () => bootstrapWorldSettings());
+  await bootStep("process reconciliation", reconcileProcesses);
+  await bootStep("schedule repair", async () => {
+    for (const schedule of await database().select().from(schedules)) if (schedule.nextRunAt && schedule.nextRunAt < Date.now()) await database().update(schedules).set({ nextRunAt: nextRun(schedule) }).where(eq(schedules.id, schedule.id));
+  });
+  await bootStep("autostart", async () => {
+    for (const world of await listWorlds()) {
+      if (!world.autostart || !isWorldStopped(world)) continue;
+      await startJob(world.id, "autostart", async () => startWorld(world.id)).catch((error) => log(world.id, "startup", `Autostart could not be queued: ${errorMessage(error)}`));
+    }
+  });
+  const tick = () => void runtimeTick().catch((error) => log(null, "scheduler", `Runtime tick failed: ${errorMessage(error)}`).catch(() => undefined));
+  tick();
+  globalThis.__psmSchedulerTimer = setInterval(tick, 10_000);
+  globalThis.__psmSchedulerTimer.unref();
 }

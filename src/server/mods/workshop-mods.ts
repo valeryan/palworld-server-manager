@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import type { WorkshopModView, WorkshopStatus } from "@/contracts/mod";
 import type { WorldView } from "@/contracts/world";
+import { ConflictError } from "@/server/errors";
+import { assertWorldStopped } from "@/server/services/worlds";
 
 // Official layout: <install>/Mods/Workshop/<folder>/Info.json, toggled by
 // <install>/Mods/PalModSettings.ini (https://docs.palworldgame.com/settings-and-operation/mod/).
@@ -83,11 +85,11 @@ export function updatePalModSettings(content: string | null, change: { globalEna
   return `${lines.join(newline)}${newline}`;
 }
 
-type WorkshopWorld = Pick<WorldView, "installDir" | "platform" | "status">;
+type WorkshopWorld = Pick<WorldView, "installDir" | "platform" | "status" | "processId">;
 
 async function changeSettings(world: WorkshopWorld, change: (settings: PalModSettings) => { globalEnable?: boolean; activeMods?: string[] }): Promise<void> {
-  if (world.platform !== "windows") throw new Error("Palworld loads server-side Workshop mods only on the Windows server build.");
-  if (world.status !== "stopped" && world.status !== "crashed") throw new Error("Stop the server before changing Workshop mods.");
+  if (world.platform !== "windows") throw new ConflictError("Palworld loads server-side Workshop mods only on the Windows server build.");
+  assertWorldStopped(world, "Stop the server before changing Workshop mods.");
   const file = path.join(/* turbopackIgnore: true */ world.installDir, "Mods", "PalModSettings.ini");
   const current = await readSmall(file);
   const next = updatePalModSettings(current, change(parsePalModSettings(current)));

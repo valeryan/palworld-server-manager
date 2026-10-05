@@ -2,7 +2,8 @@ import "server-only";
 import path from "node:path";
 import { readFile, stat, readdir } from "node:fs/promises";
 import { desc, eq } from "drizzle-orm";
-import type { WorldView } from "@/contracts/world";
+import { isWorldStopped, type WorldView } from "@/contracts/world";
+import { isJobActive, SERVER_INSTALL_JOB_KINDS } from "@/contracts/job";
 import type { InstallationHealth } from "@/contracts/installation";
 import { hostCapabilities, hostPlatform } from "@/server/host";
 import { database } from "@/server/db";
@@ -46,18 +47,21 @@ export async function installationHealth(world: WorldView): Promise<Installation
   const inspected = await inspectInstallation(world.installDir, world.platform);
   const prerequisite = await inspectPrerequisites(world);
   const [last] = await database().select().from(jobs).where(eq(jobs.worldId, world.id)).orderBy(desc(jobs.createdAt)).limit(1);
-  const busy = Boolean(last && ["queued", "running"].includes(last.state));
-  const activeInstall = busy && /install|update/.test(last?.kind ?? "");
+  const busy = Boolean(last && isJobActive(last));
+  const lastIsInstall = SERVER_INSTALL_JOB_KINDS.has(last?.kind ?? "");
+  const activeInstall = busy && lastIsInstall;
   const supported = hostCapabilities().worldPlatforms.includes(world.platform);
   const reasons = [...inspected.warnings.filter((warning) => !warning.startsWith("Installed build"))];
   if (world.status === "unknown") reasons.push("Process ownership is uncertain. Inspect the manager log and Windows processes before changing this installation.");
   if (!supported) reasons.push("This host cannot run the selected world platform.");
   if (!inspected.executable) reasons.push("Server files are missing or incomplete. Install or repair this world.");
   if (prerequisite.state === "missing") reasons.push(prerequisite.detail);
-  if (last?.state === "failed" && /^(install|update)$/.test(last.kind)) reasons.push(last.error ?? "The last installation operation failed; inspect its output before retrying.");
-  const state = activeInstall ? "installing" : !inspected.executable ? last?.state === "failed" && /install|update/.test(last.kind) ? "failed" : "missing" : reasons.length ? "repair-needed" : "ready";
+  const lastInstallFailed = last?.state === "failed" && lastIsInstall;
+  if (lastInstallFailed) reasons.push(last.error ?? "The last installation operation failed; inspect its output before retrying.");
+  const state = activeInstall ? "installing" : !inspected.executable ? (lastInstallFailed ? "failed" : "missing") : reasons.length ? "repair-needed" : "ready";
+  const idle = !busy && !world.processId && isWorldStopped(world);
   return { state, reasons, lastJobId: last?.id ?? null, prerequisite,
-    canStart: state === "ready" && !busy && !world.processId && ["stopped", "crashed"].includes(world.status),
+    canStart: state === "ready" && idle,
     canBackup: inspected.saves && !busy && world.status !== "unknown",
-    canInstall: supported && !busy && !world.processId && ["stopped", "crashed"].includes(world.status) };
+    canInstall: supported && idle };
 }

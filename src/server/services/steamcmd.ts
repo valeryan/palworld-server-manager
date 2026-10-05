@@ -12,7 +12,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import { safeEntries } from "./archive";
 import { assertSupportedTarget } from "@/server/host";
 import { processSnapshot, sameProcess, type ProcessIdentity } from "./process-inspection";
-import type { WorldView } from "@/contracts/world";
+import { worldBusy, type WorldView } from "@/contracts/world";
+import { ConflictError } from "@/server/errors";
 import type { JobContext } from "./jobs";
 import { paths } from "@/server/paths";
 import { database } from "@/server/db";
@@ -37,7 +38,7 @@ async function exclusive<T>(context: JobContext, task: () => Promise<T>): Promis
   const slot = new Promise<void>((resolve) => { release = resolve; });
   queue = previous.then(() => slot);
   try {
-    await context.update(0, "Waiting for shared SteamCMD client");
+    await context.update(0, "Waiting for shared SteamCMD client", { state: "queued" });
     await new Promise<void>((resolve, reject) => { const abort = () => reject(context.signal.reason); context.signal.addEventListener("abort", abort, { once: true }); previous.then(() => { context.signal.removeEventListener("abort", abort); resolve(); }); if (context.signal.aborted) abort(); }); context.signal.throwIfAborted();
     const leasePath = path.join(/* turbopackIgnore: true */ paths.steamCmd(), ".psm-owner.json");
     const snapshot = await processSnapshot();
@@ -199,21 +200,26 @@ export async function detectLatestBuild(worldId: string, signal?: AbortSignal): 
   return latestBuildId;
 }
 
+// A password never goes on the command line, where every local user could read it from the
+// process table; SteamCMD reads it from a private script instead.
 async function invoke(world: WorldView, context: JobContext): Promise<{ code: number; output: string }> {
   const username = process.env.PSM_STEAM_USERNAME || "anonymous";
   const password = process.env.PSM_STEAM_PASSWORD;
+  const script = password ? path.join(/* turbopackIgnore: true */ paths.steamCmd(), `.psm-login-${randomUUID()}.txt`) : null;
+  if (script) await writeFile(script, `login ${username} ${password}\n`, { mode: 0o600 });
   const args = [
     "+force_install_dir", world.installDir,
     "+@sSteamCmdForcePlatformType", world.platform, "+@sSteamCmdForcePlatformBitness", "64",
-    "+login", username, ...(password ? [password] : []),
+    ...(script ? ["+runscript", script] : ["+login", username]),
     "+app_update", APP_ID, "validate", "+quit",
   ];
-  return run(binary(), args, paths.steamCmd(), context);
+  try { return await run(binary(), args, paths.steamCmd(), context); }
+  finally { if (script) await rm(script, { force: true }); }
 }
 
 export async function installOrUpdate(world: WorldView, context: JobContext): Promise<void> {
   assertSupportedTarget(world.platform);
-  if (world.processId || ["running", "starting", "stopping", "unknown"].includes(world.status)) throw new Error("Stop the world before installing or updating server files.");
+  if (worldBusy(world, { includeUnknown: true })) throw new ConflictError("Stop the world before installing or updating server files.");
   return exclusive(context, async () => {
   const latestBuildId = await detectLatestBuild(world.id, context.signal).catch(async (error) => { context.signal.throwIfAborted(); context.log(`Build discovery unavailable; continuing with Valve: ${error.message}`); await database().update(worlds).set({ latestBuildId: null }).where(eq(worlds.id, world.id)); return null; });
   context.log(`Latest public build: ${latestBuildId}; installed build: ${readBuildId(world) ?? "unknown"}.`);

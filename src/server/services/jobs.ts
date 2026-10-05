@@ -4,19 +4,23 @@ import path from "node:path";
 import { paths } from "@/server/paths";
 import { randomUUID } from "node:crypto";
 import { desc, eq, inArray } from "drizzle-orm";
-import type { JobView } from "@/contracts/job";
+import { EXTERNAL_WORKER_JOB_KINDS, type JobView } from "@/contracts/job";
 import { database, sqliteClient } from "@/server/db";
 import { jobLogs, jobs } from "@/server/db/schema";
+import { ConflictError, HttpError, NotFoundError } from "@/server/errors";
 import { eventBus } from "./events";
 import { jobStartingMessage, jobSuccessMessage } from "@/lib/job-presentation";
 import { applyOperationRetention } from "./retention";
 
 export interface JobContext {
   signal: AbortSignal;
-  update(progress: number, message: string): Promise<void>;
+  /** Reports progress. `state: "queued"` marks time spent waiting for a shared resource;
+   * `preserveOnSuccess` keeps this message as the final one instead of the generic success text. */
+  update(progress: number, message: string, options?: { state?: "queued" | "running"; preserveOnSuccess?: boolean }): Promise<void>;
   log(message: string): void;
   nonCancellable?(): void;
 }
+const DRAINING = "The manager is quitting; new operations are disabled.";
 
 declare global { var __psmDraining: boolean | undefined; var __psmWorldLocks: Set<string> | undefined; var __psmJobControllers: Map<string, AbortController> | undefined; var __psmActiveChanges: number | undefined; }
 const nonCancellable = new Set<string>();
@@ -44,8 +48,8 @@ export async function getJob(id: string): Promise<JobView | undefined> {
 }
 
 export async function startJob(worldId: string | null, kind: string, task: (context: JobContext) => Promise<void>): Promise<string> {
-  if (globalThis.__psmDraining) throw new Error("The manager is quitting; new operations are disabled.");
-  if (worldId && locks().has(worldId)) throw new Error("Another operation is already running for this world.");
+  if (globalThis.__psmDraining) throw new HttpError(DRAINING, 503);
+  if (worldId && locks().has(worldId)) throw new ConflictError("Another operation is already running for this world.");
   const id = randomUUID();
   const controller = new AbortController(); controllers().set(id, controller);
   if (worldId) locks().add(worldId);
@@ -53,6 +57,7 @@ export async function startJob(worldId: string | null, kind: string, task: (cont
   catch (error) { controllers().delete(id); if (worldId) locks().delete(worldId); throw error; }
   void (async () => {
     let releaseInstallation: (() => Promise<void>) | undefined;
+    let finalMessage: string | undefined;
     const log = (message: string) => { sqliteClient().prepare("INSERT INTO job_logs (job_id,message,created_at) VALUES (?,?,?)").run(id, message, Date.now()); };
     try {
       if (worldId) releaseInstallation = await claimOperationInstallation(worldId);
@@ -61,15 +66,15 @@ export async function startJob(worldId: string | null, kind: string, task: (cont
       await task({
         signal: controller.signal,
         nonCancellable: () => { controller.signal.throwIfAborted(); nonCancellable.add(id); },
-        update: async (progress, message) => {
-          await database().update(jobs).set({ state: message === "Waiting for shared SteamCMD client" ? "queued" : "running", progress: Math.max(0, Math.min(100, Math.round(progress))), message }).where(eq(jobs.id, id));
+        update: async (progress, message, options = {}) => {
+          if (options.preserveOnSuccess) finalMessage = message;
+          await database().update(jobs).set({ state: options.state ?? "running", progress: Math.max(0, Math.min(100, Math.round(progress))), message }).where(eq(jobs.id, id));
           await publish(id);
         },
         log,
       });
       controller.signal.throwIfAborted();
-      const final = await getJob(id);
-      await database().update(jobs).set({ state: "succeeded", progress: 100, message: final?.message.includes("restart required") ? final.message : jobSuccessMessage(kind), finishedAt: Date.now() }).where(eq(jobs.id, id));
+      await database().update(jobs).set({ state: "succeeded", progress: 100, message: finalMessage ?? jobSuccessMessage(kind), finishedAt: Date.now() }).where(eq(jobs.id, id));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log(controller.signal.aborted ? "Operation cancelled." : `Operation failed: ${message}`);
@@ -87,11 +92,11 @@ export async function startJob(worldId: string | null, kind: string, task: (cont
 
 export async function cancelJob(id: string): Promise<void> {
   const [job] = await database().select().from(jobs).where(eq(jobs.id, id)).limit(1);
-  if (!job) throw new Error("Job not found.");
-  if (job.state !== "queued" && job.state !== "running") throw new Error("Only queued or running jobs can be cancelled.");
-  if (nonCancellable.has(id)) throw new Error("This operation is completing a non-cancellable installer transaction. Wait for Windows to finish.");
+  if (!job) throw new NotFoundError("Job not found.");
+  if (job.state !== "queued" && job.state !== "running") throw new ConflictError("Only queued or running jobs can be cancelled.");
+  if (nonCancellable.has(id)) throw new ConflictError("This operation is completing a non-cancellable installer transaction. Wait for Windows to finish.");
   const controller = controllers().get(id);
-  if (!controller) throw new Error("This job is no longer attached to the running manager and cannot be cancelled safely.");
+  if (!controller) throw new ConflictError("This job is no longer attached to the running manager and cannot be cancelled safely.");
   await database().update(jobs).set({ message: "Cancelling" }).where(eq(jobs.id, id));
   await publish(id);
   controller.abort(new Error("Cancelled by user."));
@@ -102,8 +107,8 @@ export function worldIsLocked(worldId: string): boolean { return locks().has(wor
 // Holds the same per-world lock as operations for a short change made inside a request, so a
 // start or another change cannot begin until it finishes.
 export async function withWorldLock<T>(worldId: string, task: () => Promise<T>, options: { registrationOnly?: boolean } = {}): Promise<T> {
-  if (globalThis.__psmDraining) throw new Error("The manager is quitting; new changes are disabled.");
-  if (locks().has(worldId)) throw new Error("Another operation is already running for this world.");
+  if (globalThis.__psmDraining) throw new HttpError(DRAINING, 503);
+  if (locks().has(worldId)) throw new ConflictError("Another operation is already running for this world.");
   locks().add(worldId);
   globalThis.__psmActiveChanges = (globalThis.__psmActiveChanges ?? 0) + 1;
   let release: (() => Promise<void>) | undefined;
@@ -115,7 +120,7 @@ export async function withWorldLock<T>(worldId: string, task: () => Promise<T>, 
 }
 
 export async function listJobLogs(jobId: string, limit = 1_000) {
-  return database().select().from(jobLogs).where(eq(jobLogs.jobId, jobId)).orderBy(jobLogs.id).limit(Math.min(Math.max(limit, 1), 5_000));
+  return database().select().from(jobLogs).where(eq(jobLogs.jobId, jobId)).orderBy(jobLogs.id).limit(Math.min(Math.max(Math.trunc(limit) || 1_000, 1), 5_000));
 }
 
 export function beginDrain(): number { globalThis.__psmDraining = true; return activeOperationCount(); }
@@ -132,7 +137,7 @@ export async function reconcileInterruptedJobs(): Promise<void> {
   const snapshot = await processSnapshot();
   for (const job of orphaned) {
     if (controllers().has(job.id)) continue;
-    const worker = /install|update|prerequisites/.test(job.kind) && snapshot.some((entry) => /(?:steamcmd|UEPrereqSetup_x64|vc_redist\.x64)(?:\.exe)?$/i.test(entry.executable));
+    const worker = EXTERNAL_WORKER_JOB_KINDS.has(job.kind) && snapshot.some((entry) => /(?:steamcmd|UEPrereqSetup_x64|vc_redist\.x64)(?:\.exe)?$/i.test(entry.executable));
     if (worker) { if (job.worldId) locks().add(job.worldId); await database().update(jobs).set({ message: "Interrupted manager; waiting for surviving SteamCMD worker. Restart the manager after it exits before retrying." }).where(eq(jobs.id, job.id)); continue; }
     await database().update(jobs).set({ state: "failed", message: "Interrupted", error: "The previous manager exited before this operation completed. Inspect its output and retry when ready.", finishedAt: Date.now() }).where(eq(jobs.id, job.id));
     await publish(job.id);
@@ -140,7 +145,7 @@ export async function reconcileInterruptedJobs(): Promise<void> {
 }
 
 async function claimOperationInstallation(worldId: string): Promise<() => Promise<void>> {
-  const { getWorld, assertWorldOwnership } = await import("./worlds"); const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
+  const { requireWorld, assertWorldOwnership } = await import("./worlds"); const world = await requireWorld(worldId);
   await assertWorldOwnership(world);
   await mkdir(world.installDir, { recursive: true });
   const file = path.join(/* turbopackIgnore: true */ world.installDir, ".psm-operation-owner.json");

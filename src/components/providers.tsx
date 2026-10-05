@@ -4,6 +4,8 @@ import { createInstance, type i18n } from "i18next";
 import { I18nextProvider, initReactI18next } from "react-i18next";
 import { useEffect, useState, type ReactNode } from "react";
 import english from "../../public/locales/en.json";
+import type { LanguagePack } from "@/contracts/localization";
+import { fetchJson } from "@/lib/http-client";
 import { englishGuidedSettingTranslations } from "@/lib/localization-resources";
 import type { ThemeId } from "@/lib/themes";
 import { ThemeProvider } from "./theme-provider";
@@ -25,10 +27,8 @@ function LiveUpdates() {
 function LanguageLoader({ instance }: { instance: i18n }) {
   useEffect(() => {
     let cancelled = false;
-    void fetch("/api/i18n/current").then(async (response) => {
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error);
-      const code = body.pack.meta.code as string;
+    void fetchJson<{ pack: LanguagePack }>("/api/i18n/current").then(async (body) => {
+      const code = body.pack.meta.code;
       if (code === "en" || cancelled) return;
       instance.addResourceBundle(code, "translation", body.pack.translations, true, true);
       await instance.changeLanguage(code);

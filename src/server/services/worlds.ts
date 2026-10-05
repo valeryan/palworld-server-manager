@@ -5,7 +5,8 @@ import { access, realpath, readFile } from "node:fs/promises";
 import { and, eq, ne } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { CreateWorldInput, WorldPorts, WorldRegistration, WorldView } from "@/contracts/world";
-import { createWorldSchema, defaultWorldPorts, managedWorldSettingsSchema, worldRegistrationSchema } from "@/contracts/world";
+import { createWorldSchema, defaultWorldPorts, isWorldStopped, managedWorldSettingsSchema, worldRegistrationSchema } from "@/contracts/world";
+import { ConflictError, NotFoundError } from "@/server/errors";
 import { database } from "@/server/db";
 import { worlds, worldSettings } from "@/server/db/schema";
 import { paths } from "@/server/paths";
@@ -120,6 +121,17 @@ export async function getWorld(id: string): Promise<WorldView | null> {
   return row ? toView(row) : null;
 }
 
+export async function requireWorld(id: string): Promise<WorldView> {
+  const world = await getWorld(id);
+  if (!world) throw new NotFoundError("World not found.");
+  return world;
+}
+
+/** Rejects a change while the world's server process is, or may be, alive. */
+export function assertWorldStopped(world: Pick<WorldView, "status"> & { processId?: number | null }, message: string): void {
+  if (!isWorldStopped(world) || world.processId) throw new ConflictError(message);
+}
+
 export async function createWorld(raw: unknown): Promise<WorldView> {
   const row = await withReservationLock(async () => {
     // Omitted ports are allocated under the reservation lock so concurrent
@@ -189,7 +201,7 @@ export async function unregisterWorld(id: string): Promise<void> {
   return withWorldLock(id, () => withReservationLock(async () => {
     const world = await getWorld(id);
     if (!world) return;
-    if (world.status !== "stopped" || world.processId) throw new Error("Stop the world before removing its registration.");
+    assertWorldStopped(world, "Stop the world before removing its registration.");
     await database().delete(worlds).where(and(eq(worlds.id, id), ne(worlds.status, "running")));
     eventBus().publish({ type: "world", worldId: id, data: { action: "unregistered" } });
   }), { registrationOnly: true });

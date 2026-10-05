@@ -15,10 +15,13 @@ export async function PATCH(request: Request) {
   const denied = requireAdmin(request); if (denied) return denied;
   try {
     const body = await request.json() as { retention?: unknown; theme?: unknown; updateChannel?: unknown };
-    if (body.theme !== undefined) return Response.json({ ok: true, settings: { theme: await saveTheme(body.theme) } });
-    if (body.updateChannel !== undefined) return Response.json({ ok: true, settings: { updateChannel: await saveUpdateChannel(body.updateChannel) } });
-    if (body.retention !== undefined) return Response.json({ ok: true, ...(await saveRetentionSettings(body.retention)) });
-    throw new Error("No supported application setting was provided.");
+    // Every provided setting is applied; the response echoes each one that changed.
+    const settings: Record<string, unknown> = {}; let report: unknown;
+    if (body.theme !== undefined) settings.theme = await saveTheme(body.theme);
+    if (body.updateChannel !== undefined) settings.updateChannel = await saveUpdateChannel(body.updateChannel);
+    if (body.retention !== undefined) { const saved = await saveRetentionSettings(body.retention); settings.retention = saved.settings; report = saved.report; }
+    if (!Object.keys(settings).length) throw new Error("No supported application setting was provided.");
+    return Response.json({ ok: true, settings, ...(report === undefined ? {} : { report }) });
   }
   catch (error) { return errorResponse(error); }
 }

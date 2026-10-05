@@ -63,6 +63,17 @@ export type ManagedWorldSettings = z.infer<typeof managedWorldSettingsSchema>;
 export type WorldStatus = z.infer<typeof worldStatusSchema>;
 export type WorldRegistration = z.infer<typeof worldRegistrationSchema>;
 
+export const ACTIVE_WORLD_STATUSES = ["running", "starting", "stopping"] as const satisfies readonly WorldStatus[];
+
+/** True while a lifecycle transition is in progress or a server PID is recorded. Ownership marked
+ * `unknown` counts as busy only when the caller asks, since nothing can be verified about it. */
+export function worldBusy(world: Pick<WorldView, "status" | "processId">, options: { includeUnknown?: boolean } = {}): boolean {
+  return (ACTIVE_WORLD_STATUSES as readonly string[]).includes(world.status) || Boolean(world.processId) || (options.includeUnknown === true && world.status === "unknown");
+}
+
+/** Nothing is running and ownership is settled: the world is stopped or has crashed. */
+export function isWorldStopped(world: Pick<WorldView, "status">): boolean { return world.status === "stopped" || world.status === "crashed"; }
+
 export interface WorldView extends CreateWorldInput {
   installation?: import("./installation").InstallationHealth;
   id: string;

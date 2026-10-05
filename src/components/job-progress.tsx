@@ -2,9 +2,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useEffectEvent } from "react";
 import type { JobView } from "@/contracts/job";
+import { fetchJson } from "@/lib/http-client";
 import { useJobPresentation } from "@/lib/use-job-presentation";
 
-async function job(jobId: string): Promise<JobView> { const response = await fetch(`/api/jobs/${jobId}`); const body = await response.json(); if (!response.ok) throw new Error(body.error); return body.job; }
+async function job(jobId: string): Promise<JobView> { return (await fetchJson<{ job: JobView }>(`/api/jobs/${jobId}`)).job; }
 const finishedJob = (value: JobView | undefined) => value && value.state !== "running" && value.state !== "queued" ? value : null;
 
 // Inline progress for an operation started from a panel; reports once when it settles.

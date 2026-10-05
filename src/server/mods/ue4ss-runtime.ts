@@ -12,6 +12,7 @@ import { paths } from "@/server/paths";
 import { fileMatches, movePath, relativeEntry, safeEntries } from "@/server/services/archive";
 import type { JobContext } from "@/server/services/jobs";
 import { runsUnderWine, withWineOverrides } from "@/server/services/wine";
+import { assertWorldStopped } from "@/server/services/worlds";
 import { MOD_CATALOG, artifactPath, type CatalogArtifact } from "./catalog";
 import { ue4ssLayout } from "./ue4ss";
 
@@ -46,9 +47,7 @@ function artifactFor(variant: ModVariant): CatalogArtifact {
   return found;
 }
 
-function assertStopped(world: RuntimeWorld): void {
-  if (world.status !== "stopped" && world.status !== "crashed") throw new Error("Stop the server before changing UE4SS.");
-}
+const STOP_FIRST = "Stop the server before changing UE4SS.";
 
 // Entries to install, as paths relative to the world's UE4SS destination.
 export function installPlan(zip: AdmZip, variant: ModVariant): Array<{ relative: string; size: number; data: () => Buffer }> {
@@ -91,7 +90,7 @@ async function pruneEmptyDirectories(world: RuntimeWorld, relativeFiles: string[
 // Installs (or updates, or with replace: takes over) UE4SS in a stopped world from the verified
 // library copy. Never downloads.
 export async function installUe4ss(world: RuntimeWorld, options: { replace: boolean }, context: JobContext): Promise<void> {
-  assertStopped(world);
+  assertWorldStopped(world, STOP_FIRST);
   const layout = ue4ssLayout(world); const artifact = artifactFor(layout.variant);
   if (!await exists(layout.binaries)) throw new Error("The server binaries for this world were not found; install or update the server first.");
   const archive = await readFile(artifactPath(artifact)).catch(() => { throw new Error(`${artifact.name} ${artifact.version} is not in the Mods library. Download it from the Mods library first.`); });
@@ -137,7 +136,7 @@ export async function installUe4ss(world: RuntimeWorld, options: { replace: bool
 }
 
 export async function setUe4ssEnabled(world: RuntimeWorld, enabled: boolean): Promise<void> {
-  assertStopped(world);
+  assertWorldStopped(world, STOP_FIRST);
   const row = await runtimeRow(world.id); if (!row) throw new Error("UE4SS was not installed by PSM in this world.");
   if (row.variant === "windows") {
     // Native Windows loads dwmapi.dll from the game folder unconditionally, so disabling moves it aside.
@@ -151,7 +150,7 @@ export async function setUe4ssEnabled(world: RuntimeWorld, enabled: boolean): Pr
 // Removes only files PSM installed. Mods the user added and files UE4SS created (its log, its
 // status mod) stay, so nothing outside the manager's own install is lost.
 export async function removeUe4ss(world: RuntimeWorld, context: JobContext): Promise<void> {
-  assertStopped(world);
+  assertWorldStopped(world, STOP_FIRST);
   const row = await runtimeRow(world.id); if (!row) throw new Error("UE4SS was not installed by PSM in this world.");
   const loader = row.installedFiles.find((file) => file.endsWith(`/${PACKAGES.windows.loader}`) || file === PACKAGES.windows.loader);
   const files = [...row.installedFiles, ...(loader ? [`${loader}${DISABLED_SUFFIX}`] : [])];
