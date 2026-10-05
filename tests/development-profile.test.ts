@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 function resolveProfile(environment: Record<string, string> = {}) {
-  const script = `import { developmentEnvironment } from ${JSON.stringify(path.join(process.cwd(), "scripts/development-profile.mjs"))}; console.log(JSON.stringify(developmentEnvironment({})))`;
+  const script = `import { developmentEnvironment } from ${JSON.stringify(path.join(process.cwd(), "scripts/dev.mjs"))}; console.log(JSON.stringify(developmentEnvironment({})))`;
   return JSON.parse(execFileSync(process.execPath, ["--input-type=module", "--eval", script], { env: { ...process.env, ...environment }, encoding: "utf8" })) as Record<string, string>;
 }
 
@@ -17,13 +17,13 @@ describe("development profile", () => {
   });
 
   it("preserves explicit environment overrides", () => {
-    const script = `import { developmentEnvironment } from ${JSON.stringify(path.join(process.cwd(), "scripts/development-profile.mjs"))}; console.log(JSON.stringify(developmentEnvironment({ PSM_PORT: "5001", PALWORLD_MANAGER_DATA_DIR: "/tmp/psm-profile" })))`;
+    const script = `import { developmentEnvironment } from ${JSON.stringify(path.join(process.cwd(), "scripts/dev.mjs"))}; console.log(JSON.stringify(developmentEnvironment({ PSM_PORT: "5001", PALWORLD_MANAGER_DATA_DIR: "/tmp/psm-profile" })))`;
     const profile = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "--eval", script], { encoding: "utf8" })) as Record<string, string>;
     expect(profile).toMatchObject({ PSM_PORT: "5001", ELECTRON_START_URL: "http://127.0.0.1:5001", PALWORLD_MANAGER_DATA_DIR: "/tmp/psm-profile" });
   });
 
   it("rejects conflicting port and renderer overrides", () => {
-    const script = `import { developmentEnvironment } from ${JSON.stringify(path.join(process.cwd(), "scripts/development-profile.mjs"))}; developmentEnvironment({ PSM_PORT: "5001", ELECTRON_START_URL: "http://127.0.0.1:5002" })`;
+    const script = `import { developmentEnvironment } from ${JSON.stringify(path.join(process.cwd(), "scripts/dev.mjs"))}; developmentEnvironment({ PSM_PORT: "5001", ELECTRON_START_URL: "http://127.0.0.1:5002" })`;
     expect(() => execFileSync(process.execPath, ["--input-type=module", "--eval", script], { encoding: "utf8", stdio: "pipe" })).toThrow();
   });
 });

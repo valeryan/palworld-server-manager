@@ -9,8 +9,8 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n web,electron -c cyan,magenta \"npm:dev:web\" \"npm:dev:electron\"",
-    "dev:web": "node scripts/start-development-web.mjs",
-    "dev:electron": "npm run build:electron && node scripts/start-development-electron.mjs",
+    "dev:web": "node scripts/dev.mjs web",
+    "dev:electron": "npm run build:electron && node scripts/dev.mjs electron",
     "build": "npm run build:web && npm run build:electron",
     "build:web": "next build",
     "build:electron": "tsup",
