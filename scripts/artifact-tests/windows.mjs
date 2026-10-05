@@ -112,41 +112,57 @@ using System.IO;
 using System.Threading;
 using System.Diagnostics;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 class Fixture {
+  [DllImport("kernel32.dll")] static extern IntPtr GetConsoleWindow();
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr window);
   static void Main(string[] args) {
-    if (Array.IndexOf(args, "--child") < 0) {
+    if (Path.GetFileName(Environment.GetCommandLineArgs()[0]) == "PalServer.exe") throw new Exception("Native launch must preserve handles by starting the shipping server directly.");
+    bool child = Array.IndexOf(args, "--child") >= 0;
+    File.WriteAllText(child ? "child-console.txt" : "launcher-console.txt", IsWindowVisible(GetConsoleWindow()).ToString());
+    if (!child) {
       var forwarded = new List<string>();
       foreach (var arg in args) forwarded.Add("\"" + arg.Replace("\"", "\\\"") + "\"");
       forwarded.Add("--child");
       Process.Start(new ProcessStartInfo {
-        FileName = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Pal", "Binaries", "Win64", "PalServer-Win64-Shipping.exe"),
+        FileName = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PalServer-Win64-Shipping.exe"),
         Arguments = String.Join(" ", forwarded.ToArray()), UseShellExecute = false, CreateNoWindow = true
       });
       return;
     }
     File.WriteAllLines("argv.txt", args);
-    Console.WriteLine("Fixture shipping server started");
-    while (true) { File.WriteAllText("heartbeat.txt", DateTime.UtcNow.ToString("O")); Thread.Sleep(100); }
+    Console.WriteLine("Fixture shipping server started"); Console.Out.Flush();
+    while (true) {
+      var heartbeat = DateTime.UtcNow.ToString("O");
+      File.WriteAllText("heartbeat.txt", heartbeat);
+      Console.WriteLine("Fixture heartbeat " + heartbeat); Console.Out.Flush();
+      Thread.Sleep(100);
+    }
   }
 }
 `);
     const csc = path.join(process.env.WINDIR, "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe");
     execFileSync(csc, ["/nologo", "/target:exe", `/out:${path.join(fixture, "PalServer.exe")}`, cs]);
     await copyFile(path.join(fixture, "PalServer.exe"), path.join(fixture, "Pal", "Binaries", "Win64", "PalServer-Win64-Shipping.exe"));
+    await copyFile(path.join(fixture, "PalServer.exe"), path.join(fixture, "Pal", "Binaries", "Win64", "PalServer-Win64-Shipping-Cmd.exe"));
     const configDir = path.join(fixture, "Pal", "Saved", "Config", "WindowsServer"); await mkdir(configDir, { recursive: true });
     const ini = '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(ServerName="Native fixture",RESTAPIEnabled=False,RCONEnabled=False)\n';
     await writeFile(path.join(configDir, "PalWorldSettings.ini"), ini); await writeFile(path.join(fixture, "DefaultPalWorldSettings.ini"), ini);
-    const adopted = await api("/api/worlds?mode=adopt", { displayName: "Native fixture", installDir: fixture, platform: "windows", restApiEnabled: false, crashGuard: false, extraArgs: '-Log="C:\\Server Logs\\Ω.log" ""' });
+    const adopted = await api("/api/worlds?mode=adopt", { displayName: "Native fixture", installDir: fixture, platform: "windows", restApiEnabled: false, crashGuard: true, extraArgs: '-Log="C:\\Server Logs\\Ω.log" ""' });
     assert.equal(adopted.status, 201, JSON.stringify(adopted)); const fixtureId = adopted.body.world.id;
     await job(api(`/api/worlds/${fixtureId}/actions`, { action: "backup" }));
     const backups = (await api(`/api/worlds/${fixtureId}/backups`)).body.backups;
     assert.ok(backups.length); await job(api(`/api/worlds/${fixtureId}/actions`, { action: "restore", backupId: backups[0].id }));
     assert.equal(await readFile(path.join(configDir, "PalWorldSettings.ini"), "utf8"), ini);
     await job(api(`/api/worlds/${fixtureId}/actions`, { action: "start" }));
+    for (const name of ["launcher-console.txt", "child-console.txt"]) assert.equal(await until(() => readFile(path.join(fixture, name), "utf8")), "False", `${name}: no separate console window may be visible`);
+    await until(async () => (await api(`/api/worlds/${fixtureId}/logs`)).body.logs.content.includes("Fixture shipping server started"));
     const argv = (await readFile(path.join(fixture, "argv.txt"), "utf8")).split(/\r?\n/).slice(0, -1);
     assert.ok(argv.includes("-Log=C:\\Server Logs\\Ω.log")); assert.ok(argv.includes(""), "An explicit empty argument must reach the native child");
     await quit(); const before = await readFile(path.join(fixture, "heartbeat.txt"), "utf8"); await delay(500); assert.notEqual(await readFile(path.join(fixture, "heartbeat.txt"), "utf8"), before);
     await launch(); assert.equal((await api(`/api/worlds/${fixtureId}`)).body.world.status, "running");
+    const afterQuitLogs = (await api(`/api/worlds/${fixtureId}/logs`)).body.logs.content;
+    assert.ok(afterQuitLogs.includes(before.trim()), "Detached file logging must continue while the manager is closed");
     // Kill only this artifact's bundled web process; preserve its game process and WAL.
     const interruptedDB = new DatabaseSync(path.join(profile, "registry-v3.sqlite"));
     interruptedDB.prepare("INSERT INTO jobs(id,kind,state,message,created_at) VALUES('native-interrupted','backup','running','Fixture interrupted operation',?)").run(Date.now()); interruptedDB.close();
@@ -156,6 +172,8 @@ class Fixture {
     assert.equal((await api("/api/jobs/native-interrupted")).body.job.state, "failed");
     assert.equal((await api(`/api/worlds/${fixtureId}`)).body.world.status, "running");
     await job(api(`/api/worlds/${fixtureId}/actions`, { action: "stop", force: true }));
+    await delay(6_000);
+    assert.equal((await api(`/api/worlds/${fixtureId}`)).body.world.status, "stopped", "Intentional Stop must not trigger crash recovery");
     const login = await page.evaluate(async () => { await window.psmDesktop.setLaunchAtLogin(true); return window.psmDesktop.getLoginStatus(); });
     assert.equal(login.configured, true);
     const registry = execFileSync("reg.exe", ["query", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"], { encoding: "utf8" });

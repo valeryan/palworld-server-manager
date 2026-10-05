@@ -19,6 +19,9 @@ describe("native host and command contracts", () => {
     try {
       expect(hostCapabilities()).toMatchObject({ platform: "win32", defaultWorldPlatform: "windows", worldPlatforms: ["windows"], wine: false });
       expect(steamCmdHost()).toMatchObject({ executable: "steamcmd.exe", archive: "steamcmd.zip" });
+      const command = commandFor({ platform: "windows", installDir: "/tmp/Native world Ω", env: {}, argumentFormat: "windows", extraArgs: '-Log="D:\\Server Logs\\Ω.log" ""', gamePort: 8211, queryPort: 27015 } as WorldView);
+      expect(command.command).toBe("/tmp/Native world Ω/Pal/Binaries/Win64/PalServer-Win64-Shipping-Cmd.exe");
+      expect(command.args).toEqual(["Pal", "-port=8211", "-queryport=27015", "-Log=D:\\Server Logs\\Ω.log", "", "-NoConsole", "-stdout", "-FullStdOutLogOutput", "-FORCELOGFLUSH"]);
       expect(() => assertSupportedTarget("linux")).toThrow("Cannot run");
       for (const value of ["\\\\server\\share", "\\relative", "C:relative", "\\\\?\\C:\\extended"]) expect(() => assertLocalWindowsPath(value)).toThrow("local drive");
       expect(() => assertLocalWindowsPath("D:\\Worlds\\Ω")).not.toThrow();
@@ -33,6 +36,20 @@ describe("native host and command contracts", () => {
     const command = commandFor({ platform: "linux", argumentFormat: "windows", extraArgs: '"" -Log="C:\\Server Logs\\Ω.log"', env: {}, installDir: "/tmp/fixture", gamePort: 8211, queryPort: 27015 } as WorldView);
     expect(command.args).toContain("");
     expect(command.args).toContain("-Log=C:\\Server Logs\\Ω.log");
+  });
+  it("reports a native installation without the headless launch binary as incomplete", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "psm-native-layout-"));
+    const binaries = path.join(root, "Pal", "Binaries", "Win64");
+    await mkdir(binaries, { recursive: true });
+    await writeFile(path.join(root, "PalServer.exe"), "MZfixture");
+    await writeFile(path.join(binaries, "PalServer-Win64-Shipping.exe"), "MZfixture");
+    const spy = vi.spyOn(process.getBuiltinModule("node:os"), "platform").mockReturnValue("win32");
+    try {
+      const { inspectInstallation } = await import("@/server/services/installation");
+      expect(await inspectInstallation(root, "windows")).toMatchObject({ executable: false });
+      await writeFile(path.join(binaries, "PalServer-Win64-Shipping-Cmd.exe"), "MZfixture");
+      expect(await inspectInstallation(root, "windows")).toMatchObject({ executable: true });
+    } finally { spy.mockRestore(); await rm(root, { recursive: true, force: true }); }
   });
   it("rejects unsafe Windows archive aliases and collisions before extraction", () => {
     for (const name of ["C:/escape", "\\\\host\\share", "Saved/file:stream", "Saved/CON.txt", "Saved/x.", "../escape", "Saved/../escape"]) expect(safeArchivePath(name), name).toBe(false);

@@ -18,6 +18,14 @@ Prerequisite diagnosis checks the registered Visual C++ x64 runtime; this is not
 
 Vendor references: [Palworld deployment](https://docs.palworldgame.com/getting-started/deploy-dedicated-server/), [Microsoft runtime downloads](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170), [redistribution and installer options](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files?view=msvc-170).
 
+## Server launch and console output
+
+Native Windows launches the shipped `Pal/Binaries/Win64/PalServer-Win64-Shipping-Cmd.exe` directly with the same `Pal` argument used by the outer launcher. The current `PalServer.exe` bootstrap discards hidden-window and standard-output settings when creating its child. Direct launch keeps that game process detached, suppresses its console window, and sends stdout/stderr to the manager's server log. Installation health requires this binary; a missing binary requires repair instead of falling back to a visible console. Linux and Linux-hosted Wine retain their existing launch commands.
+
+The manager adds Unreal's `-NoConsole`, `-stdout`, `-FullStdOutLogOutput`, and `-FORCELOGFLUSH` flags. Engine output is flushed to the Console tab's log file; game-specific output can still be buffered by the game. The real Windows server under Wine produced startup output immediately, but some REST access lines arrived in batches and one version line had an encoding defect. Native Windows logging latency and encoding remain acceptance checks.
+
+Intentional Stop and process inspection share a per-world lifecycle lock. Stop cancels pending crash recovery, and delayed recovery rechecks the world before launching. An external console closure or external process termination still counts as an unexpected exit when crash recovery is enabled.
+
 ## Quit and replacement
 
 Quit stops accepting work and waits for active jobs. Game servers keep running with file-backed logs. Schedules and crash recovery pause while the manager is closed; reopen reconnects by verified identity. Windows logout/shutdown is different and does not promise server survival.

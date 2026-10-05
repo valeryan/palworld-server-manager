@@ -4,7 +4,7 @@ import { readFile, stat, readdir } from "node:fs/promises";
 import { desc, eq } from "drizzle-orm";
 import type { WorldView } from "@/contracts/world";
 import type { InstallationHealth } from "@/contracts/installation";
-import { hostCapabilities } from "@/server/host";
+import { hostCapabilities, hostPlatform } from "@/server/host";
 import { database } from "@/server/db";
 import { jobs } from "@/server/db/schema";
 import { readInstalledBuild } from "./steamcmd";
@@ -23,7 +23,11 @@ export async function inspectInstallation(installDir: string, target?: "linux" |
     executable = Boolean(bytes?.length && (platform !== "windows" || bytes.subarray(0, 2).toString() === "MZ"));
     if (platform === "windows") {
       const names = await readdir(path.join(/* turbopackIgnore: true */ installDir, "Pal", "Binaries", "Win64")).catch(() => []);
-      if (!names.some((name) => /^PalServer.*Shipping.*\.exe$/i.test(name))) { executable = false; warnings.push("The Windows shipping-server executable is missing."); }
+      const native = hostPlatform() === "win32";
+      const available = native
+        ? names.some((name) => name.toLowerCase() === "palserver-win64-shipping-cmd.exe")
+        : names.some((name) => /^PalServer.*Shipping.*\.exe$/i.test(name));
+      if (!available) { executable = false; warnings.push(native ? "PalServer-Win64-Shipping-Cmd.exe is missing; repair the Windows installation before starting." : "The Windows shipping-server executable is missing."); }
     }
   }
   const content = platform ? await readFile(configPath(installDir, platform), "utf8").catch(() => "") : "";

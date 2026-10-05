@@ -85,7 +85,16 @@ export function commandFor(world: WorldView): { command: string; args: string[];
     env.WINEDLLOVERRIDES = serverWineOverrides(env.WINEDLLOVERRIDES);
     return { command: world.wineBinary, args: [...parseArguments(world.wineLaunchFlags), path.join(/* turbopackIgnore: true */ world.installDir, "PalServer.exe"), ...serverArgs], env };
   }
-  return { command: world.platform === "windows" ? path.join(/* turbopackIgnore: true */ world.installDir, "PalServer.exe") : path.join(/* turbopackIgnore: true */ world.installDir, "PalServer.sh"), args: serverArgs, env };
+  if (hostPlatform() === "win32") {
+    // PalServer.exe starts this console-subsystem binary with a fresh STARTUPINFO,
+    // losing windowsHide and redirected output. Spawn the same game directly so
+    // DETACHED_PROCESS and our file handles apply to the process that actually runs.
+    return {
+      command: path.join(/* turbopackIgnore: true */ world.installDir, "Pal", "Binaries", "Win64", "PalServer-Win64-Shipping-Cmd.exe"),
+      args: ["Pal", ...serverArgs, "-NoConsole", "-stdout", "-FullStdOutLogOutput", "-FORCELOGFLUSH"], env,
+    };
+  }
+  return { command: path.join(/* turbopackIgnore: true */ world.installDir, "PalServer.sh"), args: serverArgs, env };
 }
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
