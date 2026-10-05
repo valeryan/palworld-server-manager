@@ -22,7 +22,7 @@ Vendor references: [Palworld deployment](https://docs.palworldgame.com/getting-s
 
 Native Windows launches the shipped `Pal/Binaries/Win64/PalServer-Win64-Shipping-Cmd.exe` directly with the same `Pal` argument used by the outer launcher. The current `PalServer.exe` bootstrap discards hidden-window and standard-output settings when creating its child. Direct launch keeps that game process detached, suppresses its console window, and sends stdout/stderr to the manager's server log. Installation health requires this binary; a missing binary requires repair instead of falling back to a visible console. Linux and Linux-hosted Wine retain their existing launch commands.
 
-The manager adds Unreal's `-NoConsole`, `-stdout`, `-FullStdOutLogOutput`, and `-FORCELOGFLUSH` flags. Engine output is flushed to the Console tab's log file; game-specific output can still be buffered by the game. The real Windows server under Wine produced startup output immediately, but some REST access lines arrived in batches and one version line had an encoding defect. Native Windows logging latency and encoding remain acceptance checks.
+The manager adds Unreal's `-NoConsole`, `-stdout`, `-FullStdOutLogOutput`, and `-FORCELOGFLUSH` flags. Engine output is flushed to the Console tab's log file; game-specific output can still be buffered by the game. The real Windows server under Wine produced startup output immediately, but some REST access lines arrived in batches and one version line had an encoding defect. The user subsequently reported all changed and fixed Windows behavior working; the Wine buffering/encoding observations remain diagnostic history, not a measured native latency guarantee.
 
 Intentional Stop and process inspection share a per-world lifecycle lock. Stop cancels pending crash recovery, and delayed recovery rechecks the world before launching. An external console closure or external process termination still counts as an unexpected exit when crash recovery is enabled.
 
@@ -36,4 +36,6 @@ Unsigned Windows artifacts may display SmartScreen prompts. Automatic updating, 
 
 ## Acceptance
 
-Native CI checks bootstrap, registration recovery, actual argv, fixture process survival and reattachment, backups/restores, startup targets and Setup reinstall. The user's Windows 11 pass still covers real game installation and updates, graceful shutdown, crash guard, Steam-library adoption, UAC/reboot, dialogs/tray/scaling, firewall/LAN, players, REST/RCON, deaths, mods, schedules and remote permissions. Do not label the milestone accepted until that pass is complete.
+On 2026-10-04, the user confirmed: “I have tested everything you have changed or fixed in windows and its working.” This records hands-on Windows acceptance of the milestone changes, including the follow-up fixes. The report does not identify the tested EXE hash or provide separate results for each installer format or timing measurement.
+
+Automated native artifact validation remains a separate release gate. The Windows harness covers bootstrap, registration recovery, argv, fixture process survival and reattachment, backups/restores, startup targets and Setup reinstall; it has not yet been verified on a native runner for this milestone. Linux source/browser checks and Wine diagnostics do not substitute for that run. Artifacts remain test builds until the release gates pass.
