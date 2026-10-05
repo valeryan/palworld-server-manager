@@ -27,6 +27,8 @@ The Windows builds are unsigned and labelled test builds in the release notes un
 
 `npm run release` runs every check, empties `release/`, and builds all three artifacts with `SHA256SUMS.txt`, the same as the workflow. `npm run dist` builds them without the checks; `dist:linux` and `dist:windows` build one platform. On Linux the Windows builds are cross-built through Wine; the release script gives Wine a throwaway prefix with no display and no desktop integration.
 
+The checked release packages the build prepared by `test:e2e`; it does not compile the application again after the tests. `npm run release -- --skip-checks` still builds and prepares the application once before packaging. Standalone `pack`, `dist`, and test commands remain usable independently.
+
 To rehearse an update locally, quit the current manager, verify the artifact against `SHA256SUMS.txt`, make the versioned AppImage executable, and launch it directly.
 
 ## Updates in the application
