@@ -135,4 +135,22 @@ describe("registration and recovery on an incomplete installation", () => {
     expect(activeOperationCount()).toBe(0);
     expect((await readSettingsState(id)).desiredManager.displayName).toBe("Saved before quit");
   });
+  it("removes an incomplete registration only when idle, preserving files and operation history", async () => {
+    const { getWorld, unregisterWorld, setRuntimeState } = await import("@/server/services/worlds");
+    const { withWorldLock, getJob } = await import("@/server/services/jobs");
+    const world = (await getWorld(id))!;
+    const template = path.join(world.installDir, "DefaultPalWorldSettings.ini");
+    const original = await readFile(template, "utf8");
+    await withWorldLock(id, async () => {
+      await expect(unregisterWorld(id)).rejects.toThrow("Another operation");
+      expect(await getWorld(id)).toMatchObject({ id });
+    });
+    await setRuntimeState(id, "running", process.pid);
+    await expect(unregisterWorld(id)).rejects.toThrow("Stop the world");
+    await setRuntimeState(id, "stopped", null);
+    await unregisterWorld(id);
+    expect(await getWorld(id)).toBeNull();
+    expect(await readFile(template, "utf8")).toBe(original);
+    expect(await getJob("orphan-test")).toMatchObject({ state: "failed", worldId: null });
+  });
 });

@@ -104,13 +104,13 @@ export function worldIsLocked(worldId: string): boolean { return locks().has(wor
 
 // Holds the same per-world lock as operations for a short change made inside a request, so a
 // start or another change cannot begin until it finishes.
-export async function withWorldLock<T>(worldId: string, task: () => Promise<T>): Promise<T> {
+export async function withWorldLock<T>(worldId: string, task: () => Promise<T>, options: { registrationOnly?: boolean } = {}): Promise<T> {
   if (globalThis.__psmDraining) throw new Error("The manager is quitting; new changes are disabled.");
   if (locks().has(worldId)) throw new Error("Another operation is already running for this world.");
   locks().add(worldId);
   globalThis.__psmActiveChanges = (globalThis.__psmActiveChanges ?? 0) + 1;
   let release: (() => Promise<void>) | undefined;
-  try { release = await claimOperationInstallation(worldId); return await task(); }
+  try { if (!options.registrationOnly) release = await claimOperationInstallation(worldId); return await task(); }
   finally {
     try { if (release) await release(); }
     finally { locks().delete(worldId); globalThis.__psmActiveChanges!--; }

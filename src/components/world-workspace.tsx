@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -29,6 +30,12 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> { const resp
 const tabs: Tab[] = ["overview", "players", "deaths", "console", "settings", "mods", "backups", "schedule"];
 export function WorldWorkspace({ worldId }: { worldId: string }) {
   const { t } = useTranslation(); const presentation = useJobPresentation(); const stamp = useLocaleDateTime();
+  const router = useRouter();
+  const remove = useMutation({
+    mutationFn: () => json(`/api/worlds/${worldId}`, { method: "DELETE" }),
+    onSuccess: async () => { await client.invalidateQueries({ queryKey: ["worlds"] }); router.push("/"); },
+    onError: (error) => setNotice(error.message),
+  });
   const client = useQueryClient(); const [tab, setTab] = useState<Tab>("overview"); const [settingsMode, setSettingsMode] = useState<"guided" | "raw">("guided"); const [notice, setNotice] = useState<string | null>(null); const [draft, setDraft] = useState<string | null>(null); const [logsPaused, setLogsPaused] = useState(false); const [selectedLog, setSelectedLog] = useState<string>(); const [activityLimit, setActivityLimit] = useState(25);
   const worldQuery = useQuery({ queryKey: ["world", worldId], queryFn: async () => (await json<{ world: SafeWorld }>(`/api/worlds/${worldId}`)).world, refetchInterval: 4_000 });
   const world = worldQuery.data;
@@ -54,7 +61,7 @@ export function WorldWorkspace({ worldId }: { worldId: string }) {
     </section>
     <div className="world-tabs">{tabs.map((item) => <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>{t(`world.tab.${item}`)}</button>)}</div>
     <section className="world-tab-panel">
-      {tab === "overview" && <Overview activity={activityQuery.data} live={live} onLoadOlder={() => setActivityLimit((value) => Math.min(500, value + 25))} />}
+      {tab === "overview" && <><Overview activity={activityQuery.data} live={live} onLoadOlder={() => setActivityLimit((value) => Math.min(500, value + 25))} /><div className="panel-heading"><div><h2>{t("world.removeTitle")}</h2><p>{t("world.removeHelp")}</p></div><button className="button danger" disabled={remove.isPending || world.status !== "stopped" || Boolean(world.processId)} onClick={() => { if (window.confirm(t("properties.unregisterConfirm", { world: world.displayName }))) remove.mutate(); }}>{t("world.removeTitle")}</button></div></>}
       {tab === "players" && <Players worldId={worldId} players={players} reachable={Boolean(live?.reachable)} onRefresh={() => void liveQuery.refetch()} onNotice={setNotice} />}
       {tab === "deaths" && <Deaths records={activityQuery.data?.deaths ?? []} hasMore={Boolean(activityQuery.data?.hasMore.deaths)} onLoadOlder={() => setActivityLimit((value) => Math.min(500, value + 25))} />}
       {tab === "console" && <Console world={world} logs={logsQuery.data} paused={logsPaused} onPause={() => setLogsPaused((value) => !value)} onSelect={setSelectedLog} onRefresh={() => void logsQuery.refetch()} onNotice={setNotice} />}

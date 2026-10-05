@@ -11,6 +11,7 @@ import { worlds, worldSettings } from "@/server/db/schema";
 import { paths } from "@/server/paths";
 import { eventBus } from "./events";
 import { withReservationLock } from "./reservations";
+import { withWorldLock } from "./jobs";
 
 type WorldRow = typeof worlds.$inferSelect;
 const PORT_FIELDS = ["gamePort", "queryPort", "restApiPort", "rconPort"] as const;
@@ -206,11 +207,13 @@ export function exportWorldRegistration(world: WorldView): WorldRegistration {
 }
 
 export async function unregisterWorld(id: string): Promise<void> {
-  const world = await getWorld(id);
-  if (!world) return;
-  if (world.status !== "stopped" || world.processId) throw new Error("Stop the world before removing its registration.");
-  await database().delete(worlds).where(and(eq(worlds.id, id), ne(worlds.status, "running")));
-  eventBus().publish({ type: "world", worldId: id, data: { action: "unregistered" } });
+  return withWorldLock(id, () => withReservationLock(async () => {
+    const world = await getWorld(id);
+    if (!world) return;
+    if (world.status !== "stopped" || world.processId) throw new Error("Stop the world before removing its registration.");
+    await database().delete(worlds).where(and(eq(worlds.id, id), ne(worlds.status, "running")));
+    eventBus().publish({ type: "world", worldId: id, data: { action: "unregistered" } });
+  }), { registrationOnly: true });
 }
 
 export async function setRuntimeState(id: string, status: WorldView["status"], processId: number | null): Promise<void> {

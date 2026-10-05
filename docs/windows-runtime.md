@@ -10,9 +10,9 @@ Both formats support launch at login; Portable registers the outer EXE. Windows 
 
 ## Operations and prerequisites
 
-An incomplete installation remains registered. Settings → Server Admin can repair its name, path, platform and launch preferences even without a valid INI. Game settings wait for a shipped template or explicit configuration repair. Retry installation retains the registration and operation history. Unregister preserves server files.
+An incomplete installation remains registered. Settings → Server Admin can repair its name, path, platform and launch preferences even without a valid INI. Game settings wait for a shipped template or explicit configuration repair. Retry installation retains the registration and operation history. **Remove from manager** is available on the world Overview and in Server Admin. It preserves server files and saves; stop the server and finish or cancel active operations first.
 
-SteamCMD is shared and serialized. Optional build-discovery failures do not block Valve installation. Failed operations retain diagnostics; interrupted work is reconciled before retry. A surviving worker or uncertain process owner blocks conflicting work.
+SteamCMD is shared and serialized. Optional build-discovery failures do not block Valve installation. Windows bootstrap verifies the updated client again when its self-updater completes with exit 7; it requires a successful probe before installing game files. Retries are bounded and wait for staged workers to exit. Failed operations include the final error in retained output; interrupted work is reconciled before retry. A surviving worker or uncertain process owner blocks conflicting work.
 
 Prerequisite diagnosis checks the registered Visual C++ x64 runtime; this is not an exhaustive dependency scan. Repair prefers the game's bundled signed Unreal installer, otherwise Microsoft's signed x64 redistributable. Only the installer requests elevation. Windows installer transactions cannot be cancelled through the manager once started. Respect any reboot-required result before starting the game.
 

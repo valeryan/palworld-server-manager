@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import path from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 const worldDirectory = path.join(process.cwd(), ".e2e-runtime", "world");
 
@@ -293,4 +294,26 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await expect(retentionTooltip.locator("strong")).toHaveText("Completed operations");
   await expect(retentionTooltip).toContainText("Maximum number of completed operation records");
   await expect(page.locator(".launch-option-grid small, .custom-launch-flags small, .retention-footer small, .language-control > small")).toHaveCount(0);
+});
+
+test("removes an incomplete world from the overview without deleting its files", async ({ page }) => {
+  await authenticate(page);
+  const installDir = path.join(process.cwd(), ".e2e-runtime", "removal-world");
+  const created = await page.request.post("/api/worlds", { data: { displayName: "Incomplete removal fixture", installDir, platform: "linux", gamePort: 39771, queryPort: 39772, restApiPort: 39773, rconPort: 39774 } });
+  expect(created.ok()).toBe(true);
+  const { world } = await created.json() as { world: { id: string } };
+  await mkdir(installDir, { recursive: true });
+  const savedFile = path.join(installDir, "saved-fixture.txt");
+  await writeFile(savedFile, "preserve this save");
+  await page.goto(`/worlds/${world.id}`);
+  const remove = page.getByRole("button", { name: "Remove from manager", exact: true });
+  await expect(remove).toBeVisible();
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await remove.click();
+  expect((await page.request.get(`/api/worlds/${world.id}`)).ok()).toBe(true);
+  page.once("dialog", async (dialog) => { expect(dialog.message()).toContain("Server files and saves will be kept"); await dialog.accept(); });
+  await remove.click();
+  await expect(page).toHaveURL("/");
+  expect((await page.request.get(`/api/worlds/${world.id}`)).status()).toBe(404);
+  expect(await readFile(savedFile, "utf8")).toBe("preserve this save");
 });
