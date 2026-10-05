@@ -1,4 +1,5 @@
 "use client";
+import { requestJson as json } from "@/lib/http-client";
 import * as Dialog from "@radix-ui/react-dialog";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -16,10 +17,7 @@ import { SphereMark } from "./sphere-mark";
 import { usePlatformLabel, useHostPlatform } from "@/lib/use-platform-label";
 
 type SafeWorld = Omit<WorldView, "adminPassword" | "serverPassword" | "env">;
-async function json<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, { ...init, headers: { "Content-Type": "application/json", ...init?.headers } });
-  const body = await response.json(); if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`); return body;
-}
+
 function Status({ value }: { value: SafeWorld["status"] }) { const { t } = useTranslation(); return <span className={`status status-${value}`}><i />{t(`status.${value}`)}</span>; }
 
 // Blank port fields are omitted so the server allocates the next free ports.

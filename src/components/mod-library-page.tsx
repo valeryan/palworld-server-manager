@@ -1,4 +1,5 @@
 "use client";
+import { fetchJson as request } from "@/lib/http-client";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
@@ -10,7 +11,6 @@ import { AppShell } from "./app-shell";
 import { JobProgress } from "./job-progress";
 import { Toast } from "./toast";
 
-async function request<T>(url: string, init?: RequestInit): Promise<T> { const response = await fetch(url, init); const body = await response.json(); if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`); return body; }
 function mebibytes(bytes: number): string { return (bytes / 1_048_576).toFixed(1); }
 const sizeKey = (bytes: number) => bytes < 1_048_576 ? "modLibrary.sizeKib" : "modLibrary.size";
 const sizeValue = (bytes: number) => bytes < 1_048_576 ? String(Math.max(1, Math.ceil(bytes / 1024))) : mebibytes(bytes);

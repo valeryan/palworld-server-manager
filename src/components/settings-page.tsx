@@ -1,4 +1,5 @@
 "use client";
+import { fetchJson as responseJson } from "@/lib/http-client";
 import { useHostPlatform } from "@/lib/use-platform-label";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Tooltip from "@radix-ui/react-tooltip";
@@ -18,12 +19,6 @@ import { themes } from "@/lib/themes";
 
 type Paths = { dataDirectory: string; database: string; steamCmd: string; logs: string; retention: RetentionSettings; theme: string; updateChannel: UpdateChannel; updateChecksDisabled: "development" | null };
 const initialLaunchOptions: LaunchAtLoginOptions = { startHidden: true, disableGpu: false, forceX11: false, customFlags: "" };
-
-async function responseJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, init); const body = await response.json();
-  if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
-  return body;
-}
 
 export function SettingsPage() {
   const host = useHostPlatform();

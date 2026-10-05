@@ -1,4 +1,5 @@
 "use client";
+import { requestJson as json } from "@/lib/http-client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -26,7 +27,6 @@ type AdvertisedPort = { mode: "inherit" | "override"; effectivePort: number } | 
 type Configuration = { path: string; exists: boolean; content: string; running: boolean; advertisedPort: AdvertisedPort; desiredRevision: number; appliedRevision: number; pendingApply: boolean; applyError: string | null; drift: boolean };
 type ConfigVersion = { id: string; note: string | null; createdAt: number; sizeBytes: number };
 
-async function json<T>(url: string, init?: RequestInit): Promise<T> { const response = await fetch(url, { ...init, headers: { "content-type": "application/json", ...init?.headers } }); const body = await response.json(); if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`); return body; }
 const tabs: Tab[] = ["overview", "players", "deaths", "console", "settings", "mods", "backups", "schedule"];
 export function WorldWorkspace({ worldId }: { worldId: string }) {
   const { t } = useTranslation(); const presentation = useJobPresentation(); const stamp = useLocaleDateTime();

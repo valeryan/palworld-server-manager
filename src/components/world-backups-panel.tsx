@@ -1,4 +1,5 @@
 "use client";
+import { requestJson as request } from "@/lib/http-client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -6,7 +7,7 @@ import { useLocaleDateTime } from "@/lib/use-locale-format";
 
 type Backup = { id: string; filePath: string; sizeBytes: number; reason: string; verified: boolean; createdAt: number };
 type Settings = { destinationDir: string | null; retentionCount: number };
-async function request<T>(url: string, init?: RequestInit): Promise<T> { const response = await fetch(url, { ...init, headers: { "content-type": "application/json", ...init?.headers } }); const body = await response.json(); if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`); return body; }
+
 export function WorldBackupsPanel({ worldId, running, canBackup = true, onBackup, onRestore, onNotice }: { worldId: string; running: boolean; canBackup?: boolean; onBackup(): void; onRestore(id: string): void; onNotice(message: string): void }) {
   const { t } = useTranslation();
   const stamp = useLocaleDateTime();
