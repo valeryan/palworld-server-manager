@@ -40,3 +40,12 @@ The check only advertises a newer release. A newly launched AppImage compares it
 A later milestone will download the applicable release file in the application, verify it against the SHA-256 `digest` GitHub's releases API reports for it, then restart into it. It will reuse this same local activation flow rather than coupling migrations or launch-at-login changes to GitHub discovery.
 
 The manager-data directory remains launcher-owned. A Move manager data wizard is intentionally deferred until this upgrade and recovery process has accumulated operational use.
+
+
+## Build and test tooling
+
+The `scripts/` directory contains the development launcher (`dev.mjs`), standalone asset preparation (`prepare-standalone.mjs`), local release orchestration (`release.mjs`), and workflow version/changelog policy (`release/prepare.ts`). Integration fixtures and the native Windows artifact harness live under `e2e/`.
+
+Package preparation preserves Next's normal `node_modules` layout. Electron Builder maps that directory explicitly through `extraResources`; the launcher does not rename dependencies or inject a custom module path. Next's tracing exclusions keep prepared output out of subsequent builds, and preparation rejects leaked source/data trees.
+
+Playwright starts disposable fixtures but does not rebuild or recopy the package. Use `npm run test:e2e`, `test:e2e:browser`, or `test:e2e:electron` to prepare the required build automatically. Direct `npx playwright test` assumes a prepared build already exists (and `pack` has run for desktop tests).

@@ -13,7 +13,7 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   webServer: {
-    command: "node scripts/prepare-e2e.mjs && node scripts/prepare-standalone.mjs && PALWORLD_MANAGER_DATA_DIR=.e2e-data PSM_ADMIN_TOKEN=e2e-admin HOSTNAME=127.0.0.1 PORT=4328 node dist-standalone/server.js",
+    command: "node e2e/setup.mjs && PALWORLD_MANAGER_DATA_DIR=.e2e-data PSM_ADMIN_TOKEN=e2e-admin HOSTNAME=127.0.0.1 PORT=4328 node dist-standalone/server.js",
     url: "http://127.0.0.1:4328/api/i18n/current",
     reuseExistingServer: false,
     timeout: 120_000,

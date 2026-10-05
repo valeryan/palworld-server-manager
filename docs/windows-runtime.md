@@ -1,6 +1,6 @@
 # Windows runtime support (test builds)
 
-The initial native acceptance target is Windows 11 x64. Develop and build on Linux; the release workflow cross-builds the Setup and Portable EXEs and then runs `scripts/artifact-tests/windows.mjs` on Windows. Wine checks are diagnostic and do not certify Windows functionality. The native process adapter requires Windows PowerShell/CIM; ordinary Wine prefixes may not provide it.
+The initial native acceptance target is Windows 11 x64. Develop and build on Linux; the release workflow cross-builds the Setup and Portable EXEs and then runs `e2e/windows/artifacts.mjs` on Windows. Wine checks are diagnostic and do not certify Windows functionality. The native process adapter requires Windows PowerShell/CIM; ordinary Wine prefixes may not provide it.
 
 ## Installation and data
 

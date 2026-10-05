@@ -21,7 +21,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "npm run pack && playwright test",
-    "test:e2e:browser": "npm run build:web && playwright test --project=browser",
+    "test:e2e:browser": "npm run build:web && npm run prepare:standalone && playwright test --project=browser",
     "test:e2e:electron": "npm run pack && playwright test --project=packaged-electron",
     "db:generate": "drizzle-kit generate",
     "pack": "npm run build && npm run prepare:standalone && electron-builder --dir",

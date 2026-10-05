@@ -166,7 +166,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force .artifact-harness | Out-Null
-          Copy-Item scripts/artifact-tests/windows.mjs .artifact-harness/windows.mjs
+          Copy-Item e2e/windows/artifacts.mjs .artifact-harness/windows.mjs
           npm install --prefix .artifact-harness --no-audit --no-fund playwright@1.63.0
       - name: Exercise Setup and Portable
         run: node .artifact-harness/windows.mjs release windows-artifact-results

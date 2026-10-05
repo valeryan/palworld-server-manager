@@ -54,7 +54,7 @@ npm run release
 
 The normal test suite verifies the reviewed Palworld template’s checksum, setting coverage, and codecs. When updating the template after a game release, review its diff and update both fixture files together; the provenance record includes the game version, Steam build ID, capture date, and checksum.
 
-`npm run dist` builds the Linux AppImage and the Windows Setup and portable exes together (the Windows builds are cross-built through Wine, in a throwaway prefix). `npm run release` runs every check first, then builds them into a clean `release/` with `SHA256SUMS.txt`. `dist:linux` and `dist:windows` build one platform for quick local testing.
+`npm run dist` builds the Linux AppImage and the Windows Setup and portable exes together (the Windows builds are cross-built through Wine). `npm run release` runs every check first, then builds them into a clean `release/` with `SHA256SUMS.txt` and gives the Windows build a disposable Wine prefix. `dist:linux` and `dist:windows` build one platform for quick local testing.
 
 See the [release process](./docs/RELEASING.md) for publishing releases with the Generate release workflow, alpha versioning, migration safety, and manual AppImage updates.
 
