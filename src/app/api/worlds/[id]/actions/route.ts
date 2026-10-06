@@ -2,7 +2,7 @@ import { worldActionSchema } from "@/contracts/world";
 import { route } from "@/server/http";
 import { createBackup, restoreBackup } from "@/server/services/backups";
 import { startJob } from "@/server/services/jobs";
-import { lifecycleTask } from "@/server/services/processes";
+import { lifecycleTask } from "@/server/services/lifecycle";
 import { repairPrerequisites } from "@/server/services/prerequisites";
 import { detectLatestBuild, installOrUpdate } from "@/server/services/steamcmd";
 import { requireWorld } from "@/server/services/worlds";

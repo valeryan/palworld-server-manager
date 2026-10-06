@@ -2,13 +2,14 @@ import "server-only";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync } from "node:fs";
-import { mkdir, open, rm } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { hostPlatform } from "@/server/host";
 import { paths } from "@/server/paths";
 import type { WorldView } from "@/contracts/world";
 import type { InstallationHealth } from "@/contracts/installation";
+import { downloadToFile } from "./download";
 import type { JobContext } from "./jobs";
 import { assertWorldStopped } from "./worlds";
 const execute = promisify(execFile);
@@ -35,10 +36,7 @@ export async function repairPrerequisites(world: WorldView, context: JobContext)
     if (!bundled) {
       installer = path.join(/* turbopackIgnore: true */ staging, "vc_redist.x64.exe");
       await context.update(10, "Downloading Microsoft Visual C++ x64 runtime");
-      const response = await fetch("https://aka.ms/vc14/vc_redist.x64.exe", { signal: AbortSignal.any([context.signal, AbortSignal.timeout(120_000)]) });
-      if (!response.ok || !response.body) throw new Error(`Prerequisite download failed: HTTP ${response.status}`);
-      const file = await open(installer, "wx"); let bytes = 0;
-      try { for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) { bytes += chunk.byteLength; if (bytes > 100 * 1024 * 1024) throw new Error("Prerequisite download exceeds 100 MiB."); await file.write(chunk); } } finally { await file.close(); }
+      await downloadToFile("https://aka.ms/vc14/vc_redist.x64.exe", installer, { signal: context.signal, maxBytes: 100 * 1024 * 1024, label: "Prerequisite", timeoutMs: 120_000 });
     }
     context.signal.throwIfAborted();
     await context.update(35, "Verifying installer publisher");

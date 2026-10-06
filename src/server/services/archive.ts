@@ -1,8 +1,9 @@
 import "server-only";
 import path from "node:path";
-import { createHash, randomUUID } from "node:crypto";
-import { cp, mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { cp, mkdir, readFile, rename, rm, stat } from "node:fs/promises";
 import type AdmZip from "adm-zip";
+import { downloadToFile } from "./download";
 import type { JobContext } from "./jobs";
 
 // Apply portable extraction rules before any write, including Windows aliases on Linux.
@@ -60,30 +61,19 @@ export interface VerifiedDownload { url: string; sha256: string; sizeBytes: numb
 export async function downloadVerified(download: VerifiedDownload, context: JobContext): Promise<void> {
   await mkdir(download.staging, { recursive: true });
   const temporary = path.join(/* turbopackIgnore: true */ download.staging, `${randomUUID()}.part`);
-  const hash = createHash("sha256");
-  const file = await open(temporary, "wx");
-  let received = 0;
+  context.log(`Downloading ${download.url}`);
+  let reported = -1;
+  const { bytes, sha256 } = await downloadToFile(download.url, temporary, { signal: context.signal, maxBytes: download.sizeBytes, label: "Artifact", onProgress: async (received) => {
+    const percent = Math.floor((received / download.sizeBytes) * 90);
+    if (percent >= reported + 5) { reported = percent; await context.update(percent, `Downloaded ${(received / 1_048_576).toFixed(1)} of ${(download.sizeBytes / 1_048_576).toFixed(1)} MiB`); }
+  } });
   try {
-    const response = await fetch(download.url, { signal: context.signal, redirect: "follow" });
-    if (!response.ok || !response.body) throw new Error(`Download failed with HTTP ${response.status}.`);
-    context.log(`Downloading ${download.url}`);
-    let reported = -1;
-    for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
-      received += chunk.byteLength;
-      if (received > download.sizeBytes) throw new Error(`Download is larger than the pinned ${download.sizeBytes} bytes; refusing it.`);
-      hash.update(chunk); await file.write(chunk);
-      const percent = Math.floor((received / download.sizeBytes) * 90);
-      if (percent >= reported + 5) { reported = percent; await context.update(percent, `Downloaded ${(received / 1_048_576).toFixed(1)} of ${(download.sizeBytes / 1_048_576).toFixed(1)} MiB`); }
-    }
-    await file.close();
-    if (received !== download.sizeBytes) throw new Error(`Download ended at ${received} of ${download.sizeBytes} bytes.`);
-    const digest = hash.digest("hex");
-    if (digest !== download.sha256) throw new Error(`Checksum mismatch: expected ${download.sha256}, received ${digest}. The file was discarded.`);
-    context.log(`SHA-256 verified: ${digest}`);
+    if (bytes !== download.sizeBytes) throw new Error(`Download ended at ${bytes} of ${download.sizeBytes} bytes.`);
+    if (sha256 !== download.sha256) throw new Error(`Checksum mismatch: expected ${download.sha256}, received ${sha256}. The file was discarded.`);
+    context.log(`SHA-256 verified: ${sha256}`);
     await mkdir(path.dirname(download.destination), { recursive: true });
     await rename(temporary, download.destination);
   } catch (error) {
-    await file.close().catch(() => undefined);
     await rm(temporary, { force: true });
     throw error;
   }

@@ -13,8 +13,9 @@ import { backupSettings, backups, worldSettings } from "@/server/db/schema";
 import { paths } from "@/server/paths";
 import { NotFoundError } from "@/server/errors";
 import { assertWorldStopped, canonicalInstallDir, getWorld, listWorlds, pathsOverlap, requireWorld } from "./worlds";
-import { worldIsLocked } from "./jobs";
-import { adoptRestoredConfiguration, validateConfiguration } from "./configuration";
+import { worldIsLocked } from "./locks";
+import { validateConfiguration } from "@/lib/palworld-ini";
+import { adoptRestoredConfiguration } from "./configuration";
 import { safeEntries } from "./archive";
 
 function saveDirectory(installDir: string): string { return path.join(/* turbopackIgnore: true */ installDir, "Pal", "Saved"); }

@@ -1,36 +1,40 @@
-import { hostPlatform } from "@/server/host";
 import "server-only";
-import { checkManagedMods, describeIntegrity } from "@/server/mods/integrity";
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { mkdir, writeFile, readFile, rm, rename, stat, open } from "node:fs/promises";
+import { existsSync, renameSync } from "node:fs";
+import { mkdir, writeFile, readFile, readdir, rm, rename, stat } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import killTree from "tree-kill";
 import AdmZip from "adm-zip";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import { safeEntries } from "./archive";
-import { assertSupportedTarget } from "@/server/host";
-import { processSnapshot, sameProcess, type ProcessIdentity } from "./process-inspection";
+import { eq } from "drizzle-orm";
 import { worldBusy, type WorldView } from "@/contracts/world";
+import { assertSupportedTarget, hostPlatform } from "@/server/host";
 import { ConflictError } from "@/server/errors";
-import type { JobContext } from "./jobs";
+import { writeFileAtomic } from "@/server/fs";
+import { checkManagedMods, describeIntegrity } from "@/server/mods/integrity";
 import { paths } from "@/server/paths";
 import { database } from "@/server/db";
 import { worlds } from "@/server/db/schema";
-import { eq } from "drizzle-orm";
+import { safeEntries } from "./archive";
 import { syncManagedConfiguration } from "./configuration";
+import { downloadToFile } from "./download";
+import { inspectInstallation } from "./installation";
+import type { JobContext } from "./jobs";
+import { claimLease, readLease, steamCmdProcess, type OwnedLease } from "./leases";
+import { insideDirectory, processSnapshot, sameProcess, type ProcessIdentity } from "./process-inspection";
+import { manifestPath, PALWORLD_APP_ID, readBuildId } from "./steam-manifest";
 
-const APP_ID = "2394010";
 export function steamCmdHost() {
   const windows = hostPlatform() === "win32";
   return { url: `https://steamcdn-a.akamaihd.net/client/installer/${windows ? "steamcmd.zip" : "steamcmd_linux.tar.gz"}`, executable: windows ? "steamcmd.exe" : "steamcmd.sh", archive: windows ? "steamcmd.zip" : "steamcmd.tar.gz" };
 }
 function binary(): string { return path.join(/* turbopackIgnore: true */ paths.steamCmd(), steamCmdHost().executable); }
 
-// This file survives manager death, including the interval between spawn and identity recording.
+// This lease survives manager death, including the interval between spawn and identity recording.
 // A stale lease is reclaimed only after a host snapshot proves no SteamCMD worker remains.
-type Lease = { id: string; owner: ProcessIdentity; worker?: ProcessIdentity };
+type SteamCmdLease = OwnedLease & { id: string; worker?: ProcessIdentity };
+const leasePath = () => path.join(/* turbopackIgnore: true */ paths.steamCmd(), ".psm-owner.json");
 class SteamCmdWorkerUncertainError extends Error {}
 let queue: Promise<void> = Promise.resolve();
 async function exclusive<T>(context: JobContext, task: () => Promise<T>): Promise<T> {
@@ -40,21 +44,17 @@ async function exclusive<T>(context: JobContext, task: () => Promise<T>): Promis
   try {
     await context.update(0, "Waiting for shared SteamCMD client", { state: "queued" });
     await new Promise<void>((resolve, reject) => { const abort = () => reject(context.signal.reason); context.signal.addEventListener("abort", abort, { once: true }); previous.then(() => { context.signal.removeEventListener("abort", abort); resolve(); }); if (context.signal.aborted) abort(); }); context.signal.throwIfAborted();
-    const leasePath = path.join(/* turbopackIgnore: true */ paths.steamCmd(), ".psm-owner.json");
-    const snapshot = await processSnapshot();
-    const owner = snapshot.find((entry) => entry.pid === process.pid);
-    if (!owner?.executable) throw new Error("Cannot verify SteamCMD operation ownership.");
-    try {
-      const lease = JSON.parse(await readFile(leasePath, "utf8")) as Lease;
-      const live = snapshot.some((entry) => sameProcess(lease.owner, entry) || (lease.worker && sameProcess(lease.worker, entry)) || /steamcmd(?:\.exe|\.sh)?/i.test(entry.executable));
-      if (live) throw new Error("SteamCMD is still owned by an existing operation. Wait for it to finish before retrying.");
-      await rm(leasePath);
-    } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-    await writeFile(leasePath, JSON.stringify({ id: randomUUID(), owner }), { flag: "wx", mode: 0o600 });
+    const file = leasePath();
+    await claimLease<SteamCmdLease>(file, await processSnapshot(), {
+      identity: "Cannot verify SteamCMD operation ownership.",
+      conflict: "SteamCMD is still owned by an existing operation. Wait for it to finish before retrying.",
+      alsoLive: (lease, snapshot) => Boolean(lease.worker && snapshot.some((entry) => sameProcess(lease.worker!, entry))) || snapshot.some(steamCmdProcess),
+      payload: (owner) => ({ id: randomUUID(), owner }),
+    });
     let retainLease = false;
     try { return await task(); }
     catch (error) { retainLease = error instanceof SteamCmdWorkerUncertainError; throw error; }
-    finally { if (!retainLease) await rm(leasePath, { force: true }); }
+    finally { if (!retainLease) await rm(file, { force: true }); }
   } finally { release(); }
 }
 
@@ -63,20 +63,22 @@ function redact(text: string): string {
   return secrets.reduce((value, secret) => value.replaceAll(secret, "[redacted]"), text);
 }
 
+// Records the spawned worker in the lease it was started under, so a later manager can tell a
+// live worker from a stale lease.
+async function recordWorker(pid: number | undefined, lease: SteamCmdLease | null): Promise<void> {
+  if (!lease || !pid) return;
+  const worker = (await processSnapshot()).find((entry) => entry.pid === pid);
+  const current = await readLease<SteamCmdLease>(leasePath());
+  if (!worker || !current || current.id !== lease.id) return;
+  await writeFileAtomic(leasePath(), JSON.stringify({ ...current, worker }), { mode: 0o600 });
+}
+
 async function run(command: string, args: string[], cwd: string, context: JobContext): Promise<{ code: number; output: string }> {
+  const lease = await readLease<SteamCmdLease>(leasePath()).catch(() => null);
   return await new Promise((resolve, reject) => {
     context.signal.throwIfAborted();
     const child = spawn(command, args, { cwd, windowsHide: true, env: process.env });
-    const leasePath = path.join(/* turbopackIgnore: true */ paths.steamCmd(), ".psm-owner.json");
-    const lease = existsSync(leasePath) ? JSON.parse(readFileSync(leasePath, "utf8")) as Lease : null;
-    child.once("spawn", () => { void processSnapshot().then((snapshot) => {
-      const worker = snapshot.find((entry) => entry.pid === child.pid);
-      if (!worker || !lease || !existsSync(leasePath)) return;
-      const current = JSON.parse(readFileSync(leasePath, "utf8")) as Lease;
-      if (current.id !== lease.id) return;
-      const temporary = `${leasePath}.tmp-${process.pid}`;
-      writeFileSync(temporary, JSON.stringify({ ...current, worker }), { mode: 0o600 }); renameSync(temporary, leasePath);
-    }).catch((error) => context.log(`Could not record worker identity: ${error instanceof Error ? error.message : String(error)}`)); });
+    child.once("spawn", () => { void recordWorker(child.pid, lease).catch((error) => context.log(`Could not record worker identity: ${error instanceof Error ? error.message : String(error)}`)); });
     let output = "";
     let forceTimer: NodeJS.Timeout | undefined;
     const abort = () => {
@@ -114,11 +116,7 @@ async function waitForBootstrapWorkers(staging: string): Promise<void> {
     let snapshot: ProcessIdentity[];
     try { snapshot = await processSnapshot(); }
     catch { throw new SteamCmdWorkerUncertainError("Cannot verify whether the SteamCMD updater has exited. Its staged files and lock were preserved. Restart the manager after the updater exits before retrying."); }
-    const active = snapshot.some((worker) => {
-      const relative = path.relative(staging.toLowerCase(), worker.executable.toLowerCase());
-      return relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
-    });
-    if (!active) return;
+    if (!snapshot.some((worker) => insideDirectory(staging, worker.executable))) return;
     if (Date.now() >= deadline) throw new SteamCmdWorkerUncertainError("A SteamCMD updater is still running. Its staged files and lock were preserved. Wait for it to exit, then restart the manager before retrying.");
     await delay(250);
   }
@@ -132,15 +130,10 @@ async function bootstrap(context: JobContext): Promise<void> {
   await mkdir(staging, { recursive: true });
   try {
     await context.update(2, "Downloading SteamCMD");
-    const response = await fetch(spec.url, { signal: AbortSignal.any([context.signal, AbortSignal.timeout(120_000)]) });
-    if (!response.ok || !response.body) throw new Error(`SteamCMD download failed: HTTP ${response.status}`);
-    const archive = path.join(/* turbopackIgnore: true */ staging, spec.archive); const file = await open(archive, "wx"); let bytes = 0; let reportedAt = 0;
-    try { for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
-      context.signal.throwIfAborted(); bytes += chunk.byteLength;
-      if (bytes > 64 * 1024 * 1024) throw new Error("SteamCMD bootstrap exceeds the 64 MiB limit.");
-      await file.write(chunk);
-      if (Date.now() - reportedAt >= 500) { await context.update(2, `Downloading SteamCMD: ${(bytes / 1024 / 1024).toFixed(1)} MiB`); reportedAt = Date.now(); }
-    } } finally { await file.close(); }
+    const archive = path.join(/* turbopackIgnore: true */ staging, spec.archive); let reportedAt = 0;
+    const { bytes } = await downloadToFile(spec.url, archive, { signal: context.signal, maxBytes: 64 * 1024 * 1024, label: "SteamCMD", timeoutMs: 120_000, onProgress: async (received) => {
+      if (Date.now() - reportedAt >= 500) { await context.update(2, `Downloading SteamCMD: ${(received / 1024 / 1024).toFixed(1)} MiB`); reportedAt = Date.now(); }
+    } });
     context.log(`Downloaded ${bytes} bytes from ${spec.url}`);
     await context.update(5, "Extracting SteamCMD");
     if (hostPlatform() === "win32") {
@@ -170,7 +163,6 @@ async function bootstrap(context: JobContext): Promise<void> {
     context.signal.throwIfAborted();
     await rm(archive, { force: true });
     // Promote only a client which completed its own initialization. Keep the lease in root.
-    const { readdir } = await import("node:fs/promises");
     for (const name of await readdir(staging)) { const target = path.join(/* turbopackIgnore: true */ root, name); await rm(target, { recursive: true, force: true }); await rename(path.join(/* turbopackIgnore: true */ staging, name), target); }
     await writeFile(marker, JSON.stringify({ platform: hostPlatform(), initializedAt: Date.now() }));
   } finally {
@@ -180,20 +172,11 @@ async function bootstrap(context: JobContext): Promise<void> {
 }
 export async function ensureSteamCmd(context: JobContext): Promise<void> { return exclusive(context, () => bootstrap(context)); }
 
-function manifestPath(world: WorldView): string { return path.join(/* turbopackIgnore: true */ world.installDir, "steamapps", `appmanifest_${APP_ID}.acf`); }
-export function readBuildId(world: WorldView): string | null { return readInstalledBuild(world)?.buildId ?? null; }
-export function readInstalledBuild(world: WorldView): { buildId: string; manifestPath: string } | null {
-  for (const candidate of [manifestPath(world), path.join(/* turbopackIgnore: true */ world.installDir, "..", "..", `appmanifest_${APP_ID}.acf`)]) {
-    try { const content = readFileSync(candidate, "utf8"); if (!new RegExp(`"appid"\\s+"${APP_ID}"`).test(content)) continue; const id = content.match(/"buildid"\s+"([^"\r\n]+)"/i)?.[1]; if (id) return { buildId: id, manifestPath: candidate }; } catch { /* Manual copies need not have a manifest. */ }
-  }
-  return null;
-}
-
 export async function detectLatestBuild(worldId: string, signal?: AbortSignal): Promise<string> {
-  const response = await fetch(`https://api.steamcmd.net/v1/info/${APP_ID}`, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000) });
+  const response = await fetch(`https://api.steamcmd.net/v1/info/${PALWORLD_APP_ID}`, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000) });
   if (!response.ok) throw new Error(`Steam build lookup failed: HTTP ${response.status}`);
   const payload = await response.json() as { data?: Record<string, { depots?: { branches?: { public?: { buildid?: string | number } } } }> };
-  const buildId = payload.data?.[APP_ID]?.depots?.branches?.public?.buildid;
+  const buildId = payload.data?.[PALWORLD_APP_ID]?.depots?.branches?.public?.buildid;
   if (!buildId) throw new Error("Steam did not report a public Palworld build.");
   const latestBuildId = String(buildId);
   await database().update(worlds).set({ latestBuildId, updatedAt: Date.now() }).where(eq(worlds.id, worldId));
@@ -211,7 +194,7 @@ async function invoke(world: WorldView, context: JobContext): Promise<{ code: nu
     "+force_install_dir", world.installDir,
     "+@sSteamCmdForcePlatformType", world.platform, "+@sSteamCmdForcePlatformBitness", "64",
     ...(script ? ["+runscript", script] : ["+login", username]),
-    "+app_update", APP_ID, "validate", "+quit",
+    "+app_update", PALWORLD_APP_ID, "validate", "+quit",
   ];
   try { return await run(binary(), args, paths.steamCmd(), context); }
   finally { if (script) await rm(script, { force: true }); }
@@ -241,10 +224,7 @@ export async function installOrUpdate(world: WorldView, context: JobContext): Pr
     const reason = result.output.match(/Error![^\r\n]*/i)?.[0] ?? `SteamCMD exited with code ${result.code}`;
     throw new Error(redact(reason));
   }
-  if (world.platform === "windows") {
-    const { inspectInstallation } = await import("./installation");
-    if (!(await inspectInstallation(world.installDir, world.platform)).executable) throw new Error("SteamCMD completed, but the Windows launcher or shipping server is missing or invalid. Inspect operation output and retry installation.");
-  }
+  if (world.platform === "windows" && !(await inspectInstallation(world.installDir, world.platform)).executable) throw new Error("SteamCMD completed, but the Windows launcher or shipping server is missing or invalid. Inspect operation output and retry installation.");
   await database().update(worlds).set({ buildId, updatedAt: Date.now() }).where(eq(worlds.id, world.id));
   const configuration = await syncManagedConfiguration(world.id, { syncPublicPort: before == null });
   if (!configuration.synchronized) throw new Error(configuration.reason ?? "PalWorldSettings.ini could not be initialized.");

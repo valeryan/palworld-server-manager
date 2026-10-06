@@ -121,7 +121,7 @@ describe("UE4SS crash-loop guard", () => {
 
   it("counts a crash during the first 500 ms of startup as early, even after an old healthy start", async () => {
     const { installUe4ss, runtimeRow } = await import("@/server/mods/ue4ss-runtime");
-    const { createWorld, getWorld } = await import("@/server/services/worlds"); const { startWorld } = await import("@/server/services/processes");
+    const { createWorld, getWorld } = await import("@/server/services/worlds"); const { startWorld } = await import("@/server/services/lifecycle");
     const { database } = await import("@/server/db"); const { worlds } = await import("@/server/db/schema"); const { eq } = await import("drizzle-orm");
     const installDir = path.join(dir.directory, "linux-instant-crash");
     await mkdir(path.join(installDir, "Pal", "Binaries", "Linux"), { recursive: true });

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { route } from "@/server/http";
 import { startJob } from "@/server/services/jobs";
-import { lifecycleTask } from "@/server/services/processes";
+import { lifecycleTask } from "@/server/services/lifecycle";
 import { auditPrincipal, authorizeRemote } from "@/server/services/remote-access";
 import { requireWorld } from "@/server/services/worlds";
 

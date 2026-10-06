@@ -1,7 +1,7 @@
 import "server-only";
 import { assertSupportedTarget, assertLocalWindowsPath, hostCapabilities, hostPlatform } from "@/server/host";
 import path from "node:path";
-import { access, readdir, realpath, readFile } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
 import { and, eq, ne } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { ArgumentFormat, CreateWorldInput, ManagedWorldSettings, PortField, WorldPorts, WorldRegistration, WorldView } from "@/contracts/world";
@@ -12,7 +12,7 @@ import { worlds, worldSettings } from "@/server/db/schema";
 import { paths } from "@/server/paths";
 import { eventBus } from "./events";
 import { withReservationLock } from "./reservations";
-import { withWorldLock } from "./jobs";
+import { holdWorldLock } from "./locks";
 
 type WorldRow = typeof worlds.$inferSelect;
 type Reservation = Pick<CreateWorldInput, "installDir" | PortField>;
@@ -21,8 +21,8 @@ type Reservation = Pick<CreateWorldInput, "installDir" | PortField>;
 // process monitor uses (identity, crash counters) are not part of the view.
 function toView(row: WorldRow): WorldView {
   const { environment, ...rest } = row;
-  const view: WorldView & Partial<Pick<WorldRow, "processIdentity" | "crashCount" | "modsEnabled">> = { ...rest, env: environment };
-  delete view.processIdentity; delete view.crashCount; delete view.modsEnabled;
+  const view: WorldView & Partial<Pick<WorldRow, "processIdentity" | "crashCount">> = { ...rest, env: environment };
+  delete view.processIdentity; delete view.crashCount;
   return view;
 }
 
@@ -153,31 +153,6 @@ export async function createWorld(raw: unknown): Promise<WorldView> {
   return (await getWorld(row.id))!;
 }
 
-export async function adoptWorld(raw: unknown): Promise<WorldView> {
-  const input = createWorldSchema.parse({ platform: hostCapabilities().defaultWorldPlatform, ...(raw && typeof raw === "object" ? raw : {}) });
-  const executable = input.platform === "windows" ? "PalServer.exe" : "PalServer.sh";
-  try { await access(path.join(/* turbopackIgnore: true */ input.installDir, executable)); }
-  catch { throw new ConflictError(`Existing installation is missing ${executable}.`); }
-  const { inspectInstallation } = await import("./installation");
-  const inspection = await inspectInstallation(input.installDir, input.platform);
-  if (!inspection.executable) throw new ConflictError("Existing installation is incomplete. Register it through Install to repair the server files.");
-  const world = await createWorld(raw);
-  if (inspection.buildId) await database().update(worlds).set({ buildId: inspection.buildId }).where(eq(worlds.id, world.id));
-  return (await getWorld(world.id))!;
-}
-
-/** Registers a new world: `install` needs an empty directory, `adopt` takes over an existing server. */
-export async function registerWorld(body: unknown, mode: "install" | "adopt"): Promise<WorldView> {
-  if (mode === "adopt") return adoptWorld(body);
-  const installDir = body && typeof body === "object" && typeof (body as Record<string, unknown>).installDir === "string" ? (body as Record<string, string>).installDir : null;
-  if (installDir) {
-    const directory = await canonicalInstallDir(installDir);
-    const entries = await readdir(path.resolve(/* turbopackIgnore: true */ directory)).catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return []; throw error; });
-    if (entries.length) throw new ConflictError("A new installation must use an empty directory. Use Adopt for an existing server.");
-  }
-  return createWorld(body);
-}
-
 export function exportWorldRegistration(world: WorldView): WorldRegistration {
   return worldRegistrationSchema.parse({
     format: "psm-next/world-registration",
@@ -189,13 +164,13 @@ export function exportWorldRegistration(world: WorldView): WorldRegistration {
 }
 
 export async function unregisterWorld(id: string): Promise<void> {
-  return withWorldLock(id, () => withReservationLock(async () => {
+  return holdWorldLock(id, () => withReservationLock(async () => {
     const world = await getWorld(id);
     if (!world) return;
     assertWorldStopped(world, "Stop the world before removing its registration.");
     await database().delete(worlds).where(and(eq(worlds.id, id), ne(worlds.status, "running")));
     eventBus().publish({ type: "world", worldId: id, data: { action: "unregistered" } });
-  }), { registrationOnly: true });
+  }));
 }
 
 export async function setRuntimeState(id: string, status: WorldView["status"], processId: number | null): Promise<void> {
@@ -208,14 +183,4 @@ export async function validateInstallLocation(candidate: string): Promise<string
   if (canonical === path.parse(canonical).root) throw new ConflictError("An installation cannot use a drive or filesystem root.");
   if (pathsOverlap(canonical, await canonicalInstallDir(paths.data()))) throw new ConflictError("An installation cannot overlap manager-owned data.");
   return canonical;
-}
-export async function assertWorldOwnership(world: Pick<WorldView, "installDir">): Promise<void> {
-  for (const name of [".psm-runtime-owner.json", ".psm-operation-owner.json"]) {
-    let lease: { profile: string; owner: import("./process-inspection").ProcessIdentity; processes?: import("./process-inspection").ProcessIdentity[] };
-    try { lease = JSON.parse(await readFile(path.join(/* turbopackIgnore: true */ world.installDir, name), "utf8")); }
-    catch (error) { if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) continue; throw new ConflictError("Installation ownership record is unreadable; inspect it before making changes."); }
-    if (lease.profile === paths.data()) continue;
-    const { processSnapshot, sameProcess, ownedTree } = await import("./process-inspection"); const snapshot = await processSnapshot();
-    if (snapshot.some((row) => sameProcess(lease.owner, row)) || ownedTree(lease.processes ?? [], snapshot).length) throw new ConflictError("Another manager profile owns this installation; close its operations before making changes here.");
-  }
 }

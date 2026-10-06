@@ -63,7 +63,7 @@ describe("headless Wine prefixes", () => {
   });
 
   it("launches Windows worlds with their own prefix and quiet Wine output unless the world overrides them", async () => {
-    const { commandFor } = await import("@/server/services/processes");
+    const { commandFor } = await import("@/server/services/lifecycle");
     const { createWorldSchema } = await import("@/contracts/world");
     const base = { ...createWorldSchema.parse({ displayName: "Wine", installDir: "/srv/wine", platform: "windows" }), id: "wine-world", status: "stopped" as const, processId: null, buildId: null, latestBuildId: null, lastStartedAt: null, createdAt: 1, updatedAt: 1 };
     expect(commandFor(base).env).toMatchObject({ WINEPREFIX: path.join(directory, "data", "wine-prefixes", "wine-world"), WINEDEBUG: "-all" });

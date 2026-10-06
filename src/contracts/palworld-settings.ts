@@ -1,3 +1,5 @@
+import { scanTuple } from "@/lib/tuple-scanner";
+
 export type PalworldSettingType = "bool" | "int" | "float" | "text" | "password" | "select" | "multi-select" | "tuple";
 export type PalworldSettingEvidence = "official" | "uncertain";
 export type PalworldSettingPresentation = "compact" | "standard" | "wide" | "lead";
@@ -238,16 +240,8 @@ function quotedString(raw: string): string | undefined {
 export function validTuple(raw: string, allowEmpty = false): boolean {
   if (allowEmpty && raw === "") return true;
   if (!raw.startsWith("(") || !raw.endsWith(")") || /[\r\n\0]/.test(raw) || raw.length > 8_192) return false;
-  let quoted = false; let escaped = false; let depth = 0;
-  for (let index = 0; index < raw.length; index += 1) {
-    const character = raw[index]!;
-    if (escaped) { escaped = false; continue; }
-    if (quoted && character === "\\") { escaped = true; continue; }
-    if (character === '"') quoted = !quoted;
-    else if (!quoted && character === "(") depth += 1;
-    else if (!quoted && character === ")") { depth -= 1; if (depth < 0 || (depth === 0 && index !== raw.length - 1)) return false; }
-  }
-  return !quoted && !escaped && depth === 0;
+  const scan = scanTuple(raw);
+  return !scan.quoted && !scan.escaped && scan.depth === 0 && !scan.negative && scan.closedAt === raw.length - 1;
 }
 
 function tupleOptions(raw: string, options: readonly string[]): string[] | undefined {

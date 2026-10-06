@@ -27,7 +27,7 @@ describe("service boundaries with isolated fakes", () => {
     globalThis.fetch = originalFetch;
     if (server) await new Promise<void>((resolve) => server!.close(() => resolve()));
     const { getWorld } = await import("@/server/services/worlds");
-    const { stopWorld } = await import("@/server/services/processes");
+    const { stopWorld } = await import("@/server/services/lifecycle");
     if (processWorldId && (await getWorld(processWorldId))?.processId) await stopWorld(processWorldId, true).catch(() => undefined);
   });
 
@@ -40,7 +40,7 @@ describe("service boundaries with isolated fakes", () => {
     await writeFile(executable, "#!/bin/sh\ntrap 'exit 0' TERM INT\nwhile :; do sleep 1; done\n");
     await chmod(executable, 0o700);
     const [{ createWorld, getWorld, setRuntimeState }, { startWorld, stopWorld, reconcileProcesses }] = await Promise.all([
-      import("@/server/services/worlds"), import("@/server/services/processes"),
+      import("@/server/services/worlds"), import("@/server/services/lifecycle"),
     ]);
     const world = await createWorld({ displayName: "Fake process", installDir, gamePort: 39111, queryPort: 39112, restApiPort: 39113, rconPort: 39114, restApiEnabled: false, crashGuard: true });
     if (process.platform !== "win32") {
@@ -79,7 +79,7 @@ describe("service boundaries with isolated fakes", () => {
   });
 
   it("cancels pending crash recovery when the user stops the crashed world", async () => {
-    const { startWorld, stopWorld, reconcileProcesses } = await import("@/server/services/processes");
+    const { startWorld, stopWorld, reconcileProcesses } = await import("@/server/services/lifecycle");
     const { getWorld } = await import("@/server/services/worlds");
     const { processSnapshot } = await import("@/server/services/process-inspection");
     await startWorld(processWorldId);
@@ -110,7 +110,8 @@ describe("service boundaries with isolated fakes", () => {
   });
 
   it("records succeeded and failed job states and enforces the per-world lock", async () => {
-    const { startJob, getJob, listJobLogs, worldIsLocked } = await import("@/server/services/jobs");
+    const { startJob, getJob, listJobLogs } = await import("@/server/services/jobs");
+    const { worldIsLocked } = await import("@/server/services/locks");
     let release!: () => void;
     const held = new Promise<void>((resolve) => { release = resolve; });
     const first = await startJob(processWorldId, "fake-held", async ({ update, log }) => { await update(42, "Halfway"); log("fake output"); await held; });
@@ -128,7 +129,8 @@ describe("service boundaries with isolated fakes", () => {
   });
 
   it("holds the world lock for in-request changes, so a start cannot begin until they finish", async () => {
-    const { startJob, withWorldLock, worldIsLocked } = await import("@/server/services/jobs");
+    const { startJob, withWorldLock } = await import("@/server/services/jobs");
+    const { worldIsLocked } = await import("@/server/services/locks");
     let release!: () => void;
     const change = withWorldLock(processWorldId, () => new Promise<string>((resolve) => { release = () => resolve("done"); }));
     expect(worldIsLocked(processWorldId)).toBe(true);

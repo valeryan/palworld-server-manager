@@ -1,6 +1,7 @@
 import { publicWorld, route } from "@/server/http";
 import { installationHealth } from "@/server/services/installation";
-import { listWorlds, registerWorld } from "@/server/services/worlds";
+import { registerWorld } from "@/server/services/installation";
+import { listWorlds } from "@/server/services/worlds";
 
 export const GET = route(async () => ({ worlds: await Promise.all((await listWorlds()).map(async (world) => ({ ...publicWorld(world), installation: await installationHealth(world) }))) }));
 

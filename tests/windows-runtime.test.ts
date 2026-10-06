@@ -10,7 +10,7 @@ import { sameProcess, ownedTree, type ProcessIdentity } from "@/server/services/
 import { hostCapabilities, assertSupportedTarget, assertLocalWindowsPath } from "@/server/host";
 import { steamCmdHost } from "@/server/services/steamcmd";
 import { setupTestDataDirectory } from "./prepare-database";
-import { commandFor } from "@/server/services/processes";
+import { commandFor } from "@/server/services/lifecycle";
 import type { WorldView } from "@/contracts/world";
 
 describe("native host and command contracts", () => {

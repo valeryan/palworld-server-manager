@@ -19,7 +19,7 @@ export const worlds = sqliteTable("worlds", {
   processIdentity: text("process_identity", { mode: "json" }).$type<import("@/server/services/process-inspection").ProcessIdentity[]>(),
   argumentFormat: text("argument_format", { enum: ARGUMENT_FORMATS }).notNull().default("legacy"),
   processId: integer("process_id"), buildId: text("build_id"), latestBuildId: text("latest_build_id"),
-  lastStartedAt: integer("last_started_at"), crashCount: integer("crash_count").notNull().default(0), modsEnabled: integer("mods_enabled", { mode: "boolean" }).notNull().default(false),
+  lastStartedAt: integer("last_started_at"), crashCount: integer("crash_count").notNull().default(0),
   createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
 }, (table) => [uniqueIndex("worlds_install_dir_unique").on(table.installDir)]);
 
@@ -100,12 +100,6 @@ export const deaths = sqliteTable("deaths", {
   id: integer("id").primaryKey({ autoIncrement: true }), worldId: text("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
   victim: text("victim").notNull(), cause: text("cause"), killer: text("killer"), killerRaw: text("killer_raw"), killerKind: text("killer_kind"), createdAt: integer("created_at").notNull(),
 }, (table) => [index("deaths_world_created_idx").on(table.worldId, table.createdAt)]);
-
-export const mods = sqliteTable("mods", {
-  id: text("id").primaryKey(), worldId: text("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }), packageName: text("package_name").notNull(),
-  displayName: text("display_name"), workshopId: text("workshop_id"), version: text("version"), source: text("source"), folder: text("folder"),
-  serverOnly: integer("server_only", { mode: "boolean" }).notNull().default(true), enabled: integer("enabled", { mode: "boolean" }).notNull().default(true), createdAt: integer("created_at").notNull(),
-}, (table) => [index("mods_world_idx").on(table.worldId)]);
 
 // Lua mod archives the user imported into the Mods library. One row per mod name; importing the
 // same mod again replaces the library copy, and worlds see an update.

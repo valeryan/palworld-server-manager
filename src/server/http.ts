@@ -3,7 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { ZodError } from "zod";
 import type { PublicWorldView, WorldView } from "@/contracts/world";
 import { HttpError } from "@/server/errors";
-import { worldIsLocked } from "@/server/services/jobs";
+import { worldIsLocked } from "@/server/services/locks";
 
 // Legacy mapping for services that still throw a plain Error. New code throws an HttpError subclass.
 const CONFLICT_MESSAGE = /already|overlap|port|revision|changed since|stop the|start the|enable the|disabled for|invalid|missing|cannot|must|unknown structured|select between|only queued/i;
