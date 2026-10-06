@@ -2,20 +2,20 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { JobView } from "@/contracts/job";
+import type { JobListResponse, JobView } from "@/contracts/job";
 import { AppShell } from "./app-shell";
-import { JobLogDialog } from "./job-log-dialog";
+import { fetchJob, JobLogDialog } from "./job-log-dialog";
 import { JobRow } from "./job-row";
 import { fetchJson } from "@/lib/http-client";
 
-type JobResponse = { jobs: JobView[]; summary: { total: number; active: number; failed: number } };
-const jobs = (limit: number) => fetchJson<JobResponse>(`/api/jobs?limit=${limit}`);
+// The manager's own operations; each world's operations are on its Overview tab.
+const jobs = (limit: number) => fetchJson<JobListResponse>(`/api/jobs?scope=app&limit=${limit}`);
 export function OperationsPage() {
   const { t } = useTranslation();
-  const [limit, setLimit] = useState(25); const query = useQuery({ queryKey: ["jobs", limit], queryFn: () => jobs(limit), refetchInterval: 2_000 }); const [selected, setSelected] = useState<JobView | null>(null); const [filter, setFilter] = useState("all");
+  const [limit, setLimit] = useState(25); const query = useQuery({ queryKey: ["jobs", "app", limit], queryFn: () => jobs(limit), refetchInterval: 2_000 }); const [selected, setSelected] = useState<JobView | null>(null); const [filter, setFilter] = useState("all");
   useEffect(() => {
     const linked = new URLSearchParams(window.location.search).get("job"); if (!linked) return;
-    void fetchJson<{ job: JobView }>(`/api/jobs/${encodeURIComponent(linked)}`).then((body) => setSelected(body.job)).catch(() => undefined);
+    void fetchJob(linked).then(setSelected).catch(() => undefined);
   }, []);
   const records = useMemo(() => (query.data?.jobs ?? []).filter((item) => filter === "all" || filter === "active" ? filter === "all" || item.state === "running" || item.state === "queued" : item.state === filter), [query.data, filter]);
   const summary = query.data?.summary ?? { total: 0, active: 0, failed: 0 };

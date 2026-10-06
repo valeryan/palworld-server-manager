@@ -43,7 +43,6 @@ export const managerSectionKeys: Record<ManagedSection, readonly ManagerKey[]> =
   lifecycle: ["autostart", "crashGuard"],
   performance: ["legacyPerfFlags"],
   launch: ["installDir", "platform", "extraArgs", "environment", "wineBinary", "winePrefix", "wineLaunchFlags"],
-  registration: [],
 };
 
 export function valuesEqual(left: Value | undefined, right: Value | undefined) { return Array.isArray(left) && Array.isArray(right) ? left.length === right.length && left.every((value, index) => value === right[index]) : left === right; }

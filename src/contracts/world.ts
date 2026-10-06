@@ -107,6 +107,17 @@ export interface WorldView extends CreateWorldInput {
 /** A world as the API returns it: never the game credentials or the process environment. */
 export type PublicWorldView = Omit<WorldView, "adminPassword" | "serverPassword" | "env">;
 
+/** A player the presence poller has seen in a world; one row per world and user ID. */
+export interface KnownPlayer { userId: string; playerName: string; accountName: string | null; firstSeenAt: number; lastSeenAt: number; joinCount: number; lastLeftAt: number | null; bannedAt: number | null }
+
+/** The state cards of a world's Overview tab; installation and configuration state come from their own endpoints. */
+export interface WorldOverview {
+  nextSchedule: { action: import("./schedule").ScheduleAction; mode: import("./schedule").ScheduleMode; nextRunAt: number; skipNext: boolean } | null;
+  enabledSchedules: number;
+  backups: { count: number; latest: { createdAt: number; sizeBytes: number; verified: boolean; reason: string } | null };
+  modRuntime: { version: string; enabled: boolean; earlyCrashes: number; recoveryPaused: boolean } | null;
+}
+
 /** How the port advertised to players (PublicPort) relates to the game port. */
 export type AdvertisedPortState =
   | { mode: "inherit"; effectivePort: number }

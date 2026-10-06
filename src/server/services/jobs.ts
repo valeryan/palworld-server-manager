@@ -1,12 +1,12 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { desc, eq, inArray } from "drizzle-orm";
-import { EXTERNAL_WORKER_JOB_KINDS, type JobView } from "@/contracts/job";
+import { desc, eq, inArray, isNull } from "drizzle-orm";
+import { EXTERNAL_WORKER_JOB_KINDS, type JobScope, type JobView } from "@/contracts/job";
 import type { WorldView } from "@/contracts/world";
 import { database, sqliteClient } from "@/server/db";
 import { jobLogs, jobs } from "@/server/db/schema";
 import { ConflictError, NotFoundError } from "@/server/errors";
-import { jobStartingMessage, jobSuccessMessage } from "@/lib/job-presentation";
+import { jobKindLabel, jobStartingMessage, jobSuccessMessage } from "@/lib/job-presentation";
 import { eventBus } from "./events";
 import { claimOperationLease, steamCmdProcess } from "./leases";
 import { acquireWorldLock, activeChangeCount, assertAdmission, holdWorldLock } from "./locks";
@@ -23,23 +23,29 @@ export interface JobContext {
   nonCancellable?(): void;
 }
 
-declare global { var __psmJobControllers: Map<string, AbortController> | undefined; }
+declare global { var __psmJobControllers: Map<string, AbortController> | undefined; var __psmJobRuns: Map<string, Promise<void>> | undefined; }
 const nonCancellable = new Set<string>();
 const controllers = () => (globalThis.__psmJobControllers ??= new Map<string, AbortController>());
+// The settled promise of each attached run, so a parent operation can wait for a child job.
+const runs = () => (globalThis.__psmJobRuns ??= new Map<string, Promise<void>>());
+// Manager-level kinds that may run only once at a time (fleet updates, SteamCMD reinstall).
+const activeAppKinds = new Set<string>();
 
 async function publish(id: string): Promise<void> {
   const [job] = await database().select().from(jobs).where(eq(jobs.id, id)).limit(1);
   if (job) eventBus().publish({ type: "job", worldId: job.worldId ?? undefined, data: job });
 }
 
-export async function listJobs(limit = 100): Promise<JobView[]> {
-  return await database().select().from(jobs).orderBy(desc(jobs.createdAt)).limit(Math.min(Math.max(Math.trunc(limit) || 100, 1), 10_000));
+export async function listJobs(limit = 100, scope: JobScope = {}): Promise<JobView[]> {
+  const filter = scope.worldId ? eq(jobs.worldId, scope.worldId) : scope.app ? isNull(jobs.worldId) : undefined;
+  return await database().select().from(jobs).where(filter).orderBy(desc(jobs.createdAt)).limit(Math.min(Math.max(Math.trunc(limit) || 100, 1), 10_000));
 }
 
-export function jobHistoryCounts(): { total: number; active: number; failed: number } {
+export function jobHistoryCounts(scope: JobScope = {}): { total: number; active: number; failed: number } {
+  const [where, args] = scope.worldId ? ["WHERE world_id=?", [scope.worldId]] : scope.app ? ["WHERE world_id IS NULL", []] : ["", []];
   return sqliteClient().prepare(`SELECT count(*) AS total,
     coalesce(sum(CASE WHEN state IN ('queued','running') THEN 1 ELSE 0 END),0) AS active,
-    coalesce(sum(CASE WHEN state='failed' THEN 1 ELSE 0 END),0) AS failed FROM jobs`).get() as { total: number; active: number; failed: number };
+    coalesce(sum(CASE WHEN state='failed' THEN 1 ELSE 0 END),0) AS failed FROM jobs ${where}`).get(...args) as { total: number; active: number; failed: number };
 }
 
 export async function getJob(id: string): Promise<JobView | undefined> {
@@ -47,14 +53,17 @@ export async function getJob(id: string): Promise<JobView | undefined> {
   return job;
 }
 
-export async function startJob(worldId: string | null, kind: string, task: (context: JobContext) => Promise<void>): Promise<string> {
+/** Starts an operation; `singleton` refuses a second manager-level job of the same kind while one is active. */
+export async function startJob(worldId: string | null, kind: string, task: (context: JobContext) => Promise<void>, options: { singleton?: boolean } = {}): Promise<string> {
   assertAdmission(worldId);
+  if (options.singleton && !worldId && activeAppKinds.has(kind)) throw new ConflictError(`${jobKindLabel(kind)} is already running.`);
   const id = randomUUID();
   const controller = new AbortController(); controllers().set(id, controller);
   const unlock = worldId ? acquireWorldLock(worldId) : () => undefined;
+  const releaseKind = options.singleton && !worldId ? (activeAppKinds.add(kind), () => { activeAppKinds.delete(kind); }) : () => undefined;
   try { await database().insert(jobs).values({ id, worldId, kind, state: "queued", progress: 0, message: "Queued", createdAt: Date.now() }); await publish(id); }
-  catch (error) { controllers().delete(id); unlock(); throw error; }
-  void (async () => {
+  catch (error) { controllers().delete(id); releaseKind(); unlock(); throw error; }
+  const run = (async () => {
     let releaseInstallation: (() => Promise<void>) | undefined;
     let finalMessage: string | undefined;
     const log = (message: string) => { sqliteClient().prepare("INSERT INTO job_logs (job_id,message,created_at) VALUES (?,?,?)").run(id, message, Date.now()); };
@@ -80,13 +89,23 @@ export async function startJob(worldId: string | null, kind: string, task: (cont
       await database().update(jobs).set(controller.signal.aborted ? { state: "cancelled", message: "Cancelled", error: null, finishedAt: Date.now() } : { state: "failed", message: "Failed", error: message, finishedAt: Date.now() }).where(eq(jobs.id, id));
     } finally {
       if (releaseInstallation) await releaseInstallation().catch(() => undefined);
-      nonCancellable.delete(id); controllers().delete(id);
+      nonCancellable.delete(id); controllers().delete(id); releaseKind();
       unlock();
       await publish(id);
+      runs().delete(id);
       await applyOperationRetention().catch(() => undefined);
     }
   })();
+  runs().set(id, run);
   return id;
+}
+
+/** Resolves with a job's final row; aborting `signal` cancels the job and still waits for it to settle. */
+export async function awaitJob(id: string, signal?: AbortSignal): Promise<JobView> {
+  const run = runs().get(id); const abort = () => { void cancelJob(id).catch(() => undefined); };
+  signal?.addEventListener("abort", abort, { once: true }); if (signal?.aborted) abort();
+  try { if (run) await run; } finally { signal?.removeEventListener("abort", abort); }
+  return (await getJob(id))!;
 }
 
 export async function cancelJob(id: string): Promise<void> {
