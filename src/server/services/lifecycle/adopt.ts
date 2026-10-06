@@ -1,7 +1,6 @@
 import "server-only";
 import { eq } from "drizzle-orm";
 import type { WorldView } from "@/contracts/world";
-import { errorMessage } from "@/lib/errors";
 import { database } from "@/server/db";
 import { events, worlds } from "@/server/db/schema";
 import { startDeathCapture } from "@/server/mods/relays";
@@ -10,13 +9,13 @@ import { writeFileAtomic } from "@/server/fs";
 import { paths } from "@/server/paths";
 import { managerIdentity, readLease, runtimeLeasePath, type RuntimeLease } from "../leases";
 import { insideDirectory, ownedTree, processSnapshot, sameProcess, type ProcessIdentity } from "../process-inspection";
-import { listWorlds, setRuntimeState } from "../worlds";
-import { startProcessMonitor } from "./monitor";
+import { setRuntimeState } from "../worlds";
 import { withLifecycleLock } from "./state";
 
 // A server that is already running from an installation this manager does not track: typically
 // one launched by a previous manager instance whose database was reset. Adopting it records the
-// process tree and takes the runtime lease, so the normal monitor and stop paths apply.
+// process tree and takes the runtime lease, so the normal monitor and stop paths apply. Callers
+// start the process monitor afterwards; this module must not import it (monitor -> start -> here).
 
 /** The process tree running from `installDir`, rooted at the processes whose parents are outside it. */
 export function runningServerTree(installDir: string, snapshot: ProcessIdentity[]): ProcessIdentity[] {
@@ -31,6 +30,18 @@ export async function assertAdoptable(installDir: string, snapshot: ProcessIdent
   if (lease && lease.profile !== paths.data() && snapshot.some((row) => sameProcess(lease.owner, row))) throw new ConflictError("A running manager from another profile owns this installation's server; stop it there first.");
 }
 
+/** Before registering a folder: refuse one whose running server a live foreign manager owns. */
+export async function assertAdoptableInstall(installDir: string): Promise<void> {
+  const snapshot = await processSnapshot();
+  if (runningServerTree(installDir, snapshot).length) await assertAdoptable(installDir, snapshot);
+}
+
+/** The server process already running from `installDir`, for the adopt dialog. */
+export async function runningServerSummary(installDir: string): Promise<{ pid: number; executable: string } | null> {
+  const [root] = runningServerTree(installDir, await processSnapshot());
+  return root ? { pid: root.pid, executable: root.executable } : null;
+}
+
 /** Takes over `tree` as the world's server. Callers hold the lifecycle lock. */
 export async function adoptRunningServer(world: WorldView, tree: ProcessIdentity[], snapshot: ProcessIdentity[]): Promise<void> {
   await assertAdoptable(world.installDir, snapshot);
@@ -41,17 +52,14 @@ export async function adoptRunningServer(world: WorldView, tree: ProcessIdentity
   await database().update(worlds).set({ processIdentity: tree, lastStartedAt: now, updatedAt: now }).where(eq(worlds.id, world.id));
   await database().insert(events).values({ worldId: world.id, kind: "lifecycle", message: `Adopted a server already running from this installation (pid ${tree[0]!.pid}).`, createdAt: now });
   await setRuntimeState(world.id, "running", tree[0]!.pid);
-  startDeathCapture(world); startProcessMonitor();
+  startDeathCapture(world);
 }
 
-/** At boot: every stopped world whose installation already runs a server adopts it. */
-export async function adoptOrphanedServers(): Promise<void> {
-  const candidates = (await listWorlds()).filter((world) => (world.status === "stopped" || world.status === "crashed") && !world.processId);
-  if (!candidates.length) return;
+/** Adopts whatever server already runs from the world's folder; true when one was adopted. */
+export async function adoptRunningIfAny(world: WorldView): Promise<boolean> {
   const snapshot = await processSnapshot();
-  for (const world of candidates) {
-    const tree = runningServerTree(world.installDir, snapshot);
-    if (!tree.length) continue;
-    await withLifecycleLock(world.id, () => adoptRunningServer(world, tree, snapshot)).catch((error) => database().insert(events).values({ worldId: world.id, kind: "lifecycle", message: `A server is running from this installation but could not be adopted: ${errorMessage(error)}`, createdAt: Date.now() }));
-  }
+  const tree = runningServerTree(world.installDir, snapshot);
+  if (!tree.length) return false;
+  await withLifecycleLock(world.id, () => adoptRunningServer(world, tree, snapshot));
+  return true;
 }

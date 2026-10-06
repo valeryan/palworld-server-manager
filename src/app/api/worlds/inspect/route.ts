@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { PLATFORMS } from "@/contracts/world";
 import { route } from "@/server/http";
-import { inspectInstallation, runningServerSummary } from "@/server/services/installation";
+import { inspectInstallation } from "@/server/services/installation";
+import { runningServerSummary } from "@/server/services/lifecycle";
 import { canonicalInstallDir } from "@/server/services/worlds";
 
 export const POST = route(async (request) => {

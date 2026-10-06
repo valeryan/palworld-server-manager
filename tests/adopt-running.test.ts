@@ -32,8 +32,11 @@ describe("adopting a server that is already running", () => {
     const { registerWorld } = await import("@/server/services/installation"); const { stopWorld, runningServerTree } = await import("@/server/services/lifecycle");
     const { processSnapshot } = await import("@/server/services/process-inspection"); const { paths } = await import("@/server/paths"); const { getWorld } = await import("@/server/services/worlds");
     const { database } = await import("@/server/db"); const { events } = await import("@/server/db/schema"); const { eq } = await import("drizzle-orm");
+    const { adoptRegisteredServer } = await import("@/server/services/lifecycle");
     const installDir = await fakeInstall("adopted"); await launchFake(installDir);
-    const world = await registerWorld(registration("Adopted", installDir), "adopt");
+    const registered = await registerWorld(registration("Adopted", installDir), "adopt");
+    expect(await adoptRegisteredServer(registered)).toBe(true);
+    const world = (await getWorld(registered.id))!;
     expect(world).toMatchObject({ status: "running" }); expect(world.processId).toBeTypeOf("number");
     expect(JSON.parse(await readFile(path.join(installDir, ".psm-runtime-owner.json"), "utf8"))).toMatchObject({ profile: paths.data(), owner: { pid: process.pid } });
     expect((await database().select().from(events).where(eq(events.worldId, world.id))).map((row) => row.message)).toEqual([expect.stringMatching(/^Adopted a server already running/)]);
@@ -51,8 +54,9 @@ describe("adopting a server that is already running", () => {
     await launchFake(installDir);
     const me = (await processSnapshot()).find((row) => row.pid === process.pid)!;
     const lease = path.join(installDir, ".psm-runtime-owner.json"); await writeFile(lease, JSON.stringify({ profile: "/elsewhere/manager-data", owner: me, processes: [] }));
+    const { assertAdoptableInstall } = await import("@/server/services/lifecycle");
     await expect(startWorld(world.id)).rejects.toThrow("another profile");
-    await expect(registerWorld(registration("Foreign twin", installDir), "adopt")).rejects.toThrow(/another profile|overlaps/);
+    await expect(assertAdoptableInstall(installDir)).rejects.toThrow("another profile");
     await rm(lease);
     await startWorld(world.id);
     const adopted = await getWorld(world.id); expect(adopted).toMatchObject({ status: "running" });
