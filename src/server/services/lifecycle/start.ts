@@ -17,6 +17,7 @@ import { prepareWinePrefix } from "../wine";
 import { getWorld, setRuntimeState } from "../worlds";
 import { commandFor, executableAvailable } from "./command";
 import { belongsToInstall, claimInstallation, identities, persistIdentity, releaseInstallation } from "./leases";
+import { adoptRunningServer, runningServerTree } from "./adopt";
 import { children, delay } from "./state";
 
 /** Launches a world's server. Callers hold the lifecycle lock. */
@@ -33,8 +34,10 @@ export async function startWorldProcess(worldId: string): Promise<void> {
     return { world, ...prepared };
   });
   const before = await processSnapshot();
-  // An untracked server in this installation must be resolved before launching a duplicate.
-  if (before.some((entry) => belongsToInstall(entry, world))) throw new Error("A server process already uses this installation; its ownership must be resolved before starting.");
+  // A server already running from this installation is adopted rather than duplicated; only a
+  // server a live manager of another profile owns blocks the start.
+  const orphan = runningServerTree(world.installDir, before);
+  if (orphan.length) { await adoptRunningServer(world, orphan, before); return; }
   await claimInstallation(world, before);
   await setRuntimeState(worldId, "starting", null);
   const launchedAt = Date.now();

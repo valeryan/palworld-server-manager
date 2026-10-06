@@ -14,6 +14,9 @@ import { jobs, worlds } from "@/server/db/schema";
 import { configPath } from "./configuration/managed";
 import { inspectPrerequisites } from "./prerequisites";
 import { readInstalledBuild } from "./steam-manifest";
+import { adoptRunningServer, assertAdoptable, runningServerTree } from "./lifecycle/adopt";
+import { withLifecycleLock } from "./lifecycle/state";
+import { processSnapshot } from "./process-inspection";
 import { canonicalInstallDir, createWorld, getWorld } from "./worlds";
 export async function inspectInstallation(installDir: string, target?: "linux" | "windows") {
   const platforms: Array<"linux" | "windows"> = [];
@@ -76,9 +79,21 @@ export async function adoptWorld(raw: unknown): Promise<WorldView> {
   catch { throw new ConflictError(`Existing installation is missing ${executable}.`); }
   const inspection = await inspectInstallation(input.installDir, input.platform);
   if (!inspection.executable) throw new ConflictError("Existing installation is incomplete. Register it through Install to repair the server files.");
+  // A server already running from the folder is adopted with the registration, so it can be
+  // monitored and stopped; a live foreign owner is refused before anything is created.
+  const snapshot = await processSnapshot();
+  const running = runningServerTree(await canonicalInstallDir(input.installDir), snapshot);
+  if (running.length) await assertAdoptable(await canonicalInstallDir(input.installDir), snapshot);
   const world = await createWorld(raw);
   if (inspection.buildId) await database().update(worlds).set({ buildId: inspection.buildId }).where(eq(worlds.id, world.id));
+  if (running.length) await withLifecycleLock(world.id, () => adoptRunningServer(world, running, snapshot));
   return (await getWorld(world.id))!;
+}
+
+/** The server process already running from `installDir`, for the adopt dialog. */
+export async function runningServerSummary(installDir: string): Promise<{ pid: number; executable: string } | null> {
+  const [root] = runningServerTree(installDir, await processSnapshot());
+  return root ? { pid: root.pid, executable: root.executable } : null;
 }
 
 /** Registers a new world: `install` needs an empty directory, `adopt` takes over an existing server. */
