@@ -1,17 +1,19 @@
 import "server-only";
 import path from "node:path";
-import { createHash } from "node:crypto";
-import { mkdir, readFile, readdir, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import AdmZip from "adm-zip";
 import { eq } from "drizzle-orm";
 import type { ModVariant } from "@/contracts/mod";
 import type { WorldView } from "@/contracts/world";
 import { database } from "@/server/db";
 import { events, modRuntimes } from "@/server/db/schema";
+import { exists } from "@/server/fs";
 import { paths } from "@/server/paths";
-import { fileMatches, movePath, relativeEntry, safeEntries } from "@/server/services/archive";
+import { movePath, relativeEntry, safeEntries } from "@/server/services/archive";
+import { classifyInstalled, readVerified } from "./managed-files";
 import type { JobContext } from "@/server/services/jobs";
 import { runsUnderWine, withWineOverrides } from "@/server/services/wine";
+import { assertWorldStopped } from "@/server/services/worlds";
 import { MOD_CATALOG, artifactPath, type CatalogArtifact } from "./catalog";
 import { ue4ssLayout } from "./ue4ss";
 
@@ -33,7 +35,6 @@ const EARLY_CRASH_LIMIT = 2;
 function destination(world: Pick<WorldView, "installDir" | "platform">): string { return ue4ssLayout(world).variant === "windows" ? ue4ssLayout(world).binaries : world.installDir; }
 function relativeToInstall(world: Pick<WorldView, "installDir">, absolute: string): string { return path.relative(world.installDir, absolute).split(path.sep).join("/"); }
 function absolute(world: Pick<WorldView, "installDir">, relative: string): string { return path.join(/* turbopackIgnore: true */ world.installDir, ...relative.split("/")); }
-async function exists(target: string): Promise<boolean> { try { await stat(target); return true; } catch { return false; } }
 
 export async function runtimeRow(worldId: string): Promise<RuntimeRow | null> {
   const [row] = await database().select().from(modRuntimes).where(eq(modRuntimes.worldId, worldId)).limit(1);
@@ -46,9 +47,7 @@ function artifactFor(variant: ModVariant): CatalogArtifact {
   return found;
 }
 
-function assertStopped(world: RuntimeWorld): void {
-  if (world.status !== "stopped" && world.status !== "crashed") throw new Error("Stop the server before changing UE4SS.");
-}
+const STOP_FIRST = "Stop the server before changing UE4SS.";
 
 // Entries to install, as paths relative to the world's UE4SS destination.
 export function installPlan(zip: AdmZip, variant: ModVariant): Array<{ relative: string; size: number; data: () => Buffer }> {
@@ -91,11 +90,13 @@ async function pruneEmptyDirectories(world: RuntimeWorld, relativeFiles: string[
 // Installs (or updates, or with replace: takes over) UE4SS in a stopped world from the verified
 // library copy. Never downloads.
 export async function installUe4ss(world: RuntimeWorld, options: { replace: boolean }, context: JobContext): Promise<void> {
-  assertStopped(world);
+  assertWorldStopped(world, STOP_FIRST);
   const layout = ue4ssLayout(world); const artifact = artifactFor(layout.variant);
   if (!await exists(layout.binaries)) throw new Error("The server binaries for this world were not found; install or update the server first.");
-  const archive = await readFile(artifactPath(artifact)).catch(() => { throw new Error(`${artifact.name} ${artifact.version} is not in the Mods library. Download it from the Mods library first.`); });
-  if (createHash("sha256").update(archive).digest("hex") !== artifact.sha256) throw new Error(`The library copy of ${artifact.name} ${artifact.version} failed verification. Remove it from the Mods library and download it again.`);
+  const archive = await readVerified(artifactPath(artifact), artifact.sha256, {
+    missing: `${artifact.name} ${artifact.version} is not in the Mods library. Download it from the Mods library first.`,
+    tampered: `The library copy of ${artifact.name} ${artifact.version} failed verification. Remove it from the Mods library and download it again.`,
+  });
   const zip = new AdmZip(archive);
   if (!safeEntries(zip)) throw new Error("The UE4SS archive contains unsafe paths.");
   const plan = installPlan(zip, layout.variant);
@@ -137,7 +138,7 @@ export async function installUe4ss(world: RuntimeWorld, options: { replace: bool
 }
 
 export async function setUe4ssEnabled(world: RuntimeWorld, enabled: boolean): Promise<void> {
-  assertStopped(world);
+  assertWorldStopped(world, STOP_FIRST);
   const row = await runtimeRow(world.id); if (!row) throw new Error("UE4SS was not installed by PSM in this world.");
   if (row.variant === "windows") {
     // Native Windows loads dwmapi.dll from the game folder unconditionally, so disabling moves it aside.
@@ -151,7 +152,7 @@ export async function setUe4ssEnabled(world: RuntimeWorld, enabled: boolean): Pr
 // Removes only files PSM installed. Mods the user added and files UE4SS created (its log, its
 // status mod) stay, so nothing outside the manager's own install is lost.
 export async function removeUe4ss(world: RuntimeWorld, context: JobContext): Promise<void> {
-  assertStopped(world);
+  assertWorldStopped(world, STOP_FIRST);
   const row = await runtimeRow(world.id); if (!row) throw new Error("UE4SS was not installed by PSM in this world.");
   const loader = row.installedFiles.find((file) => file.endsWith(`/${PACKAGES.windows.loader}`) || file === PACKAGES.windows.loader);
   const files = [...row.installedFiles, ...(loader ? [`${loader}${DISABLED_SUFFIX}`] : [])];
@@ -209,13 +210,8 @@ export async function checkUe4ssFiles(world: Pick<WorldView, "id" | "installDir"
     const settings = Buffer.from(withConsoleDisabled(entry.data().toString("utf8")));
     expected.set(file, { size: settings.byteLength, data: () => settings });
   }
-  const missing: string[] = []; const changed: string[] = [];
-  for (const file of row.installedFiles) {
-    // A disabled Windows build keeps its loader parked under another name.
-    const parked = !row.enabled && row.variant === "windows" && path.basename(file) === spec.loader;
-    const target = absolute(world, parked ? `${file}${DISABLED_SUFFIX}` : file); const wanted = expected.get(file);
-    const matches = wanted ? await fileMatches(target, row.sha256, wanted) : await exists(target) || null;
-    if (matches === null) missing.push(file); else if (!matches) changed.push(file);
-  }
+  // A disabled Windows build keeps its loader parked under another name.
+  const parked = (file: string) => !row.enabled && row.variant === "windows" && path.basename(file) === spec.loader;
+  const { missing, changed } = await classifyInstalled(row.installedFiles.map((file) => ({ file, target: absolute(world, parked(file) ? `${file}${DISABLED_SUFFIX}` : file) })), expected, row.sha256);
   return { missing, changed, libraryAvailable: archive !== null };
 }

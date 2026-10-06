@@ -1,26 +1,15 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { beforeAll, describe, expect, it } from "vitest";
+import { chmod, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { prepareTestDatabase } from "./prepare-database";
-import { context, exists, linuxArchive, put, stage, windowsArchive } from "./mod-fixtures";
+import { setupTestDataDirectory } from "./prepare-database";
+import { context, exists, linuxArchive, put, stage, windowsArchive, world as worldFixture } from "./mod-fixtures";
 
-let directory: string;
-async function world(name: string, platform: "windows" | "linux") {
-  const installDir = path.join(directory, name);
-  await mkdir(path.join(installDir, "Pal", "Binaries", platform === "windows" ? "Win64" : "Linux"), { recursive: true });
-  const { createWorld } = await import("@/server/services/worlds");
-  return createWorld({ displayName: name, installDir, platform });
-}
+const dir = setupTestDataDirectory("psm-ue4ss-runtime-");
+async function world(name: string, platform: "windows" | "linux") { return worldFixture(dir.directory, name, platform); }
 
 beforeAll(async () => {
-  directory = await mkdtemp(path.join(tmpdir(), "psm-ue4ss-runtime-"));
-  process.env.PALWORLD_MANAGER_DATA_DIR = path.join(directory, "data");
-  process.env.PALWORLD_MANAGER_DB = path.join(directory, "data", "registry-v3.sqlite");
-  await prepareTestDatabase(process.env.PALWORLD_MANAGER_DATA_DIR, process.env.PALWORLD_MANAGER_DB);
   await stage("windows", windowsArchive()); await stage("linux", linuxArchive());
 });
-afterAll(async () => { await rm(directory, { recursive: true, force: true }); });
 
 describe("UE4SS installation", () => {
   it("installs only the runtime from the library, with the console forced off", async () => {
@@ -57,7 +46,7 @@ describe("UE4SS installation", () => {
     expect(await readFile(path.join(win64, "dwmapi.dll"), "utf8")).toBe("someone else's loader");
     await installUe4ss(target, { replace: true }, context());
     expect(await readFile(path.join(win64, "dwmapi.dll"), "utf8")).toBe("loader");
-    const trash = path.join(directory, "data", "mod-trash", target.id);
+    const trash = path.join(dir.dataDirectory, "mod-trash", target.id);
     const [moved] = await readdir(trash);
     expect(await readFile(path.join(trash, moved!, "Pal", "Binaries", "Win64", "dwmapi.dll"), "utf8")).toBe("someone else's loader");
     const { MOD_CATALOG, artifactPath } = await import("@/server/mods/catalog");
@@ -132,9 +121,9 @@ describe("UE4SS crash-loop guard", () => {
 
   it("counts a crash during the first 500 ms of startup as early, even after an old healthy start", async () => {
     const { installUe4ss, runtimeRow } = await import("@/server/mods/ue4ss-runtime");
-    const { createWorld, getWorld } = await import("@/server/services/worlds"); const { startWorld } = await import("@/server/services/processes");
+    const { createWorld, getWorld } = await import("@/server/services/worlds"); const { startWorld } = await import("@/server/services/lifecycle");
     const { database } = await import("@/server/db"); const { worlds } = await import("@/server/db/schema"); const { eq } = await import("drizzle-orm");
-    const installDir = path.join(directory, "linux-instant-crash");
+    const installDir = path.join(dir.directory, "linux-instant-crash");
     await mkdir(path.join(installDir, "Pal", "Binaries", "Linux"), { recursive: true });
     await put(path.join(installDir, "Pal", "Saved", "Config", "LinuxServer", "PalWorldSettings.ini"), '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(ServerName="Instant crash")\n');
     await writeFile(path.join(installDir, "PalServer.sh"), "#!/bin/sh\nexit 134\n"); await chmod(path.join(installDir, "PalServer.sh"), 0o700);

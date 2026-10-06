@@ -3,7 +3,7 @@ import { deliverNotice } from "@/server/mods/relays";
 import { database } from "@/server/db";
 import { events } from "@/server/db/schema";
 import { getMaintenanceSettings } from "./schedules";
-import { getWorld } from "./worlds";
+import { getWorld, requireWorld } from "./worlds";
 
 function wait(milliseconds: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -19,7 +19,7 @@ export function warningMessage(template: string, action: string, seconds: number
 }
 
 export async function warnBeforeShutdown(worldId: string, action: "restart" | "stop" | "update", signal: AbortSignal): Promise<number> {
-  const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
+  const world = await requireWorld(worldId);
   const settings = await getMaintenanceSettings(worldId);
   if (!settings.warningEnabled || world.status !== "running" || !world.restApiEnabled) return 15;
   const total = settings.warningLeadMinutes * 60;

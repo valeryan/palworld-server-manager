@@ -1,17 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { prepareTestDatabase } from "./prepare-database";
+import { afterAll, describe, expect, it } from "vitest";
+import { setupTestDataDirectory } from "./prepare-database";
 
-let directory: string;
-beforeAll(async () => {
-  directory = await mkdtemp(path.join(tmpdir(), "psm-update-channel-"));
-  process.env.PALWORLD_MANAGER_DATA_DIR = path.join(directory, "data");
-  process.env.PALWORLD_MANAGER_DB = path.join(directory, "data", "registry-v3.sqlite");
-  await prepareTestDatabase(process.env.PALWORLD_MANAGER_DATA_DIR, process.env.PALWORLD_MANAGER_DB);
-});
-afterAll(async () => { delete process.env.PSM_ADMIN_TOKEN; delete process.env.PSM_PACKAGED; await rm(directory, { recursive: true, force: true }); });
+setupTestDataDirectory("psm-update-channel-");
+afterAll(() => { delete process.env.PSM_ADMIN_TOKEN; delete process.env.PSM_PACKAGED; });
 
 describe("update channel setting", () => {
   it("defaults from the installed version, saves a choice, and refuses anything else", async () => {

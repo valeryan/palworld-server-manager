@@ -5,12 +5,13 @@ import { desc, eq } from "drizzle-orm";
 import { database } from "@/server/db";
 import { deaths, events, sessions } from "@/server/db/schema";
 import { paths } from "@/server/paths";
-import { getWorld } from "./worlds";
+import { NotFoundError } from "@/server/errors";
+import { requireWorld } from "./worlds";
 import { palworldRest } from "./rest";
 import { legacyModerationEvent, moderationEventMessage } from "@/lib/moderation-presentation";
 
 export async function worldActivity(worldId: string, requestedLimit = 25) {
-  if (!await getWorld(worldId)) throw new Error("World not found.");
+  await requireWorld(worldId);
   const limit = Math.min(Math.max(Math.trunc(requestedLimit) || 25, 5), 500);
   const [eventRows, sessionRows, deathRows] = await Promise.all([
     database().select().from(events).where(eq(events.worldId, worldId)).orderBy(desc(events.createdAt)).limit(limit + 1),
@@ -28,7 +29,7 @@ export async function worldActivity(worldId: string, requestedLimit = 25) {
 }
 
 export async function worldLogs(worldId: string, selected?: string) {
-  if (!await getWorld(worldId)) throw new Error("World not found.");
+  await requireWorld(worldId);
   const directory = paths.worldLogs(worldId);
   const names = (await readdir(directory)).filter((name) => name.endsWith(".log")).sort().reverse();
   const name = selected && names.includes(selected) ? selected : names[0];
@@ -38,15 +39,15 @@ export async function worldLogs(worldId: string, selected?: string) {
 }
 
 export async function worldLogFile(worldId: string, selected: string) {
-  if (!await getWorld(worldId)) throw new Error("World not found.");
+  await requireWorld(worldId);
   const names = (await readdir(paths.worldLogs(worldId))).filter((name) => name.endsWith(".log"));
-  if (!names.includes(selected)) throw new Error("Server log not found.");
+  if (!names.includes(selected)) throw new NotFoundError("Server log not found.");
   const filePath = path.join(paths.worldLogs(worldId), selected);
   return { filePath, fileName: selected, info: await stat(filePath) };
 }
 
 export async function liveWorldStatus(worldId: string) {
-  const world = await getWorld(worldId); if (!world) throw new Error("World not found.");
+  const world = await requireWorld(worldId);
   if (world.status !== "running" || !world.restApiEnabled) return { reachable: false, info: null, players: null, metrics: null };
   try {
     const [info, players, metrics] = await Promise.all([palworldRest.info(world), palworldRest.players(world), palworldRest.metrics(world)]);

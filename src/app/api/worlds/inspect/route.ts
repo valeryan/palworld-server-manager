@@ -1,9 +1,10 @@
-import { requireAdmin, errorResponse } from "@/server/http";
-import { canonicalInstallDir } from "@/server/services/worlds";
-import { inspectInstallation } from "@/server/services/installation";
 import { z } from "zod";
-export const runtime = "nodejs"; export const dynamic = "force-dynamic";
-export async function POST(request: Request) {
-  const denied = requireAdmin(request); if (denied) return denied;
-  try { const input = z.object({ installDir: z.string().min(1), platform: z.enum(["linux", "windows"]).optional() }).parse(await request.json()); return Response.json({ ok: true, inspection: await inspectInstallation(await canonicalInstallDir(input.installDir), input.platform) }); } catch (error) { return errorResponse(error); }
-}
+import { PLATFORMS } from "@/contracts/world";
+import { route } from "@/server/http";
+import { inspectInstallation } from "@/server/services/installation";
+import { canonicalInstallDir } from "@/server/services/worlds";
+
+export const POST = route(async (request) => {
+  const input = z.object({ installDir: z.string().min(1), platform: z.enum(PLATFORMS).optional() }).parse(await request.json());
+  return { inspection: await inspectInstallation(await canonicalInstallDir(input.installDir), input.platform) };
+});

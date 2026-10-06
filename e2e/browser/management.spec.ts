@@ -1,12 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 import path from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { authenticate } from "./fixtures";
 
 const worldDirectory = path.join(process.cwd(), ".e2e-runtime", "world");
-
-async function authenticate(page: Page) {
-  await page.context().addCookies([{ name: "psm_admin", value: "e2e-admin", domain: "127.0.0.1", path: "/", httpOnly: true, sameSite: "Lax" }]);
-}
 
 async function waitForLatestJob(page: Page, kind: string) {
   await expect.poll(async () => {

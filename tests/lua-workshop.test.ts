@@ -1,31 +1,16 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { describe, expect, it } from "vitest";
+import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import AdmZip from "adm-zip";
-import { prepareTestDatabase } from "./prepare-database";
+import { setupTestDataDirectory } from "./prepare-database";
+import { exists, put, world as worldFixture } from "./mod-fixtures";
 import { setModsTxtEntry } from "@/server/mods/lua-mods";
 import { readLuaArchive } from "@/server/mods/lua-library";
 import { parsePalModSettings, updatePalModSettings } from "@/server/mods/workshop-mods";
 
-let directory: string;
-async function exists(target: string): Promise<boolean> { try { await stat(target); return true; } catch { return false; } }
-async function put(file: string, content = ""): Promise<void> { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, content); }
+const dir = setupTestDataDirectory("psm-lua-workshop-");
 function archive(files: Record<string, string>): Buffer { const zip = new AdmZip(); for (const [name, content] of Object.entries(files)) zip.addFile(name, Buffer.from(content)); return zip.toBuffer(); }
-async function world(name: string, platform: "windows" | "linux") {
-  const installDir = path.join(directory, name);
-  await mkdir(path.join(installDir, "Pal", "Binaries", platform === "windows" ? "Win64" : "Linux"), { recursive: true });
-  const { createWorld } = await import("@/server/services/worlds");
-  return createWorld({ displayName: name, installDir, platform });
-}
-
-beforeAll(async () => {
-  directory = await mkdtemp(path.join(tmpdir(), "psm-lua-workshop-"));
-  process.env.PALWORLD_MANAGER_DATA_DIR = path.join(directory, "data");
-  process.env.PALWORLD_MANAGER_DB = path.join(directory, "data", "registry-v3.sqlite");
-  await prepareTestDatabase(process.env.PALWORLD_MANAGER_DATA_DIR, process.env.PALWORLD_MANAGER_DB);
-});
-afterAll(async () => { await rm(directory, { recursive: true, force: true }); });
+async function world(name: string, platform: "windows" | "linux") { return worldFixture(dir.directory, name, platform); }
 
 describe("mods.txt editing", () => {
   it("changes one entry, keeps comments and line endings, and inserts above Keybinds", () => {
@@ -124,7 +109,7 @@ describe("Lua mods in worlds", () => {
     await removeLuaMod(target, "CoolMod");
     expect(await exists(path.join(mods, "CoolMod"))).toBe(false);
     expect(await readFile(path.join(mods, "mods.txt"), "utf8")).toBe("");
-    expect((await readdir(path.join(directory, "data", "mod-trash", target.id))).some((name) => name.startsWith("CoolMod-"))).toBe(true);
+    expect((await readdir(path.join(dir.dataDirectory, "mod-trash", target.id))).some((name) => name.startsWith("CoolMod-"))).toBe(true);
   });
 
   it("never overwrites a same-named folder it did not install unless replacing", async () => {

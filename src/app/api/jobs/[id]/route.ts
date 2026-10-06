@@ -1,14 +1,9 @@
-import { errorResponse, requireAdmin } from "@/server/http";
+import { NotFoundError } from "@/server/errors";
+import { route } from "@/server/http";
 import { getJob } from "@/server/services/jobs";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
-export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
-  const denied = requireAdmin(request); if (denied) return denied;
-  try {
-    const job = await getJob((await context.params).id);
-    if (!job) throw new Error("Job not found.");
-    return Response.json({ ok: true, job });
-  } catch (error) { return errorResponse(error); }
-}
+export const GET = route<{ id: string }>(async (_request, { id }) => {
+  const job = await getJob(id);
+  if (!job) throw new NotFoundError("Job not found.");
+  return { job };
+});

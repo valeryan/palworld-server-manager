@@ -5,7 +5,8 @@ import type { MaintenanceSettingsInput } from "@/contracts/schedule";
 import { createScheduleSchema, maintenanceSettingsSchema, updateScheduleSchema } from "@/contracts/schedule";
 import { database } from "@/server/db";
 import { maintenanceSettings, schedules } from "@/server/db/schema";
-import { getWorld } from "./worlds";
+import { NotFoundError } from "@/server/errors";
+import { requireWorld } from "./worlds";
 
 type ScheduleRow = typeof schedules.$inferSelect;
 export type CustomHttpConfiguration = { method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; url: string; headers: string; body: string };
@@ -47,7 +48,7 @@ export async function listSchedules(worldId: string) {
 }
 
 export async function createSchedule(worldId: string, value: unknown) {
-  if (!await getWorld(worldId)) throw new Error("World not found.");
+  await requireWorld(worldId);
   const input = createScheduleSchema.parse(value); const now = Date.now();
   const message = input.action === "custom_http" ? JSON.stringify({ method: input.httpMethod ?? "GET", url: input.httpUrl!, headers: input.httpHeaders ?? "", body: input.httpBody ?? "" } satisfies CustomHttpConfiguration) : input.message ?? null;
   const record: typeof schedules.$inferInsert = {
@@ -66,7 +67,7 @@ export async function createSchedule(worldId: string, value: unknown) {
 export async function updateSchedule(id: string, value: unknown) {
   const input = updateScheduleSchema.parse(value);
   const [current] = await database().select().from(schedules).where(eq(schedules.id, id)).limit(1);
-  if (!current) throw new Error("Schedule not found.");
+  if (!current) throw new NotFoundError("Schedule not found.");
   if (input.enabled === true) createScheduleSchema.parse(toValidationInput(current));
   const nextRunAt = input.enabled === true && !current.enabled ? nextRun(current, Date.now()) : current.nextRunAt;
   await database().update(schedules).set({ ...input, nextRunAt }).where(eq(schedules.id, id));
@@ -75,17 +76,17 @@ export async function updateSchedule(id: string, value: unknown) {
 
 export async function deleteSchedule(id: string): Promise<void> {
   const result = await database().delete(schedules).where(eq(schedules.id, id));
-  if (!result.changes) throw new Error("Schedule not found.");
+  if (!result.changes) throw new NotFoundError("Schedule not found.");
 }
 
 export async function getMaintenanceSettings(worldId: string): Promise<MaintenanceSettingsInput> {
-  if (!await getWorld(worldId)) throw new Error("World not found.");
+  await requireWorld(worldId);
   const [record] = await database().select().from(maintenanceSettings).where(eq(maintenanceSettings.worldId, worldId)).limit(1);
   return maintenanceSettingsSchema.parse(record ?? {});
 }
 
 export async function updateMaintenanceSettings(worldId: string, value: unknown): Promise<MaintenanceSettingsInput> {
-  if (!await getWorld(worldId)) throw new Error("World not found.");
+  await requireWorld(worldId);
   const input = maintenanceSettingsSchema.parse(value); const updatedAt = Date.now();
   await database().insert(maintenanceSettings).values({ worldId, ...input, updatedAt }).onConflictDoUpdate({ target: maintenanceSettings.worldId, set: { ...input, updatedAt } });
   return input;

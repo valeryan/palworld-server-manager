@@ -2,7 +2,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { remotePermissions } from "@/contracts/remote-access";
+import { fetchJson, requestJson } from "@/lib/http-client";
 import { useLocaleDateTime } from "@/lib/use-locale-format";
+import { useNoticeAction } from "@/lib/use-notice-action";
 import { SettingHelp } from "./setting-help";
 
 type Code = { id: string; codeHint: string; label: string; scope: "all" | "world"; worldId: string | null; permissions: string[]; enabled: boolean; createdAt: number; lastUsedAt: number | null };
@@ -11,29 +14,31 @@ type Audit = { id: number; principalLabel: string; action: string; worldId: stri
 type Access = { settings: { enabled: boolean }; codes: Code[]; sessions: Session[]; audit: Audit[] };
 type World = { id: string; displayName: string };
 type Network = { configuredHost: "127.0.0.1" | "0.0.0.0"; activeHost: "127.0.0.1" | "0.0.0.0"; port: number; addresses: string[] };
-const permissionOptions = ["world.view", "world.lifecycle", "world.players", "world.messages"];
-async function request<T>(body?: unknown): Promise<T> { const response = await fetch("/api/remote/access", body === undefined ? undefined : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); const result = await response.json(); if (!response.ok) throw new Error(result.error || `Request failed (${response.status})`); return result; }
+const permissionOptions: readonly string[] = remotePermissions;
+function request<T>(body?: unknown): Promise<T> { return body === undefined ? fetchJson<T>("/api/remote/access") : requestJson<T>("/api/remote/access", { method: "POST", body: JSON.stringify(body) }); }
 
 export function RemoteAccessSettings({ onNotice }: { onNotice(message: string): void }) {
   const { t } = useTranslation();
   const dateTime = useLocaleDateTime();
   const client = useQueryClient(); const access = useQuery({ queryKey: ["remote-access"], queryFn: () => request<Access>() });
-  const worlds = useQuery({ queryKey: ["worlds", "remote-settings"], queryFn: async () => { const response = await fetch("/api/worlds"); const body = await response.json(); if (!response.ok) throw new Error(body.error); return body.worlds as World[]; } });
-  const [network, setNetwork] = useState<Network | null>(null); const [host, setHost] = useState<"127.0.0.1" | "0.0.0.0">("127.0.0.1"); const [label, setLabel] = useState(""); const [scope, setScope] = useState<"all" | "world">("all"); const [worldId, setWorldId] = useState(""); const [permissions, setPermissions] = useState(["world.view", "world.lifecycle"]); const [revealedCode, setRevealedCode] = useState<string | null>(null); const [saving, setSaving] = useState(false);
+  const worlds = useQuery({ queryKey: ["worlds", "remote-settings"], queryFn: async () => (await fetchJson<{ worlds: World[] }>("/api/worlds")).worlds });
+  const [network, setNetwork] = useState<Network | null>(null); const [host, setHost] = useState<"127.0.0.1" | "0.0.0.0">("127.0.0.1"); const [label, setLabel] = useState(""); const [scope, setScope] = useState<"all" | "world">("all"); const [worldId, setWorldId] = useState(""); const [permissions, setPermissions] = useState(["world.view", "world.lifecycle"]); const [revealedCode, setRevealedCode] = useState<string | null>(null);
+  // Saving the binding and creating a code share the disabled state; code row actions never disabled anything.
+  const { pending: saving, run: runSaving } = useNoticeAction(onNotice); const { run: runCodeAction } = useNoticeAction(onNotice);
   useEffect(() => { const desktop = window.psmDesktop; if (!desktop) return; void desktop.getManagerNetwork().then((value) => { setNetwork(value); setHost(value.configuredHost); }); }, []);
   const enabled = access.data?.settings.enabled ?? false;
   async function saveAccess(nextEnabled = enabled) {
-    const desktop = window.psmDesktop; if (!desktop) return onNotice(t("remoteSettings.desktopOnly")); setSaving(true);
-    try {
+    const desktop = window.psmDesktop; if (!desktop) return onNotice(t("remoteSettings.desktopOnly"));
+    await runSaving(async () => {
       if (!nextEnabled) await desktop.setManagerHost("127.0.0.1");
       await request({ action: "set-enabled", enabled: nextEnabled });
       const result = await desktop.setManagerHost(nextEnabled ? host : "127.0.0.1");
       await client.invalidateQueries({ queryKey: ["remote-access"] }); setNetwork((current) => current ? { ...current, configuredHost: result.configuredHost } : current);
       onNotice(result.restartRequired ? t("remoteSettings.savedRestart", { state: t(nextEnabled ? "remoteSettings.saved" : "remoteSettings.disabled") }) : t(nextEnabled ? "remoteSettings.enabledNotice" : "remoteSettings.disabledNotice"));
-    } catch (error) { onNotice(error instanceof Error ? error.message : String(error)); } finally { setSaving(false); }
+    });
   }
-  async function createCode(event: FormEvent) { event.preventDefault(); setSaving(true); try { const result = await request<{ code: Code & { code: string } }>({ action: "create-code", value: { label, scope, worldId: scope === "world" ? worldId : null, permissions } }); setRevealedCode(result.code.code); setLabel(""); await client.invalidateQueries({ queryKey: ["remote-access"] }); onNotice(t("remoteSettings.created")); } catch (error) { onNotice(error instanceof Error ? error.message : String(error)); } finally { setSaving(false); } }
-  async function codeAction(body: unknown, message: string) { try { await request(body); await client.invalidateQueries({ queryKey: ["remote-access"] }); onNotice(message); } catch (error) { onNotice(error instanceof Error ? error.message : String(error)); } }
+  async function createCode(event: FormEvent) { event.preventDefault(); await runSaving(async () => { const result = await request<{ code: Code & { code: string } }>({ action: "create-code", value: { label, scope, worldId: scope === "world" ? worldId : null, permissions } }); setRevealedCode(result.code.code); setLabel(""); await client.invalidateQueries({ queryKey: ["remote-access"] }); onNotice(t("remoteSettings.created")); }); }
+  async function codeAction(body: unknown, message: string) { await runCodeAction(async () => { await request(body); await client.invalidateQueries({ queryKey: ["remote-access"] }); onNotice(message); }); }
   const restartRequired = network && network.configuredHost !== network.activeHost;
   const help = (labelKey: string, guidanceKey: string) => { const heading = t(labelKey); return <SettingHelp label={t("structured.helpFor", { setting: heading })} heading={heading} guidance={t(guidanceKey)} />; };
   return <section className="settings-remote"><div className="settings-section-heading"><div><h2>{t("remoteSettings.title")}{help("remoteSettings.title", "remoteSettings.description")}</h2></div><button className={`toggle ${enabled ? "on" : ""}`} disabled={saving || access.isLoading} onClick={() => void saveAccess(!enabled)}><i />{t(enabled ? "common.on" : "common.off")}</button></div>

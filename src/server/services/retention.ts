@@ -1,10 +1,10 @@
 import "server-only";
 import { readdir, unlink } from "node:fs/promises";
 import path from "node:path";
-import { eq } from "drizzle-orm";
 import { defaultRetentionSettings, retentionSettingsSchema, type RetentionSettings } from "@/contracts/retention";
 import { database, sqliteClient } from "@/server/db";
-import { appSettings, worlds } from "@/server/db/schema";
+import { readAppSetting, writeAppSetting } from "@/server/db/app-settings";
+import { worlds } from "@/server/db/schema";
 import { paths } from "@/server/paths";
 
 const DAY = 86_400_000;
@@ -13,15 +13,13 @@ type CleanupReport = { operations: number; operationLogs: number; events: number
 
 function changes(result: { changes: number | bigint }): number { return Number(result.changes); }
 
-export async function getRetentionSettings(): Promise<RetentionSettings> {
-  const [record] = await database().select().from(appSettings).where(eq(appSettings.key, SETTING_KEY)).limit(1);
-  const parsed = retentionSettingsSchema.safeParse(record?.value);
-  return parsed.success ? parsed.data : defaultRetentionSettings;
+export function getRetentionSettings(): Promise<RetentionSettings> {
+  return readAppSetting(SETTING_KEY, (value) => retentionSettingsSchema.safeParse(value).data, defaultRetentionSettings);
 }
 
 export async function saveRetentionSettings(value: unknown): Promise<{ settings: RetentionSettings; report: CleanupReport }> {
   const settings = retentionSettingsSchema.parse(value);
-  await database().insert(appSettings).values({ key: SETTING_KEY, value: settings }).onConflictDoUpdate({ target: appSettings.key, set: { value: settings } });
+  await writeAppSetting(SETTING_KEY, settings);
   return { settings, report: await applyRetentionPolicy(settings) };
 }
 

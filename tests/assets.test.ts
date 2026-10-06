@@ -16,7 +16,6 @@ describe("application icon inventory", () => {
 
   it("contains the complete sphere theme inventory", () => {
     expect(readdirSync(spheres).sort()).toEqual([
-      "psm-sphere-blank.svg",
       "psm-spheres-ancient.png",
       "psm-spheres-blank.png",
       "psm-spheres-exotic.png",

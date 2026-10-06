@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { scanTuple } from "./tuple-scanner";
 
 // INI text operations: no manager profile, database or filesystem access.
 export function validateConfiguration(content: string) {
@@ -6,48 +7,14 @@ export function validateConfiguration(content: string) {
   if (content.includes("\0")) throw new Error("Configuration contains a NUL byte.");
   const match = content.match(/OptionSettings=\((.*)\)/s);
   if (!match) throw new Error("Configuration must contain OptionSettings=(...).");
-  let quoted = false;
-  let escaped = false;
-  let depth = 0;
-  for (const character of match[1] ?? "") {
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (character === "\\" && quoted) {
-      escaped = true;
-      continue;
-    }
-    if (character === '"') quoted = !quoted;else if (!quoted && character === "(") depth++;else if (!quoted && character === ")") depth--;
-    if (depth < 0) throw new Error("OptionSettings contains unbalanced parentheses.");
-  }
-  if (quoted || depth !== 0) throw new Error("OptionSettings contains unbalanced quotes or parentheses.");
+  const scan = scanTuple(match[1] ?? "");
+  if (scan.negative) throw new Error("OptionSettings contains unbalanced parentheses.");
+  if (scan.quoted || scan.depth !== 0) throw new Error("OptionSettings contains unbalanced quotes or parentheses.");
 }
 export function splitConfigurationOptions(body: string) {
   const parts: string[] = [];
   let start = 0;
-  let quoted = false;
-  let escaped = false;
-  let depth = 0;
-  for (let index = 0; index < body.length; index++) {
-    const character = body[index];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (character === "\\" && quoted) {
-      escaped = true;
-      continue;
-    }
-    if (character === '"') {
-      quoted = !quoted;
-      continue;
-    }
-    if (!quoted && character === "(") depth++;else if (!quoted && character === ")") depth--;else if (!quoted && depth === 0 && character === ",") {
-      parts.push(body.slice(start, index));
-      start = index + 1;
-    }
-  }
+  scanTuple(body, (index) => { parts.push(body.slice(start, index)); start = index + 1; });
   parts.push(body.slice(start));
   return parts;
 }

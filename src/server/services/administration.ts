@@ -4,14 +4,14 @@ import { database } from "@/server/db";
 import { events, sessions } from "@/server/db/schema";
 import type { RestAdminAction } from "@/contracts/admin";
 import { moderationEventMessage } from "@/lib/moderation-presentation";
-import { getWorld } from "./worlds";
+import { ConflictError } from "@/server/errors";
+import { requireWorld } from "./worlds";
 import { palworldRest } from "./rest";
 
 export async function runRestAdminAction(worldId: string, action: RestAdminAction): Promise<unknown> {
-  const world = await getWorld(worldId);
-  if (!world) throw new Error("World not found.");
-  if (world.status !== "running") throw new Error("Start the server before using live administration controls.");
-  if (!world.restApiEnabled) throw new Error("Enable the REST API and restart the server before using live administration controls.");
+  const world = await requireWorld(worldId);
+  if (world.status !== "running") throw new ConflictError("Start the server before using live administration controls.");
+  if (!world.restApiEnabled) throw new ConflictError("Enable the REST API and restart the server before using live administration controls.");
   let result: unknown;
   if (action.action === "announce") result = await palworldRest.announce(world, action.message);
   else if (action.action === "save") result = await palworldRest.save(world);

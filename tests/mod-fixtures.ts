@@ -8,6 +8,12 @@ import type { CatalogArtifact } from "@/server/mods/catalog";
 export const context = () => ({ signal: new AbortController().signal, update: async () => undefined, log: () => undefined });
 export async function exists(target: string): Promise<boolean> { try { await stat(target); return true; } catch { return false; } }
 export async function put(file: string, content = ""): Promise<void> { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, content); }
+export async function world(baseDir: string, name: string, platform: "windows" | "linux") {
+  const installDir = path.join(baseDir, name);
+  await mkdir(path.join(installDir, "Pal", "Binaries", platform === "windows" ? "Win64" : "Linux"), { recursive: true });
+  const { createWorld } = await import("@/server/services/worlds");
+  return createWorld({ displayName: name, installDir, platform });
+}
 
 // Mirrors the real release layouts, including the bundled example mods that must be left out.
 export function windowsArchive(): Buffer {

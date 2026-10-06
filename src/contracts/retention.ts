@@ -1,13 +1,28 @@
 import { z } from "zod";
 
+// Inclusive bounds for each retention setting; the schema and the settings form both derive from this.
+export const retentionLimits = {
+  operationDays: [7, 3_650],
+  operationCount: [50, 10_000],
+  operationLogLines: [100, 20_000],
+  activityDays: [30, 3_650],
+  activityCountPerWorld: [100, 50_000],
+  serverLogFilesPerWorld: [5, 500],
+  configurationVersionsPerWorld: [10, 1_000],
+} as const satisfies Record<string, readonly [number, number]>;
+
+export type RetentionSettingKey = keyof typeof retentionLimits;
+export const retentionSettingKeys = Object.keys(retentionLimits) as RetentionSettingKey[];
+
+const bounded = ([min, max]: readonly [number, number]) => z.coerce.number().int().min(min).max(max);
 export const retentionSettingsSchema = z.object({
-  operationDays: z.coerce.number().int().min(7).max(3_650),
-  operationCount: z.coerce.number().int().min(50).max(10_000),
-  operationLogLines: z.coerce.number().int().min(100).max(20_000),
-  activityDays: z.coerce.number().int().min(30).max(3_650),
-  activityCountPerWorld: z.coerce.number().int().min(100).max(50_000),
-  serverLogFilesPerWorld: z.coerce.number().int().min(5).max(500),
-  configurationVersionsPerWorld: z.coerce.number().int().min(10).max(1_000),
+  operationDays: bounded(retentionLimits.operationDays),
+  operationCount: bounded(retentionLimits.operationCount),
+  operationLogLines: bounded(retentionLimits.operationLogLines),
+  activityDays: bounded(retentionLimits.activityDays),
+  activityCountPerWorld: bounded(retentionLimits.activityCountPerWorld),
+  serverLogFilesPerWorld: bounded(retentionLimits.serverLogFilesPerWorld),
+  configurationVersionsPerWorld: bounded(retentionLimits.configurationVersionsPerWorld),
 }).strict();
 
 export type RetentionSettings = z.infer<typeof retentionSettingsSchema>;

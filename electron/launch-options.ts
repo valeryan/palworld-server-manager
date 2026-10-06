@@ -1,4 +1,4 @@
-import { windowsArguments } from "../src/lib/arguments";
+import { posixArguments, windowsArguments } from "../src/lib/arguments";
 
 export type LaunchAtLoginOptions = {
   argumentFormat?: "legacy" | "windows";
@@ -29,17 +29,7 @@ export function normalizeLaunchAtLoginOptions(value: unknown): LaunchAtLoginOpti
 export function parseCustomLaunchFlags(value: string, format: "legacy" | "windows" = "legacy"): string[] {
   if (value.length > 2_048) throw new Error("Custom launch flags cannot exceed 2,048 characters.");
   if (/[\r\n\0]/.test(value)) throw new Error("Custom launch flags cannot contain line breaks or NUL bytes.");
-  const flags: string[] = []; let token = ""; let quote: "'" | '"' | null = null; let escaped = false;
-  for (const character of (format === "windows" ? "" : value.trim())) {
-    if (escaped) { token += character; escaped = false; continue; }
-    if (character === "\\") { escaped = true; continue; }
-    if (quote) { if (character === quote) quote = null; else token += character; continue; }
-    if (character === "'" || character === '"') { quote = character; continue; }
-    if (/\s/.test(character)) { if (token) { flags.push(token); token = ""; } } else token += character;
-  }
-  if (escaped || quote) throw new Error("Custom launch flags contain an unfinished quote or escape.");
-  if (token) flags.push(token);
-  if (format === "windows") { flags.splice(0, flags.length, ...windowsArguments(value)); }
+  const flags = format === "windows" ? windowsArguments(value) : posixArguments(value, { escapeInSingleQuotes: true, unfinishedMessage: "Custom launch flags contain an unfinished quote or escape." });
   if (flags.length > 32) throw new Error("Custom launch flags are limited to 32 arguments.");
   for (const flag of flags) {
     if (flag.length > 256 || !/^--[a-zA-Z0-9][a-zA-Z0-9-]*(?:=.*)?$/.test(flag)) throw new Error(`Invalid launch flag: ${flag}`);

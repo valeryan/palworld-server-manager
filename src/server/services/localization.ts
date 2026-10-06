@@ -1,10 +1,9 @@
 import "server-only";
-import { readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
-import { eq } from "drizzle-orm";
 import { languageCodePattern, languagePackSchema, type LanguageCatalog, type LanguagePack, type LanguageSummary } from "@/contracts/localization";
-import { database } from "@/server/db";
-import { appSettings } from "@/server/db/schema";
+import { readAppSetting, writeAppSetting } from "@/server/db/app-settings";
+import { writeFileAtomic } from "@/server/fs";
 import { paths } from "@/server/paths";
 import { englishGuidedSettingTranslations } from "@/lib/localization-resources";
 
@@ -46,10 +45,8 @@ function discoveredPacks() {
   return { english: english.pack, combined };
 }
 
-async function configuredLanguage(): Promise<string> {
-  const [row] = await database().select().from(appSettings).where(eq(appSettings.key, settingKey)).limit(1);
-  const value = row?.value as { language?: unknown } | undefined;
-  return typeof value?.language === "string" ? value.language : "en";
+function configuredLanguage(): Promise<string> {
+  return readAppSetting(settingKey, (value) => { const language = (value as { language?: unknown } | null)?.language; return typeof language === "string" ? language : undefined; }, "en");
 }
 
 export async function languageCatalog(): Promise<LanguageCatalog> {
@@ -73,18 +70,14 @@ export function languageResources(code: string): LanguagePack {
 export async function selectLanguage(code: string): Promise<LanguageCatalog> {
   const { combined } = discoveredPacks();
   if (!combined.has(code)) throw new Error(`Language pack ${code} is not installed.`);
-  await database().insert(appSettings).values({ key: settingKey, value: { language: code } }).onConflictDoUpdate({ target: appSettings.key, set: { value: { language: code } } });
+  await writeAppSetting(settingKey, { language: code });
   return languageCatalog();
 }
 
 export async function installLanguagePack(content: string): Promise<LanguageCatalog> {
   const pack = parsePack(content, "Selected file");
   if (pack.meta.code === "en") throw new Error("The built-in English pack cannot be replaced.");
-  const directory = paths.languagePacks();
-  const destination = path.join(/* turbopackIgnore: true */ directory, `${pack.meta.code}.json`);
-  const temporary = `${destination}.tmp`;
-  writeFileSync(temporary, `${JSON.stringify(pack, null, 2)}\n`, { mode: 0o600 });
-  renameSync(temporary, destination);
+  await writeFileAtomic(path.join(/* turbopackIgnore: true */ paths.languagePacks(), `${pack.meta.code}.json`), `${JSON.stringify(pack, null, 2)}\n`, { mode: 0o600 });
   return languageCatalog();
 }
 

@@ -2,14 +2,16 @@ import "server-only";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync } from "node:fs";
-import { mkdir, open, rm } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { hostPlatform } from "@/server/host";
 import { paths } from "@/server/paths";
 import type { WorldView } from "@/contracts/world";
 import type { InstallationHealth } from "@/contracts/installation";
+import { downloadToFile } from "./download";
 import type { JobContext } from "./jobs";
+import { assertWorldStopped } from "./worlds";
 const execute = promisify(execFile);
 const cache = new Map<string, { at: number; result: InstallationHealth["prerequisite"] }>();
 const ps = (script: string, timeout = 15_000) => execute("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], { windowsHide: true, timeout, maxBuffer: 1024 * 1024 });
@@ -27,17 +29,14 @@ export async function inspectPrerequisites(world: Pick<WorldView, "installDir" |
 }
 export async function repairPrerequisites(world: WorldView, context: JobContext): Promise<void> {
   if (hostPlatform() !== "win32" || world.platform !== "windows") throw new Error("Prerequisite repair is only available for a native Windows world.");
-  if (world.processId || !["stopped", "crashed"].includes(world.status)) throw new Error("Stop the world before repairing prerequisites.");
+  assertWorldStopped(world, "Stop the world before repairing prerequisites.");
   const staging = path.join(/* turbopackIgnore: true */ paths.data(), "prerequisites", randomUUID()); await mkdir(staging, { recursive: true });
   try {
     let installer = bundledPrerequisite(world); const bundled = existsSync(installer);
     if (!bundled) {
       installer = path.join(/* turbopackIgnore: true */ staging, "vc_redist.x64.exe");
       await context.update(10, "Downloading Microsoft Visual C++ x64 runtime");
-      const response = await fetch("https://aka.ms/vc14/vc_redist.x64.exe", { signal: AbortSignal.any([context.signal, AbortSignal.timeout(120_000)]) });
-      if (!response.ok || !response.body) throw new Error(`Prerequisite download failed: HTTP ${response.status}`);
-      const file = await open(installer, "wx"); let bytes = 0;
-      try { for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) { bytes += chunk.byteLength; if (bytes > 100 * 1024 * 1024) throw new Error("Prerequisite download exceeds 100 MiB."); await file.write(chunk); } } finally { await file.close(); }
+      await downloadToFile("https://aka.ms/vc14/vc_redist.x64.exe", installer, { signal: context.signal, maxBytes: 100 * 1024 * 1024, label: "Prerequisite", timeoutMs: 120_000 });
     }
     context.signal.throwIfAborted();
     await context.update(35, "Verifying installer publisher");
@@ -53,7 +52,7 @@ export async function repairPrerequisites(world: WorldView, context: JobContext)
     if (code === 1223) throw new Error("Windows elevation was cancelled. Prerequisites were not installed.");
     if (![0, 3010, 1641].includes(code)) throw new Error(`Prerequisite installer failed with exit code ${code}.`);
     const after = await inspectPrerequisites(world, true);
-    if (code === 3010 || code === 1641) { context.log("Windows reports a reboot is required. Restart Windows before launching the server."); await context.update(100, "Prerequisite installer completed; Windows restart required"); return; }
+    if (code === 3010 || code === 1641) { context.log("Windows reports a reboot is required. Restart Windows before launching the server."); await context.update(100, "Prerequisite installer completed; Windows restart required", { preserveOnSuccess: true }); return; }
     if (after.state !== "installed") throw new Error(`Installer completed but verification did not pass: ${after.detail}`);
     await context.update(100, "Prerequisites repaired and rechecked");
   } finally { await rm(staging, { recursive: true, force: true }); }

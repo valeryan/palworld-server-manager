@@ -1,27 +1,16 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { beforeAll, describe, expect, it } from "vitest";
+import { readFile, writeFile, rm } from "node:fs/promises";
 import path from "node:path";
 import AdmZip from "adm-zip";
-import { prepareTestDatabase } from "./prepare-database";
-import { context, exists, linuxArchive, stage, windowsArchive } from "./mod-fixtures";
+import { setupTestDataDirectory } from "./prepare-database";
+import { context, exists, linuxArchive, stage, windowsArchive, world as worldFixture } from "./mod-fixtures";
 
-let directory: string;
-async function world(name: string, platform: "windows" | "linux") {
-  const installDir = path.join(directory, name);
-  await mkdir(path.join(installDir, "Pal", "Binaries", platform === "windows" ? "Win64" : "Linux"), { recursive: true });
-  const { createWorld } = await import("@/server/services/worlds");
-  return createWorld({ displayName: name, installDir, platform });
-}
+const dir = setupTestDataDirectory("psm-integrity-");
+async function world(name: string, platform: "windows" | "linux") { return worldFixture(dir.directory, name, platform); }
 
 beforeAll(async () => {
-  directory = await mkdtemp(path.join(tmpdir(), "psm-integrity-"));
-  process.env.PALWORLD_MANAGER_DATA_DIR = path.join(directory, "data");
-  process.env.PALWORLD_MANAGER_DB = path.join(directory, "data", "registry-v3.sqlite");
-  await prepareTestDatabase(process.env.PALWORLD_MANAGER_DATA_DIR, process.env.PALWORLD_MANAGER_DB);
   await stage("windows", windowsArchive()); await stage("linux", linuxArchive());
 });
-afterAll(async () => { await rm(directory, { recursive: true, force: true }); });
 
 describe("managed mod checks", () => {
   it("finds missing and changed UE4SS files and restores them from the library", async () => {

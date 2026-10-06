@@ -1,23 +1,25 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { prepareTestDatabase } from "./prepare-database";
-import { adoptWorld, exportWorldRegistration, pathsOverlap } from "@/server/services/worlds";
-import { commandFor, parseArguments } from "@/server/services/processes";
+import { setupTestDataDirectory } from "./prepare-database";
+import { adoptWorld } from "@/server/services/installation";
+import { exportWorldRegistration, pathsOverlap } from "@/server/services/worlds";
+import { commandFor, parseArguments } from "@/server/services/lifecycle";
 import { createWorldSchema, parseWorldUpdate, worldRegistrationSchema } from "@/contracts/world";
 import { createScheduleSchema } from "@/contracts/schedule";
 import { nextRun } from "@/server/services/schedules";
-import { advertisedPortState, applyConfigurationOptions, configurationCredentials, managedConfigurationChanges, managedDisplayNameChange, managedPublicPortChange, managedWorldChangesFromConfiguration, needsManagedConfigurationSync, parseConfigurationOptions } from "@/server/services/configuration";
+import { applyConfigurationOptions, configurationCredentials, parseConfigurationOptions } from "@/lib/palworld-ini";
+import { advertisedPortState, managedConfigurationChanges, managedDisplayNameChange, managedPublicPortChange, managedWorldChangesFromConfiguration } from "@/server/services/configuration";
 import { decodeDefaultSettingValue, decodeSettingValue, PALWORLD_MANAGER_SETTING_KEYS, PALWORLD_SETTING_FIELDS, PALWORLD_SETTING_TABS, settingLayoutSpan, settingPresentation, validateAndEncodeSettingChanges } from "@/contracts/palworld-settings";
 import { cancelJob, listJobs, startJob } from "@/server/services/jobs";
 import { backupSettingsSchema } from "@/contracts/backup";
 import { retentionCandidates } from "@/server/services/backups";
 import { warningMessage } from "@/server/services/maintenance";
-import { jobDisplayMessage, jobKindLabel, jobStartingMessage, jobSuccessMessage } from "@/lib/job-presentation";
+import { jobKindLabel, jobStartingMessage, jobSuccessMessage } from "@/lib/job-presentation";
 import { rconCommandSchema, restAdminActionSchema } from "@/contracts/admin";
-import { buildState, buildStatusText } from "@/lib/build-presentation";
+import { buildState } from "@/lib/build-presentation";
 import { legacyModerationEvent, moderationEventMessage } from "@/lib/moderation-presentation";
 import { defaultRetentionSettings, retentionSettingsSchema } from "@/contracts/retention";
 
@@ -49,9 +51,6 @@ describe("build presentation", () => {
     expect(buildState("100", "101")).toBe("update-available");
     expect(buildState("100", null)).toBe("unknown");
   });
-  it("keeps both build IDs in the accessible update description", () => {
-    expect(buildStatusText("100", "101")).toContain("installed build 100; latest public build 101");
-  });
 });
 
 describe("operation language", () => {
@@ -60,10 +59,8 @@ describe("operation language", () => {
     expect(jobStartingMessage("stop")).toBe("Stopping server");
     expect(jobStartingMessage("backup")).toBe("Creating backup");
     expect(jobSuccessMessage("restart")).toBe("Server restarted successfully");
-  });
-  it("presents legacy generic job messages with action-specific language", () => {
-    expect(jobDisplayMessage({ kind: "stop", state: "running", message: "Starting" })).toBe("Stopping server");
-    expect(jobDisplayMessage({ kind: "stop", state: "succeeded", message: "Complete" })).toBe("Server stopped successfully");
+    expect(jobStartingMessage("steamcmd-bootstrap")).toBe("Preparing SteamCMD");
+    expect(jobSuccessMessage("repair-prerequisites")).toBe("Windows prerequisites repaired");
   });
 });
 
@@ -208,13 +205,6 @@ describe("PalWorldSettings transformations", () => {
     expect(managedDisplayNameChange("Old server", '"Old server"', '"New server"', "Local name", true)).toBe("Local name");
     expect(() => managedDisplayNameChange("PSM override", undefined, undefined, null, true)).toThrow("cannot inherit");
   });
-  it("does not rewrite the INI for PSM-only presentation changes", () => {
-    expect(needsManagedConfigurationSync({ displayName: "Local label" })).toBe(false);
-    expect(needsManagedConfigurationSync({ autostart: true, extraArgs: "-useperfthreads" })).toBe(false);
-    expect(needsManagedConfigurationSync({ adminPassword: "new", restApiPort: 8213 })).toBe(true);
-    expect(needsManagedConfigurationSync({ adminPassword: "new" })).toBe(false);
-    expect(needsManagedConfigurationSync({ gamePort: 8211 })).toBe(false);
-  });
   it("reconciles manager-integrated values from raw INI without touching presentation properties", () => {
     const content = '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(AdminPassword="new",ServerPassword="players",RESTAPIEnabled=False,RESTAPIPort=9012,RCONEnabled=True,RCONPort=25580)\n';
     expect(managedWorldChangesFromConfiguration(content)).toEqual({ restApiEnabled: false, restApiPort: 9012, rconEnabled: true, rconPort: 25580 });
@@ -295,14 +285,7 @@ describe("PalWorldSettings transformations", () => {
 });
 
 describe("job cancellation", () => {
-  let directory: string | undefined;
-  beforeAll(async () => {
-    directory = await mkdtemp(path.join(tmpdir(), "psm-jobs-test-"));
-    process.env.PALWORLD_MANAGER_DATA_DIR = path.join(directory, "data");
-    process.env.PALWORLD_MANAGER_DB = path.join(directory, "data", "registry-v3.sqlite");
-    await prepareTestDatabase(process.env.PALWORLD_MANAGER_DATA_DIR, process.env.PALWORLD_MANAGER_DB);
-  });
-  afterAll(async () => { if (directory) await rm(directory, { recursive: true, force: true }); });
+  setupTestDataDirectory("psm-jobs-test-");
 
   it("cancels an attached long-running job and records cancellation", async () => {
     const id = await startJob(null, "cancel-test", async ({ signal }) => await new Promise<void>((_resolve, reject) => {

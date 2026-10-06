@@ -1,23 +1,14 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { prepareTestDatabase } from "./prepare-database";
+import { setupTestDataDirectory } from "./prepare-database";
+import { put } from "./mod-fixtures";
 import { parseModsTxt } from "@/server/mods/lua-mods";
 import { parseInfoJson, parsePalModSettings } from "@/server/mods/workshop-mods";
 import { readGuiConsole } from "@/server/mods/ue4ss";
 
-let directory: string;
-async function put(file: string, content = ""): Promise<void> { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, content); }
-
-beforeAll(async () => {
-  directory = await mkdtemp(path.join(tmpdir(), "psm-mods-test-"));
-  process.env.PALWORLD_MANAGER_DATA_DIR = path.join(directory, "data");
-  process.env.PALWORLD_MANAGER_DB = path.join(directory, "data", "registry-v3.sqlite");
-  await prepareTestDatabase(process.env.PALWORLD_MANAGER_DATA_DIR, process.env.PALWORLD_MANAGER_DB);
-});
-afterAll(async () => { await rm(directory, { recursive: true, force: true }); });
+const dir = setupTestDataDirectory("psm-mods-test-");
 
 describe("mod file parsers", () => {
   it("reads mods.txt flags and ignores comments and malformed lines", () => {
@@ -41,7 +32,7 @@ describe("mod file parsers", () => {
 
 describe("world mod status", () => {
   it("reports a Windows UE4SS install, its crash-risk warnings, and managed versus unmanaged Lua mods", async () => {
-    const install = path.join(directory, "windows-world"); const win64 = path.join(install, "Pal", "Binaries", "Win64"); const mods = path.join(win64, "ue4ss", "Mods");
+    const install = path.join(dir.directory, "windows-world"); const win64 = path.join(install, "Pal", "Binaries", "Win64"); const mods = path.join(win64, "ue4ss", "Mods");
     await put(path.join(win64, "dwmapi.dll"));
     await put(path.join(win64, "ue4ss", "UE4SS-settings.ini"), "GuiConsoleVisible=1\n");
     await put(path.join(mods, "mods.txt"), "Library : 1\nHand : 0\nshared : 1\n");
@@ -67,7 +58,7 @@ describe("world mod status", () => {
   });
 
   it("reads the native Linux layout without treating Palworld's own mod folders as Lua mods", async () => {
-    const install = path.join(directory, "linux-world");
+    const install = path.join(dir.directory, "linux-world");
     await mkdir(path.join(install, "Pal", "Binaries", "Linux"), { recursive: true });
     await put(path.join(install, "libUE4SS.so")); await put(path.join(install, "MemberVariableLayout.ini")); await put(path.join(install, "UE4SS-settings.ini"), "GuiConsoleVisible=0\n");
     await put(path.join(install, "Mods", "mods.txt"), "Relay : 1\n\nUE4SSStatus : 1\n"); await put(path.join(install, "Mods", "Relay", "scripts", "main.lua")); await put(path.join(install, "Mods", "UE4SSStatus", "scripts", "main.lua"));
@@ -82,7 +73,7 @@ describe("world mod status", () => {
   });
 
   it("reports an empty world without errors", async () => {
-    const install = path.join(directory, "empty-world"); await mkdir(install, { recursive: true });
+    const install = path.join(dir.directory, "empty-world"); await mkdir(install, { recursive: true });
     const { createWorld } = await import("@/server/services/worlds"); const { worldModStatus } = await import("@/server/mods/status");
     const status = await worldModStatus((await createWorld({ displayName: "Empty", installDir: install, platform: "linux" })).id);
     expect(status).toMatchObject({ ue4ss: { installed: false, binariesPresent: false, warnings: [] }, library: { id: "ue4ss-linux", downloaded: false }, luaMods: [], workshop: { settingsExists: false, mods: [] } });
@@ -91,7 +82,7 @@ describe("world mod status", () => {
 
 describe("mod library", () => {
   it("lists pinned builds with download state and the worlds where each is detected", async () => {
-    const { modLibrary, artifactPath } = await import("@/server/mods/status"); const { MOD_CATALOG } = await import("@/server/mods/catalog");
+    const { modLibrary } = await import("@/server/mods/status"); const { MOD_CATALOG, artifactPath } = await import("@/server/mods/catalog");
     const linux = MOD_CATALOG.find((artifact) => artifact.variant === "linux")!;
     await put(artifactPath(linux), "x".repeat(linux.sizeBytes));
     const entries = await modLibrary();
@@ -112,7 +103,7 @@ describe("verified downloads", () => {
 
   it("keeps a file only when its size and SHA-256 match", async () => {
     const { downloadVerified } = await import("@/server/services/archive");
-    const staging = path.join(directory, "dl-staging"); const destination = path.join(directory, "dl", "ok.bin");
+    const staging = path.join(dir.directory, "dl-staging"); const destination = path.join(dir.directory, "dl", "ok.bin");
     vi.stubGlobal("fetch", respond(payload)); const run = context();
     await downloadVerified({ url: "https://example.test/ok.bin", sha256: digest, sizeBytes: payload.byteLength, destination, staging }, run.value);
     expect(await readFile(destination, "utf8")).toBe("pinned artifact bytes");
@@ -122,7 +113,7 @@ describe("verified downloads", () => {
 
   it("discards a download whose checksum, length, or status is wrong", async () => {
     const { downloadVerified } = await import("@/server/services/archive");
-    const staging = path.join(directory, "dl-staging-bad"); const destination = path.join(directory, "dl", "bad.bin");
+    const staging = path.join(dir.directory, "dl-staging-bad"); const destination = path.join(dir.directory, "dl", "bad.bin");
     const cases: Array<[Uint8Array<ArrayBuffer>, number, string, number]> = [
       [payload, payload.byteLength, "0".repeat(64), 200],
       [payload, payload.byteLength - 1, digest, 200],
@@ -141,7 +132,7 @@ describe("verified downloads", () => {
 describe("library downloads", () => {
   afterEach(() => { vi.unstubAllGlobals(); });
   it("downloads a catalog entry as an operation, refuses duplicates, and removes only the library copy", async () => {
-    const { MOD_CATALOG: catalog } = await import("@/server/mods/catalog"); const MOD_CATALOG = catalog as import("@/server/mods/catalog").CatalogArtifact[]; const { artifactPath } = await import("@/server/mods/status");
+    const { MOD_CATALOG: catalog, artifactPath } = await import("@/server/mods/catalog"); const MOD_CATALOG = catalog as import("@/server/mods/catalog").CatalogArtifact[];
     const { downloadArtifact, removeArtifact } = await import("@/server/mods/library"); const { getJob } = await import("@/server/services/jobs");
     const windows = MOD_CATALOG.find((artifact) => artifact.variant === "windows")!;
     const body = new Uint8Array(windows.sizeBytes);

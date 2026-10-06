@@ -36,6 +36,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Check import cycles
+        run: npm run check:cycles
+
       - name: Run unit tests
         run: npm test
 

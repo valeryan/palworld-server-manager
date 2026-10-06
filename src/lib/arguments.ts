@@ -19,3 +19,24 @@ export function windowsArguments(value: string): string[] {
   if (present) args.push(token);
   return args;
 }
+
+/**
+ * POSIX-style tokenizer with single and double quotes and backslash escapes. No shell is involved.
+ * With `escapeInSingleQuotes` a backslash escapes inside single quotes too (the historical manager
+ * behaviour for Electron launch flags); without it, single quotes are literal, as in sh.
+ */
+export function posixArguments(value: string, options: { escapeInSingleQuotes?: boolean; unfinishedMessage?: string } = {}): string[] {
+  const args: string[] = [];
+  let token = ""; let quote: "'" | '"' | null = null; let escaped = false;
+  for (const character of value.trim()) {
+    if (escaped) { token += character; escaped = false; continue; }
+    if (character === "\\" && (quote !== "'" || options.escapeInSingleQuotes)) { escaped = true; continue; }
+    if (quote) { if (character === quote) quote = null; else token += character; continue; }
+    if (character === "'" || character === '"') { quote = character; continue; }
+    if (/\s/.test(character)) { if (token) { args.push(token); token = ""; } continue; }
+    token += character;
+  }
+  if (escaped || quote) throw new Error(options.unfinishedMessage ?? "Arguments contain an unfinished quote or escape.");
+  if (token) args.push(token);
+  return args;
+}

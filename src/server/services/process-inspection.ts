@@ -1,6 +1,7 @@
 import "server-only";
 import { execFile } from "node:child_process";
 import { readdir, readFile, readlink } from "node:fs/promises";
+import path from "node:path";
 import { promisify } from "node:util";
 import { hostPlatform } from "@/server/host";
 export interface ProcessIdentity { pid: number; parentPid: number; started: string; executable: string; commandLine: string }
@@ -31,4 +32,10 @@ export function ownedTree(roots: ProcessIdentity[], snapshot: ProcessIdentity[])
   let changed = true;
   while (changed) { changed = false; for (const entry of snapshot) if (!ids.has(entry.pid) && ids.has(entry.parentPid) && entry.executable) { found.push(entry); ids.add(entry.pid); changed = true; } }
   return found;
+}
+/** Whether `file` lies below `directory` (case-insensitively on Windows); the directory itself does not count. */
+export function insideDirectory(directory: string, file: string): boolean {
+  const fold = (value: string) => (hostPlatform() === "win32" ? value.toLowerCase() : value);
+  const relative = path.relative(fold(directory), fold(file));
+  return relative !== "" && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 }

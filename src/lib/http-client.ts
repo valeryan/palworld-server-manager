@@ -13,3 +13,10 @@ export function requestJson<T>(input: RequestInfo, init?: RequestInit): Promise<
     headers: { "content-type": "application/json", ...init?.headers },
   });
 }
+
+/** Download a binary response, preserving the server's JSON failure message. */
+export async function fetchBlob(input: RequestInfo, init?: RequestInit): Promise<Blob> {
+  const response = await fetch(input, init);
+  if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || `Request failed (${response.status})`); }
+  return response.blob();
+}

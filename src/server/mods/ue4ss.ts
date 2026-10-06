@@ -1,8 +1,9 @@
 import "server-only";
 import path from "node:path";
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import type { ModVariant, Ue4ssRuntimeStatus } from "@/contracts/mod";
 import type { WorldView } from "@/contracts/world";
+import { exists } from "@/server/fs";
 
 export interface Ue4ssLayout {
   variant: ModVariant;
@@ -17,7 +18,6 @@ export interface Ue4ssLayout {
   reserved: ReadonlySet<string>;
 }
 
-async function exists(target: string): Promise<boolean> { try { await stat(target); return true; } catch { return false; } }
 async function firstExisting(candidates: string[]): Promise<string | null> { for (const candidate of candidates) if (await exists(candidate)) return candidate; return null; }
 
 // The layout follows the world's server build, not the host: a Windows build run

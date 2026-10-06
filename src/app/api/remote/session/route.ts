@@ -1,7 +1,4 @@
-import { authorizeRemote, remoteAccessErrorResponse } from "@/server/services/remote-access";
+import { route } from "@/server/http";
+import { authorizeRemote } from "@/server/services/remote-access";
 
-export const runtime = "nodejs"; export const dynamic = "force-dynamic";
-export async function GET(request: Request) {
-  try { const principal = await authorizeRemote(request, "world.view"); return Response.json({ ok: true, session: principal }); }
-  catch (error) { return remoteAccessErrorResponse(error) ?? Response.json({ ok: false, error: "Remote session unavailable." }, { status: 500 }); }
-}
+export const GET = route(async (request) => ({ session: await authorizeRemote(request, "world.view") }), { admin: false });

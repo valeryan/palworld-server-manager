@@ -1,5 +1,6 @@
 "use client";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore, type ReactNode } from "react";
+import { requestJson } from "@/lib/http-client";
 import { defaultTheme, isThemeId, type ThemeId } from "@/lib/themes";
 
 type ThemeContextValue = { theme: ThemeId; setTheme(theme: ThemeId): Promise<void> };
@@ -20,9 +21,7 @@ function subscribeTheme(onChange: () => void) {
 }
 
 async function persistTheme(theme: ThemeId) {
-  const response = await fetch("/api/settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ theme }) });
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error || `Could not save the theme (${response.status})`);
+  await requestJson("/api/settings", { method: "PATCH", body: JSON.stringify({ theme }) });
 }
 
 export function ThemeProvider({ children, initialTheme }: { children: ReactNode; initialTheme: ThemeId }) {
