@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "21e6d7a2-24ff-400f-ba30-75540975ce1f",
+  "id": "a553a503-66ac-4725-93af-573bea0f8fe2",
   "prevIds": [
-    "8fd9cb6c-bac7-47fc-a7a2-b923d4f0a321"
+    "00000000-0000-0000-0000-000000000000"
   ],
   "ddl": [
     {
@@ -39,27 +39,15 @@
       "entityType": "tables"
     },
     {
-      "name": "legacy_imports",
-      "entityType": "tables"
-    },
-    {
       "name": "maintenance_settings",
       "entityType": "tables"
     },
     {
-      "name": "mods",
+      "name": "mod_artifacts",
       "entityType": "tables"
     },
     {
-      "name": "remote_access_codes",
-      "entityType": "tables"
-    },
-    {
-      "name": "remote_audit",
-      "entityType": "tables"
-    },
-    {
-      "name": "remote_sessions",
+      "name": "mod_runtimes",
       "entityType": "tables"
     },
     {
@@ -68,6 +56,14 @@
     },
     {
       "name": "sessions",
+      "entityType": "tables"
+    },
+    {
+      "name": "world_players",
+      "entityType": "tables"
+    },
+    {
+      "name": "world_settings",
       "entityType": "tables"
     },
     {
@@ -550,66 +546,6 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "id",
-      "entityType": "columns",
-      "table": "legacy_imports"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "source_path",
-      "entityType": "columns",
-      "table": "legacy_imports"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "source_hash",
-      "entityType": "columns",
-      "table": "legacy_imports"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "snapshot",
-      "entityType": "columns",
-      "table": "legacy_imports"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "report",
-      "entityType": "columns",
-      "table": "legacy_imports"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "table": "legacy_imports"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
       "name": "world_id",
       "entityType": "columns",
       "table": "maintenance_settings"
@@ -672,17 +608,77 @@
       "generated": null,
       "name": "id",
       "entityType": "columns",
-      "table": "mods"
+      "table": "mod_artifacts"
     },
     {
       "type": "text",
       "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "kind",
+      "entityType": "columns",
+      "table": "mod_artifacts"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "name",
+      "entityType": "columns",
+      "table": "mod_artifacts"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "file_name",
+      "entityType": "columns",
+      "table": "mod_artifacts"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "sha256",
+      "entityType": "columns",
+      "table": "mod_artifacts"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "size_bytes",
+      "entityType": "columns",
+      "table": "mod_artifacts"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "added_at",
+      "entityType": "columns",
+      "table": "mod_artifacts"
+    },
+    {
+      "type": "text",
+      "notNull": false,
       "autoincrement": false,
       "default": null,
       "generated": null,
       "name": "world_id",
       "entityType": "columns",
-      "table": "mods"
+      "table": "mod_runtimes"
     },
     {
       "type": "text",
@@ -690,69 +686,39 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "package_name",
+      "name": "artifact_id",
       "entityType": "columns",
-      "table": "mods"
+      "table": "mod_runtimes"
     },
     {
       "type": "text",
-      "notNull": false,
+      "notNull": true,
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "display_name",
+      "name": "variant",
       "entityType": "columns",
-      "table": "mods"
+      "table": "mod_runtimes"
     },
     {
       "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "workshop_id",
-      "entityType": "columns",
-      "table": "mods"
-    },
-    {
-      "type": "text",
-      "notNull": false,
+      "notNull": true,
       "autoincrement": false,
       "default": null,
       "generated": null,
       "name": "version",
       "entityType": "columns",
-      "table": "mods"
+      "table": "mod_runtimes"
     },
     {
       "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "source",
-      "entityType": "columns",
-      "table": "mods"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "folder",
-      "entityType": "columns",
-      "table": "mods"
-    },
-    {
-      "type": "integer",
       "notNull": true,
       "autoincrement": false,
-      "default": "true",
+      "default": null,
       "generated": null,
-      "name": "server_only",
+      "name": "sha256",
       "entityType": "columns",
-      "table": "mods"
+      "table": "mod_runtimes"
     },
     {
       "type": "integer",
@@ -762,7 +728,37 @@
       "generated": null,
       "name": "enabled",
       "entityType": "columns",
-      "table": "mods"
+      "table": "mod_runtimes"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "installed_files",
+      "entityType": "columns",
+      "table": "mod_runtimes"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "early_crashes",
+      "entityType": "columns",
+      "table": "mod_runtimes"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "false",
+      "generated": null,
+      "name": "recovery_paused",
+      "entityType": "columns",
+      "table": "mod_runtimes"
     },
     {
       "type": "integer",
@@ -770,89 +766,9 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "created_at",
+      "name": "installed_at",
       "entityType": "columns",
-      "table": "mods"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "id",
-      "entityType": "columns",
-      "table": "remote_access_codes"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "code_hash",
-      "entityType": "columns",
-      "table": "remote_access_codes"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "code_hint",
-      "entityType": "columns",
-      "table": "remote_access_codes"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "label",
-      "entityType": "columns",
-      "table": "remote_access_codes"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "scope",
-      "entityType": "columns",
-      "table": "remote_access_codes"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "world_id",
-      "entityType": "columns",
-      "table": "remote_access_codes"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "permissions",
-      "entityType": "columns",
-      "table": "remote_access_codes"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": "true",
-      "generated": null,
-      "name": "enabled",
-      "entityType": "columns",
-      "table": "remote_access_codes"
+      "table": "mod_runtimes"
     },
     {
       "type": "integer",
@@ -860,189 +776,9 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "created_at",
+      "name": "updated_at",
       "entityType": "columns",
-      "table": "remote_access_codes"
-    },
-    {
-      "type": "integer",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "last_used_at",
-      "entityType": "columns",
-      "table": "remote_access_codes"
-    },
-    {
-      "type": "integer",
-      "notNull": false,
-      "autoincrement": true,
-      "default": null,
-      "generated": null,
-      "name": "id",
-      "entityType": "columns",
-      "table": "remote_audit"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "code_id",
-      "entityType": "columns",
-      "table": "remote_audit"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "principal_label",
-      "entityType": "columns",
-      "table": "remote_audit"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "action",
-      "entityType": "columns",
-      "table": "remote_audit"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "world_id",
-      "entityType": "columns",
-      "table": "remote_audit"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "detail",
-      "entityType": "columns",
-      "table": "remote_audit"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "ip_address",
-      "entityType": "columns",
-      "table": "remote_audit"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "table": "remote_audit"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "id",
-      "entityType": "columns",
-      "table": "remote_sessions"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "token_hash",
-      "entityType": "columns",
-      "table": "remote_sessions"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "code_id",
-      "entityType": "columns",
-      "table": "remote_sessions"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "table": "remote_sessions"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "last_seen_at",
-      "entityType": "columns",
-      "table": "remote_sessions"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "expires_at",
-      "entityType": "columns",
-      "table": "remote_sessions"
-    },
-    {
-      "type": "integer",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "revoked_at",
-      "entityType": "columns",
-      "table": "remote_sessions"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "ip_address",
-      "entityType": "columns",
-      "table": "remote_sessions"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "user_agent",
-      "entityType": "columns",
-      "table": "remote_sessions"
+      "table": "mod_runtimes"
     },
     {
       "type": "text",
@@ -1253,6 +989,236 @@
       "name": "created_at",
       "entityType": "columns",
       "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "world_id",
+      "entityType": "columns",
+      "table": "world_players"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "table": "world_players"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "player_name",
+      "entityType": "columns",
+      "table": "world_players"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "account_name",
+      "entityType": "columns",
+      "table": "world_players"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "first_seen_at",
+      "entityType": "columns",
+      "table": "world_players"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "last_seen_at",
+      "entityType": "columns",
+      "table": "world_players"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "last_left_at",
+      "entityType": "columns",
+      "table": "world_players"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "1",
+      "generated": null,
+      "name": "join_count",
+      "entityType": "columns",
+      "table": "world_players"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "banned_at",
+      "entityType": "columns",
+      "table": "world_players"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "world_id",
+      "entityType": "columns",
+      "table": "world_settings"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "desired_manager",
+      "entityType": "columns",
+      "table": "world_settings"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "desired_content",
+      "entityType": "columns",
+      "table": "world_settings"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "applied_content",
+      "entityType": "columns",
+      "table": "world_settings"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "1",
+      "generated": null,
+      "name": "desired_revision",
+      "entityType": "columns",
+      "table": "world_settings"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "applied_revision",
+      "entityType": "columns",
+      "table": "world_settings"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "manager_applied_revision",
+      "entityType": "columns",
+      "table": "world_settings"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "applied_semantic_hash",
+      "entityType": "columns",
+      "table": "world_settings"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "pending_since",
+      "entityType": "columns",
+      "table": "world_settings"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "last_apply_error",
+      "entityType": "columns",
+      "table": "world_settings"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "false",
+      "generated": null,
+      "name": "drift",
+      "entityType": "columns",
+      "table": "world_settings"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "drift_reason",
+      "entityType": "columns",
+      "table": "world_settings"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "world_settings"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "applied_at",
+      "entityType": "columns",
+      "table": "world_settings"
     },
     {
       "type": "text",
@@ -1475,6 +1441,26 @@
       "table": "worlds"
     },
     {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "process_identity",
+      "entityType": "columns",
+      "table": "worlds"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'legacy'",
+      "generated": null,
+      "name": "argument_format",
+      "entityType": "columns",
+      "table": "worlds"
+    },
+    {
       "type": "integer",
       "notNull": false,
       "autoincrement": false,
@@ -1521,16 +1507,6 @@
       "default": "0",
       "generated": null,
       "name": "crash_count",
-      "entityType": "columns",
-      "table": "worlds"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": "false",
-      "generated": null,
-      "name": "mods_enabled",
       "entityType": "columns",
       "table": "worlds"
     },
@@ -1685,69 +1661,9 @@
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
-      "name": "fk_mods_world_id_worlds_id_fk",
+      "name": "fk_mod_runtimes_world_id_worlds_id_fk",
       "entityType": "fks",
-      "table": "mods"
-    },
-    {
-      "columns": [
-        "world_id"
-      ],
-      "tableTo": "worlds",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "nameExplicit": false,
-      "name": "fk_remote_access_codes_world_id_worlds_id_fk",
-      "entityType": "fks",
-      "table": "remote_access_codes"
-    },
-    {
-      "columns": [
-        "code_id"
-      ],
-      "tableTo": "remote_access_codes",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "SET NULL",
-      "nameExplicit": false,
-      "name": "fk_remote_audit_code_id_remote_access_codes_id_fk",
-      "entityType": "fks",
-      "table": "remote_audit"
-    },
-    {
-      "columns": [
-        "world_id"
-      ],
-      "tableTo": "worlds",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "SET NULL",
-      "nameExplicit": false,
-      "name": "fk_remote_audit_world_id_worlds_id_fk",
-      "entityType": "fks",
-      "table": "remote_audit"
-    },
-    {
-      "columns": [
-        "code_id"
-      ],
-      "tableTo": "remote_access_codes",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "nameExplicit": false,
-      "name": "fk_remote_sessions_code_id_remote_access_codes_id_fk",
-      "entityType": "fks",
-      "table": "remote_sessions"
+      "table": "mod_runtimes"
     },
     {
       "columns": [
@@ -1778,6 +1694,46 @@
       "name": "fk_sessions_world_id_worlds_id_fk",
       "entityType": "fks",
       "table": "sessions"
+    },
+    {
+      "columns": [
+        "world_id"
+      ],
+      "tableTo": "worlds",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_world_players_world_id_worlds_id_fk",
+      "entityType": "fks",
+      "table": "world_players"
+    },
+    {
+      "columns": [
+        "world_id"
+      ],
+      "tableTo": "worlds",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_world_settings_world_id_worlds_id_fk",
+      "entityType": "fks",
+      "table": "world_settings"
+    },
+    {
+      "columns": [
+        "world_id",
+        "user_id"
+      ],
+      "nameExplicit": false,
+      "name": "world_players_pk",
+      "entityType": "pks",
+      "table": "world_players"
     },
     {
       "columns": [
@@ -1853,15 +1809,6 @@
     },
     {
       "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "legacy_imports_pk",
-      "table": "legacy_imports",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
         "world_id"
       ],
       "nameExplicit": false,
@@ -1874,35 +1821,17 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "mods_pk",
-      "table": "mods",
+      "name": "mod_artifacts_pk",
+      "table": "mod_artifacts",
       "entityType": "pks"
     },
     {
       "columns": [
-        "id"
+        "world_id"
       ],
       "nameExplicit": false,
-      "name": "remote_access_codes_pk",
-      "table": "remote_access_codes",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "remote_audit_pk",
-      "table": "remote_audit",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "remote_sessions_pk",
-      "table": "remote_sessions",
+      "name": "mod_runtimes_pk",
+      "table": "mod_runtimes",
       "entityType": "pks"
     },
     {
@@ -1921,6 +1850,15 @@
       "nameExplicit": false,
       "name": "sessions_pk",
       "table": "sessions",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "world_id"
+      ],
+      "nameExplicit": false,
+      "name": "world_settings_pk",
+      "table": "world_settings",
       "entityType": "pks"
     },
     {
@@ -2043,86 +1981,20 @@
     {
       "columns": [
         {
-          "value": "world_id",
+          "value": "kind",
           "isExpression": false
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "origin": "manual",
-      "name": "mods_world_idx",
-      "entityType": "indexes",
-      "table": "mods"
-    },
-    {
-      "columns": [
+        },
         {
-          "value": "world_id",
-          "isExpression": false
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "origin": "manual",
-      "name": "remote_codes_world_idx",
-      "entityType": "indexes",
-      "table": "remote_access_codes"
-    },
-    {
-      "columns": [
-        {
-          "value": "created_at",
-          "isExpression": false
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "origin": "manual",
-      "name": "remote_audit_created_idx",
-      "entityType": "indexes",
-      "table": "remote_audit"
-    },
-    {
-      "columns": [
-        {
-          "value": "code_id",
-          "isExpression": false
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "origin": "manual",
-      "name": "remote_audit_code_idx",
-      "entityType": "indexes",
-      "table": "remote_audit"
-    },
-    {
-      "columns": [
-        {
-          "value": "token_hash",
+          "value": "name",
           "isExpression": false
         }
       ],
       "isUnique": true,
       "where": null,
       "origin": "manual",
-      "name": "remote_sessions_token_unique",
+      "name": "mod_artifacts_kind_name_unique",
       "entityType": "indexes",
-      "table": "remote_sessions"
-    },
-    {
-      "columns": [
-        {
-          "value": "code_id",
-          "isExpression": false
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "origin": "manual",
-      "name": "remote_sessions_code_idx",
-      "entityType": "indexes",
-      "table": "remote_sessions"
+      "table": "mod_artifacts"
     },
     {
       "columns": [
@@ -2141,6 +2013,24 @@
       "name": "sessions_world_created_idx",
       "entityType": "indexes",
       "table": "sessions"
+    },
+    {
+      "columns": [
+        {
+          "value": "world_id",
+          "isExpression": false
+        },
+        {
+          "value": "last_seen_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "world_players_world_seen_idx",
+      "entityType": "indexes",
+      "table": "world_players"
     },
     {
       "columns": [

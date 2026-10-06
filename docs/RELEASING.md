@@ -1,6 +1,6 @@
 # Release process
 
-PSM Next uses `1.0.0-alpha.N` versions until the capability matrix is complete. A migration that has appeared in an installed milestone is immutable; schema changes always receive a new ordered migration and a new entry in the migration catalog.
+PSM Next uses `1.0.0-alpha.N` versions until the capability matrix is complete. Until 1.0.0 is tagged the database schema is still finding its final shape: the migration history is a single baseline migration that is regenerated in place when the schema changes, and a database created by an earlier development build is refused at startup and must be deleted. From 1.0.0 on, a migration that has appeared in a tagged release is immutable; schema changes always receive a new ordered migration and a new entry in the migration catalog.
 
 ## Publishing a release
 
@@ -8,12 +8,12 @@ Releases are cut by the **Generate release** workflow (Actions → Generate rele
 
 - **version**: the version to release, without a leading `v`, for example `1.0.0-alpha.3`. It must be newer than `package.json` and every existing release tag.
 - **prerelease**: marks the GitHub release as a prerelease and keeps it from becoming "latest". Versions with a label (`-alpha.3`, `-beta.1`) must be prereleases.
-- **dry run**: builds and verifies everything and keeps the files as workflow artifacts for 14 days, but changes nothing on `main`, tags, or releases.
+- **dry run**: checks and builds everything and keeps the files as workflow artifacts for 14 days, but changes nothing on `main`, tags, or releases.
 
 The workflow then:
 
 1. Checks the version, generates the release notes with GitHub's automatic notes (merged pull requests since the previous release tag), and writes one release commit on a temporary `release/v<version>` branch: the new version in `package.json` and `package-lock.json`, and the notes added to `CHANGELOG.md`.
-2. Builds that commit: typecheck, lint, unit tests, browser and packaged-Electron workflows, then from the same build the Linux AppImage, the Windows Setup installer, and the Windows portable exe. The portable exe keeps its data in a `PSM-Data` folder beside it and cannot update itself.
+2. Runs every check against that commit (typecheck, lint, import cycles, unit tests, browser and packaged-Electron workflows), then builds it and packages the Linux AppImage, the Windows Setup installer, and the Windows portable exe. The checks are workflow steps; `npm run release` itself only builds. The portable exe keeps its data in a `PSM-Data` folder beside it and cannot update itself.
 3. Only when every artifact is built: moves `main` to the release commit (a fast-forward; if `main` moved during the run, it stops and publishes nothing), tags it `v<version>`, creates the GitHub release with the generated notes, and uploads the three files. GitHub adds the source zip and tar.gz to every release and shows each file's SHA-256 (also available as `digest` from the releases API); `SHA256SUMS.txt` stays in the workflow artifact and run summary.
 4. Removes the temporary branch.
 
@@ -25,15 +25,15 @@ The Windows builds are unsigned and labelled test builds in the release notes un
 
 ## Local builds
 
-`npm run release` runs every check, empties `release/`, and builds all three artifacts with `SHA256SUMS.txt`, the same as the workflow. `npm run dist` builds them without the checks; `dist:linux` and `dist:windows` build one platform. On Linux the Windows builds are cross-built through Wine; the release script gives Wine a throwaway prefix with no display and no desktop integration.
+`npm run release` empties `release/` and builds all three artifacts with `SHA256SUMS.txt`, the same as the workflow. `npm run dist` builds them without emptying `release/` or writing the sums; `dist:linux` and `dist:windows` build one platform. On Linux the Windows builds are cross-built through Wine; the release script gives Wine a throwaway prefix with no display and no desktop integration.
 
-The checked release packages the build prepared by `test:e2e`; it does not compile the application again after the tests. `npm run release -- --skip-checks` still builds and prepares the application once before packaging. Standalone `pack`, `dist`, and test commands remain usable independently.
+The release builds and prepares the application once, then packages that output; `typecheck`, `lint`, `test`, and `test:e2e` are separate commands to run when you want them. Standalone `pack`, `dist`, and test commands remain usable independently.
 
 To rehearse an update locally, quit the current manager, verify the artifact against `SHA256SUMS.txt`, make the versioned AppImage executable, and launch it directly.
 
 ## Updates in the application
 
-Installed builds check GitHub Releases on the update channel chosen in Settings → Application updates: **Stable** offers only stable releases; **Prerelease** also offers prereleases. Without a choice, an installed prerelease follows Prerelease and a stable build follows Stable. Development runs (`npm run dev`, browser tests) never check.
+Installed builds check GitHub Releases on the update channel chosen in Settings → Application updates: **Stable** offers only stable releases; **Prerelease** also offers prereleases. The channel defaults to Stable on every build; switch to Prerelease to be offered alpha and beta releases. Development runs (`npm run dev`, browser tests) never check.
 
 The check only advertises a newer release. A newly launched AppImage compares its version with the last locally successful version, confirms the transition, and refreshes an existing launch-at-login entry. Before pending database migrations it creates one verified WAL-safe `registry-v3.pre-upgrade.sqlite` backup. Migration failures restore the original database and startup entry before the application exits.
 
