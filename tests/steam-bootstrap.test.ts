@@ -1,14 +1,14 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 vi.mock("node:child_process", async (original) => ({ ...await original<typeof import("node:child_process")>(), spawn: vi.fn() }));
 import AdmZip from "adm-zip";
 import * as inspector from "@/server/services/process-inspection";
-import { ensureSteamCmd } from "@/server/services/steamcmd";
+import { ensureSteamCmd, reinstallSteamCmd, steamCmdStatus } from "@/server/services/steamcmd";
 import type { JobContext } from "@/server/services/jobs";
 
 let root: string;
@@ -102,6 +102,20 @@ describe("staged Windows SteamCMD bootstrap", () => {
     expect(await readdir(path.join(root, "steamcmd"))).not.toContain(".psm-ready.json");
     await running;
     expect(spawn).toHaveBeenCalledTimes(2);
+  });
+  it("reports client status and reinstalls by discarding the client while keeping the lease", async () => {
+    windowsHost(); fakeClient();
+    const fetcher = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(new Uint8Array(archive())));
+    expect(await steamCmdStatus()).toMatchObject({ installed: false, preparedAt: null, inUse: false });
+    await ensureSteamCmd(context());
+    const before = await steamCmdStatus(); expect(before).toMatchObject({ installed: true, inUse: false }); expect(before.preparedAt).toBeTypeOf("number");
+    await mkdir(path.join(root, "steamcmd", "package"), { recursive: true }); await writeFile(path.join(root, "steamcmd", "package", "stale.bin"), "stale");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await reinstallSteamCmd(context());
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    const files = await readdir(path.join(root, "steamcmd"));
+    expect(files).not.toContain("package"); expect(files).not.toContain(".psm-owner.json"); expect(files).toContain(".psm-ready.json");
+    expect((await steamCmdStatus()).preparedAt!).toBeGreaterThan(before.preparedAt!);
   });
   it("cancels a queued bootstrap without overtaking the active client", async () => {
     windowsHost(); let finish: (() => void) | undefined; fakeClient((done) => { finish = done; });

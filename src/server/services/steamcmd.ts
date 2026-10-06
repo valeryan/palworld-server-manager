@@ -8,6 +8,7 @@ import AdmZip from "adm-zip";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { eq } from "drizzle-orm";
+import type { SteamCmdStatus } from "@/contracts/builds";
 import { worldBusy, type WorldView } from "@/contracts/world";
 import { assertSupportedTarget, hostPlatform } from "@/server/host";
 import { ConflictError } from "@/server/errors";
@@ -15,6 +16,7 @@ import { writeFileAtomic } from "@/server/fs";
 import { checkManagedMods, describeIntegrity } from "@/server/mods/integrity";
 import { paths } from "@/server/paths";
 import { database } from "@/server/db";
+import { writeAppSetting } from "@/server/db/app-settings";
 import { worlds } from "@/server/db/schema";
 import { safeEntries } from "./archive";
 import { syncManagedConfiguration } from "./configuration";
@@ -172,14 +174,44 @@ async function bootstrap(context: JobContext): Promise<void> {
 }
 export async function ensureSteamCmd(context: JobContext): Promise<void> { return exclusive(context, () => bootstrap(context)); }
 
-export async function detectLatestBuild(worldId: string, signal?: AbortSignal): Promise<string> {
+/** Whether the shared client is ready, when it was prepared, and whether an operation holds it now. */
+export async function steamCmdStatus(): Promise<SteamCmdStatus> {
+  const root = paths.steamCmd(); let preparedAt: number | null = null; let installed = false;
+  try { const ready = JSON.parse(await readFile(path.join(/* turbopackIgnore: true */ root, ".psm-ready.json"), "utf8")); installed = ready.platform === hostPlatform() && existsSync(binary()) && (await stat(binary())).size > 0; preparedAt = typeof ready.initializedAt === "number" ? ready.initializedAt : null; } catch { /* never bootstrapped, or interrupted */ }
+  return { path: root, installed, preparedAt, inUse: existsSync(leasePath()) };
+}
+
+/** Removes the shared client (keeping the ownership lease) and downloads it again. */
+export async function reinstallSteamCmd(context: JobContext): Promise<void> {
+  return exclusive(context, async () => {
+    const root = paths.steamCmd(); await context.update(1, "Removing the existing SteamCMD client");
+    for (const name of await readdir(path.join(/* turbopackIgnore: true */ root))) if (name !== ".psm-owner.json") await rm(path.join(/* turbopackIgnore: true */ root, name), { recursive: true, force: true });
+    await bootstrap(context);
+  });
+}
+
+export const LATEST_BUILD_SETTING = "steam.latestBuild";
+/** Asks Steam for the current public build once and records when it was checked. */
+export async function fetchLatestBuild(signal?: AbortSignal): Promise<string> {
   const response = await fetch(`https://api.steamcmd.net/v1/info/${PALWORLD_APP_ID}`, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000) });
   if (!response.ok) throw new Error(`Steam build lookup failed: HTTP ${response.status}`);
   const payload = await response.json() as { data?: Record<string, { depots?: { branches?: { public?: { buildid?: string | number } } } }> };
   const buildId = payload.data?.[PALWORLD_APP_ID]?.depots?.branches?.public?.buildid;
   if (!buildId) throw new Error("Steam did not report a public Palworld build.");
-  const latestBuildId = String(buildId);
+  await writeAppSetting(LATEST_BUILD_SETTING, { buildId: String(buildId), checkedAt: Date.now() });
+  return String(buildId);
+}
+
+export async function detectLatestBuild(worldId: string, signal?: AbortSignal): Promise<string> {
+  const latestBuildId = await fetchLatestBuild(signal);
   await database().update(worlds).set({ latestBuildId, updatedAt: Date.now() }).where(eq(worlds.id, worldId));
+  return latestBuildId;
+}
+
+/** One build check applied to every registered world. */
+export async function refreshLatestBuild(signal?: AbortSignal): Promise<string> {
+  const latestBuildId = await fetchLatestBuild(signal);
+  await database().update(worlds).set({ latestBuildId, updatedAt: Date.now() });
   return latestBuildId;
 }
 

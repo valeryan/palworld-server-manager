@@ -5,9 +5,12 @@ const jobLabels: Record<string, string> = {
   autostart: "Automatic server start",
   "crash-recovery": "Crash recovery",
   "steamcmd-bootstrap": "Prepare SteamCMD",
+  "steamcmd-reinstall": "Reinstall SteamCMD",
   "repair-prerequisites": "Repair Windows prerequisites",
   install: "Install server",
   update: "Update server",
+  "update-restart": "Update server with restart",
+  "update-all": "Update outdated worlds",
   "check-update": "Check for updates",
   backup: "Create backup",
   restore: "Restore backup",
@@ -33,6 +36,8 @@ const startingMessages: Record<string, string> = {
   "crash-recovery": "Recovering server after a crash",
   install: "Installing server",
   update: "Updating server",
+  "update-restart": "Updating server with restart",
+  "update-all": "Updating outdated worlds",
   "check-update": "Checking for updates",
   backup: "Creating backup",
   restore: "Restoring backup",
@@ -49,6 +54,7 @@ const startingMessages: Record<string, string> = {
   "mod-remove": "Removing UE4SS",
   "mod-repair": "Repairing mods",
   "steamcmd-bootstrap": "Preparing SteamCMD",
+  "steamcmd-reinstall": "Reinstalling SteamCMD",
   "repair-prerequisites": "Repairing Windows prerequisites",
 };
 
@@ -60,6 +66,8 @@ const successMessages: Record<string, string> = {
   "crash-recovery": "Server recovered successfully",
   install: "Server installation completed",
   update: "Server update completed",
+  "update-restart": "Server updated and prior state restored",
+  "update-all": "Outdated worlds updated",
   "check-update": "Update check completed",
   backup: "Backup created and verified",
   restore: "Backup restored successfully",
@@ -76,6 +84,7 @@ const successMessages: Record<string, string> = {
   "mod-remove": "UE4SS removed",
   "mod-repair": "Mods repaired",
   "steamcmd-bootstrap": "SteamCMD is ready",
+  "steamcmd-reinstall": "SteamCMD reinstalled",
   "repair-prerequisites": "Windows prerequisites repaired",
 };
 
