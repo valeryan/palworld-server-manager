@@ -8,7 +8,8 @@ function isDesktopAdmin(request: NextRequest): boolean {
 export function proxy(request: NextRequest) {
   if (isDesktopAdmin(request)) return NextResponse.next();
   if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ ok: false, error: "Desktop authentication required." }, { status: 401 });
-  return NextResponse.redirect(new URL("/remote", request.url));
+  return new NextResponse("Desktop authentication required.", { status: 401 });
 }
 
-export const config = { matcher: ["/", "/settings/:path*", "/operations/:path*", "/mods/:path*", "/worlds/:path*", "/api/((?!(?:remote|i18n/current)(?:/|$)).*)"] };
+// The current language pack stays public so the UI can load its strings before authentication.
+export const config = { matcher: ["/", "/settings/:path*", "/operations/:path*", "/mods/:path*", "/worlds/:path*", "/api/((?!i18n/current(?:/|$)).*)"] };

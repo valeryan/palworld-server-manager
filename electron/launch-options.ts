@@ -17,7 +17,6 @@ export function validateManagerPort(value: unknown): number {
   return port;
 }
 
-export function normalizeManagerPort(value: unknown): number { try { return validateManagerPort(value); } catch { return defaultManagerPort; } }
 
 const reserved = new Set(["hidden", "user-data-dir", "disable-gpu", "ozone-platform", "disable-dev-shm-usage", "no-sandbox", "no-zygote", "remote-debugging-address", "remote-debugging-port"]);
 

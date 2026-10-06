@@ -36,9 +36,6 @@ test("selects and restores every application theme", async ({ page }) => {
     await expect(page.getByRole("radio", { name: new RegExp(`^${theme.name}\\b`) })).toHaveAttribute("aria-checked", "true");
   }
 
-  await page.goto("/remote");
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "ancient");
-
   await page.goto("/settings");
   await page.getByRole("radio", { name: /^Pal\b/ }).click();
   await expect.poll(() => persistedTheme(page)).toBe("pal");

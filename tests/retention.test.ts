@@ -28,7 +28,7 @@ describe("persistent history retention", () => {
     const logDirectory = path.join(directory, "logs", "world"); await mkdir(logDirectory, { recursive: true });
     for (let index = 0; index < 7; index += 1) await writeFile(path.join(logDirectory, `server-${String(index).padStart(2, "0")}.log`), "log");
     const report = await applyRetentionPolicy({ ...defaultRetentionSettings, operationCount: 50, operationLogLines: 100, activityCountPerWorld: 100, serverLogFilesPerWorld: 5, configurationVersionsPerWorld: 10 }, now);
-    expect(report).toEqual({ operations: 5, operationLogs: 5, events: 5, sessions: 5, deaths: 5, remoteSessions: 0, remoteAudit: 0, serverLogs: 2, configurationVersions: 2 });
+    expect(report).toEqual({ operations: 5, operationLogs: 5, events: 5, sessions: 5, deaths: 5, serverLogs: 2, configurationVersions: 2 });
     expect((client.prepare("SELECT count(*) count FROM jobs WHERE state='running'").get() as { count: number }).count).toBe(1);
   });
 });

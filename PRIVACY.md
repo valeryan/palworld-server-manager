@@ -16,8 +16,8 @@ have access to any of your data.
 
 All data the app uses stays in local files on your own machine:
 
-- Your list of worlds, operation history, schedules, remote-access records, and
-  settings (a local database in your user-data folder).
+- Your list of worlds, operation history, schedules, known players, and settings (a
+  local database in your user-data folder).
 - Each server's own game files, saves, and configuration, which remain in that
   server's install folder.
 - Backups, server logs, language packs, and desktop preferences.
@@ -40,10 +40,6 @@ The app only contacts external services to perform the tasks you ask of it:
 - **Administrator-configured HTTP endpoints:** a custom HTTP schedule sends the method,
   headers, and body entered by the administrator to the configured URL. This feature
   is not active unless such a schedule is created and enabled.
-- **Remote administration clients:** if authenticated remote administration and LAN
-  binding are enabled, devices that can reach the configured manager address may
-  connect to it. Access requires a manager-issued code and is recorded in the local
-  audit history.
 
 The app makes no other outbound connections.
 

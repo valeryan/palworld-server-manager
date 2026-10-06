@@ -29,8 +29,8 @@ export async function createWindow(show = true) {
   created.on("session-end", () => { quitState.quitDrained = true; void stopServer(); });
   created.on("closed", () => { if (window === created) window = null; });
   if (show) created.once("ready-to-show", () => { if (!created.isDestroyed()) { created.show(); created.focus(); } });
-  const url = developmentUrl?.toString() || `http://127.0.0.1:${port}`;
-  await created.webContents.session.cookies.set({ url: developmentUrl?.origin || `http://127.0.0.1:${port}`, name: "psm_admin", value: token, httpOnly: true, sameSite: "lax" });
+  const url = developmentUrl?.toString() || `http://127.0.0.1:${port()}`;
+  await created.webContents.session.cookies.set({ url: developmentUrl?.origin || `http://127.0.0.1:${port()}`, name: "psm_admin", value: token, httpOnly: true, sameSite: "lax" });
   try {
     await created.loadURL(url);
   } catch (error) {

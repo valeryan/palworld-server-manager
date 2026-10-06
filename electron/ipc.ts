@@ -1,11 +1,10 @@
 import { app, dialog, ipcMain, nativeTheme, shell } from "electron";
 import { readFileSync, statSync, writeFileSync } from "node:fs";
-import { networkInterfaces } from "node:os";
 import path from "node:path";
 import { loginStatus, setLaunchAtLogin } from "./autostart";
-import { host, port } from "./binding";
-import { normalizeLaunchAtLoginOptions, parseCustomLaunchFlags, validateManagerPort } from "./launch-options";
-import { normalizeManagerHost, preferences, remoteAccessEnabled, writePreferences } from "./preferences";
+import { isDev } from "./environment";
+import { normalizeLaunchAtLoginOptions, parseCustomLaunchFlags } from "./launch-options";
+import { preferences, writePreferences } from "./preferences";
 import { mainWindow } from "./window";
 
 // Everything the renderer may ask the desktop shell to do; see preload.ts for the exposed surface.
@@ -25,11 +24,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("get-launch-at-login-options", () => preferences().launchOptions);
   ipcMain.handle("set-launch-at-login-options", (_event, value: unknown) => {
     const launchOptions = normalizeLaunchAtLoginOptions(value); if (process.platform === "win32") { launchOptions.forceX11 = false; if (launchOptions.customFlags !== preferences().launchOptions.customFlags) launchOptions.argumentFormat = "windows"; } parseCustomLaunchFlags(launchOptions.customFlags, launchOptions.argumentFormat); writePreferences({ launchOptions });
-    if (preferences().launchAtLogin) setLaunchAtLogin(true, true);
+    if (preferences().launchAtLogin && !isDev) setLaunchAtLogin(true, true);
     return launchOptions;
   });
-  ipcMain.handle("get-manager-port", () => ({ configured: preferences().managerPort, active: port }));
-  ipcMain.handle("set-manager-port", (_event, value: unknown) => { const managerPort = validateManagerPort(value); writePreferences({ managerPort }); return { configured: managerPort, active: port, restartRequired: managerPort !== port }; });
-  ipcMain.handle("get-manager-network", () => ({ configuredHost: preferences().managerHost, activeHost: host, port, addresses: Object.values(networkInterfaces()).flat().filter((entry) => entry?.family === "IPv4" && !entry.internal).map((entry) => entry!.address) }));
-  ipcMain.handle("set-manager-host", (_event, value: unknown) => { const managerHost = normalizeManagerHost(value); if (managerHost === "0.0.0.0" && !remoteAccessEnabled()) throw new Error("Enable authenticated remote access before allowing LAN connections."); writePreferences({ managerHost }); return { configuredHost: managerHost, activeHost: host, restartRequired: managerHost !== host }; });
 }

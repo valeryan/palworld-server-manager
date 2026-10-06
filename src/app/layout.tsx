@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { connection } from "next/server";
 import "./globals.css";
-import "./remote.css";
 import { Providers } from "@/components/providers";
 import { themeStyleSheet } from "@/lib/themes";
 import { getTheme } from "@/server/services/appearance";
