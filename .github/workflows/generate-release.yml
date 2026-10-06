@@ -102,7 +102,7 @@ jobs:
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   build:
-    name: Verify and build the artifacts
+    name: Check and build the artifacts
     needs: prepare
     runs-on: ubuntu-latest
     steps:
@@ -131,8 +131,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends wine64 wine32:i386
 
-      - name: Verify and build
-        run: xvfb-run -a npm run release
+      # Every check runs against the release commit before anything is packaged. The release
+      # script itself only builds, so the same steps stay separate commands locally.
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check import cycles
+        run: npm run check:cycles
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Run browser and packaged-Electron workflows
+        run: xvfb-run -a npm run test:e2e
+
+      - name: Build
+        run: npm run release
 
       - name: Keep the release files
         uses: actions/upload-artifact@v7

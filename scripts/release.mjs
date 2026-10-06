@@ -4,23 +4,19 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
-// Builds every release artifact from one verified build: the Linux AppImage, the Windows NSIS
-// installer, and the Windows portable exe (both cross-built through Wine), with a local
-// SHA256SUMS.txt. Those three files are the release; GitHub adds the source archives.
-//   node scripts/release.mjs [--skip-checks]
+// Builds every release artifact from one build: the Linux AppImage, the Windows NSIS installer,
+// and the Windows portable exe (both cross-built through Wine), with a local SHA256SUMS.txt.
+// Those three files are the release; GitHub adds the source archives. Checks and tests are
+// separate steps (the pull-request workflow, `npm test`, `npm run test:e2e`), not part of a release.
+//   node scripts/release.mjs
 // release/ is emptied first, so every release is built cleanly from source.
 const root = process.cwd(); const release = path.join(root, "release");
 const artifacts = { linux: (name) => name.endsWith(".AppImage"), "windows installer": (name) => /-Setup-.*\.exe$/.test(name), "windows portable": (name) => /-Portable-.*\.exe$/.test(name) };
 
 function run(command, args, env = process.env) { return new Promise((resolve, reject) => { const child = spawn(command, args, { cwd: root, env, stdio: "inherit", windowsHide: true, shell: process.platform === "win32" }); child.once("error", reject); child.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`${command} ${args.join(" ")} exited with ${code}.`))); }); }
 
-if (!process.argv.includes("--skip-checks")) {
-  // test:e2e builds and prepares the application before testing the packaged desktop.
-  for (const script of ["typecheck", "lint", "test", "test:e2e"]) await run("npm", ["run", script]);
-} else {
-  await run("npm", ["run", "build"]);
-  await run("npm", ["run", "prepare:standalone"]);
-}
+await run("npm", ["run", "build"]);
+await run("npm", ["run", "prepare:standalone"]);
 await rm(release, { recursive: true, force: true });
 // On Linux the NSIS build runs the installer under Wine to extract its uninstaller. Give it a
 // throwaway prefix with no display, no Mono/Gecko prompts and no desktop integration, so it never
