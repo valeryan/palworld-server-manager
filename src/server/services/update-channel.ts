@@ -6,8 +6,8 @@ import { clearApplicationUpdateCache, defaultUpdateChannel } from "./application
 const SETTING_KEY = "update-channel-v1";
 const isUpdateChannel = (value: unknown): value is UpdateChannel => updateChannels.includes(value as UpdateChannel);
 
-export function getUpdateChannel(currentVersion: string): Promise<UpdateChannel> {
-  return readAppSetting(SETTING_KEY, (value) => { const channel = (value as { channel?: unknown } | null)?.channel; return isUpdateChannel(channel) ? channel : undefined; }, defaultUpdateChannel(currentVersion));
+export function getUpdateChannel(_currentVersion?: string): Promise<UpdateChannel> {
+  return readAppSetting(SETTING_KEY, (value) => { const channel = (value as { channel?: unknown } | null)?.channel; return isUpdateChannel(channel) ? channel : undefined; }, defaultUpdateChannel());
 }
 
 export async function saveUpdateChannel(value: unknown): Promise<UpdateChannel> {

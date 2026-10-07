@@ -42,4 +42,5 @@ export async function saveRegistrationFile(fileName: string, content: string): P
   return fileName;
 }
 
-export function unregisterWorld(worldId: string) { return fetchJson(`/api/worlds/${worldId}`, { method: "DELETE" }); }
+/** Removes the registration; `deleteFiles` also removes the server folder from disk. */
+export function unregisterWorld(worldId: string, deleteFiles = false) { return fetchJson(`/api/worlds/${worldId}${deleteFiles ? "?files=delete" : ""}`, { method: "DELETE" }); }

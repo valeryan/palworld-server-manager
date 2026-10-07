@@ -11,15 +11,11 @@ const desktop = {
   getLocale: (): Promise<string> => ipcRenderer.invoke("get-locale"),
   getCloseToTray: (): Promise<boolean> => ipcRenderer.invoke("get-close-to-tray"),
   setCloseToTray: (enabled: boolean): Promise<boolean> => ipcRenderer.invoke("set-close-to-tray", enabled),
-  getLoginStatus: (): Promise<{ configured: boolean; enabled: boolean; disabledByOS: boolean }> => ipcRenderer.invoke("get-login-status"),
+  getLoginStatus: (): Promise<{ configured: boolean; enabled: boolean; disabledByOS: boolean; unavailable: boolean }> => ipcRenderer.invoke("get-login-status"),
   getLaunchAtLogin: (): Promise<boolean> => ipcRenderer.invoke("get-launch-at-login"),
   setLaunchAtLogin: (enabled: boolean): Promise<boolean> => ipcRenderer.invoke("set-launch-at-login", enabled),
   getLaunchAtLoginOptions: (): Promise<LaunchAtLoginOptions> => ipcRenderer.invoke("get-launch-at-login-options"),
   setLaunchAtLoginOptions: (options: LaunchAtLoginOptions): Promise<LaunchAtLoginOptions> => ipcRenderer.invoke("set-launch-at-login-options", options),
-  getManagerPort: (): Promise<{ configured: number; active: number }> => ipcRenderer.invoke("get-manager-port"),
-  setManagerPort: (port: number): Promise<{ configured: number; active: number; restartRequired: boolean }> => ipcRenderer.invoke("set-manager-port", port),
-  getManagerNetwork: (): Promise<{ configuredHost: "127.0.0.1" | "0.0.0.0"; activeHost: "127.0.0.1" | "0.0.0.0"; port: number; addresses: string[] }> => ipcRenderer.invoke("get-manager-network"),
-  setManagerHost: (host: "127.0.0.1" | "0.0.0.0"): Promise<{ configuredHost: "127.0.0.1" | "0.0.0.0"; activeHost: "127.0.0.1" | "0.0.0.0"; restartRequired: boolean }> => ipcRenderer.invoke("set-manager-host", host),
 };
 contextBridge.exposeInMainWorld("psmDesktop", desktop);
 export type DesktopApi = typeof desktop;

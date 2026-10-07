@@ -7,6 +7,9 @@ import type { JobView } from "@/contracts/job";
 import { useJobPresentation } from "@/lib/use-job-presentation";
 import { useLocaleDateTime } from "@/lib/use-locale-format";
 
+/** One job by id, for deep links and for opening a job's log from a reference to it. */
+export const fetchJob = async (id: string) => (await responseJson<{ job: JobView }>(`/api/jobs/${encodeURIComponent(id)}`)).job;
+
 export function JobLogDialog({ job: initialJob, onClose }: { job: JobView; onClose(): void }) {
   const { t } = useTranslation();
   const jobs = useJobPresentation();

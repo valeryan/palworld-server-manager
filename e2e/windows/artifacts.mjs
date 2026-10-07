@@ -67,23 +67,22 @@ for (const flavor of ["Portable", "Setup"]) {
     await browser.close(); await delay(1_000);
   }
   try {
-    // Seed the previous schema with WAL-backed data; migration itself runs inside the EXE.
+    // Seed the baseline schema with WAL-backed data; the preflight inside the EXE must open it as current.
     await mkdir(profile, { recursive: true });
     const fixtureDB = new DatabaseSync(path.join(profile, "registry-v3.sqlite"));
-    fixtureDB.exec("PRAGMA journal_mode=WAL; CREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, hash text NOT NULL, created_at numeric);");
-    const migrations = (await readdir(path.join(process.cwd(), "drizzle"))).filter((name) => /^\d{14}_/.test(name)).sort().slice(0, -1);
+    fixtureDB.exec("PRAGMA journal_mode=WAL; CREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, hash text NOT NULL, created_at numeric, name text, applied_at text);");
+    const migrations = (await readdir(path.join(process.cwd(), "drizzle"))).filter((name) => /^\d{14}_/.test(name)).sort();
     for (const name of migrations) {
       const sql = await readFile(path.join(process.cwd(), "drizzle", name, "migration.sql"), "utf8");
       for (const statement of sql.split("--> statement-breakpoint")) fixtureDB.exec(statement);
-      fixtureDB.prepare("INSERT INTO __drizzle_migrations(hash,created_at) VALUES(?,?)").run(createHash("sha256").update(sql).digest("hex"), Date.UTC(+name.slice(0, 4), +name.slice(4, 6) - 1, +name.slice(6, 8), +name.slice(8, 10), +name.slice(10, 12), +name.slice(12, 14)));
+      fixtureDB.prepare("INSERT INTO __drizzle_migrations(hash,created_at,name,applied_at) VALUES(?,?,?,?)").run(createHash("sha256").update(sql).digest("hex"), Date.UTC(+name.slice(0, 4), +name.slice(4, 6) - 1, +name.slice(6, 8), +name.slice(8, 10), +name.slice(10, 12), +name.slice(12, 14)), name, new Date().toISOString());
     }
     fixtureDB.prepare("INSERT INTO events(kind,message,created_at) VALUES('fixture','Preserved native WAL event',?)").run(Date.now());
-    await writeFile(path.join(profile, "desktop-preferences.json"), JSON.stringify({ closeToTray: false, launchAtLogin: false, managerPort: webPort, lastSuccessfulAppVersion: "1.0.0-alpha.1" }));
+    await writeFile(path.join(profile, "desktop-preferences.json"), JSON.stringify({ closeToTray: false, launchAtLogin: false, lastSuccessfulAppVersion: "1.0.0-alpha.1" }));
     await launch();
     assert.ok(fixtureDB.prepare("PRAGMA table_info(world_settings)").all().some((column) => column.name === "manager_applied_revision"));
     assert.equal(fixtureDB.prepare("SELECT count(*) AS n FROM events WHERE message='Preserved native WAL event'").get().n, 1);
     fixtureDB.close();
-    assert.ok((await readFile(path.join(profile, "registry-v3.pre-upgrade.sqlite"))).length);
 
     const ready = await api("/api/runtime/ready");
     assert.equal(ready.status, 200); assert.equal(ready.body.host.platform, "win32");

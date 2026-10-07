@@ -10,11 +10,12 @@ declare global { var __psmApplicationUpdateCache: Map<string, CacheEntry> | unde
 const cache = () => (globalThis.__psmApplicationUpdateCache ??= new Map<string, CacheEntry>());
 
 // Without a saved choice, an installed prerelease follows prereleases and a stable build follows stable releases.
-export function defaultUpdateChannel(currentVersion: string): UpdateChannel { return isPrerelease(currentVersion) ? "prerelease" : "stable"; }
+// Stable by default on every build; a prerelease install only sees further prereleases when the user opts in.
+export function defaultUpdateChannel(): UpdateChannel { return "stable"; }
 
 // The prerelease channel also receives stable releases; the stable channel never offers a prerelease.
 export async function applicationUpdateStatus(currentVersion: string, options: { channel?: UpdateChannel; disabled?: "development"; fetcher?: typeof fetch; now?: number; force?: boolean } = {}): Promise<ApplicationUpdateStatus> {
-  const now = options.now ?? Date.now(); const channel = options.channel ?? defaultUpdateChannel(currentVersion);
+  const now = options.now ?? Date.now(); const channel = options.channel ?? defaultUpdateChannel();
   const empty = (): ApplicationUpdateStatus => ({ currentVersion, channel, publishedVersion: null, updateAvailable: false, releaseUrl: null, publishedAt: null, checkedAt: new Date(now).toISOString() });
   if (options.disabled) return { ...empty(), disabledReason: options.disabled };
   const key = `${currentVersion}:${channel}`; const saved = cache().get(key);

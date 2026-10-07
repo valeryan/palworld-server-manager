@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { desktopIconPath } from "../electron/desktop-icon";
 import { isSupersededNavigation } from "../electron/navigation";
-import { launchAtLoginArguments, normalizeManagerPort, parseCustomLaunchFlags, validateManagerPort } from "../electron/launch-options";
+import { launchAtLoginArguments, parseCustomLaunchFlags, validateManagerPort } from "../electron/launch-options";
 
 describe("Electron navigation errors", () => {
   it("recognizes a route that superseded loadURL", () => {
@@ -54,6 +54,5 @@ describe("Electron login launch options", () => {
     expect(validateManagerPort("4319")).toBe(4319);
     expect(() => validateManagerPort(80)).toThrow("between 1024 and 65535");
     expect(() => validateManagerPort(4318.5)).toThrow("whole number");
-    expect(normalizeManagerPort("damaged")).toBe(4318);
   });
 });

@@ -9,7 +9,7 @@ import { paths } from "@/server/paths";
 
 const DAY = 86_400_000;
 const SETTING_KEY = "retention-v1";
-type CleanupReport = { operations: number; operationLogs: number; events: number; sessions: number; deaths: number; remoteSessions: number; remoteAudit: number; serverLogs: number; configurationVersions: number };
+type CleanupReport = { operations: number; operationLogs: number; events: number; sessions: number; deaths: number; serverLogs: number; configurationVersions: number };
 
 function changes(result: { changes: number | bigint }): number { return Number(result.changes); }
 
@@ -64,12 +64,8 @@ export async function applyRetentionPolicy(providedSettings?: RetentionSettings,
     SELECT id FROM (SELECT id, row_number() OVER (PARTITION BY world_id ORDER BY created_at DESC) AS position FROM ${table}) WHERE position > ?
   )`).run(activityCutoff, settings.activityCountPerWorld));
   const events = pruneActivity("events"); const sessions = pruneActivity("sessions"); const deaths = pruneActivity("deaths");
-  const remoteSessions = changes(client.prepare("DELETE FROM remote_sessions WHERE (revoked_at IS NOT NULL OR expires_at < ?) AND last_seen_at < ?").run(now, activityCutoff));
-  const remoteAudit = changes(client.prepare(`DELETE FROM remote_audit WHERE created_at < ? OR id NOT IN (
-    SELECT id FROM remote_audit ORDER BY created_at DESC LIMIT ?
-  )`).run(activityCutoff, settings.activityCountPerWorld));
   const configurationVersions = changes(client.prepare(`DELETE FROM config_versions WHERE id IN (
     SELECT id FROM (SELECT id, row_number() OVER (PARTITION BY world_id ORDER BY created_at DESC) AS position FROM config_versions) WHERE position > ?
   )`).run(settings.configurationVersionsPerWorld));
-  return { ...operation, events, sessions, deaths, remoteSessions, remoteAudit, configurationVersions, serverLogs: await pruneServerLogs(settings.serverLogFilesPerWorld) };
+  return { ...operation, events, sessions, deaths, configurationVersions, serverLogs: await pruneServerLogs(settings.serverLogFilesPerWorld) };
 }

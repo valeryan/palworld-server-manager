@@ -227,7 +227,7 @@ describe("PalWorldSettings transformations", () => {
     expect(new Set(laidOutFieldKeys).size).toBe(laidOutFieldKeys.length);
     expect(new Set(laidOutFieldKeys)).toEqual(adminFieldKeys);
     const laidOutManagerKeys = admin?.sections.flatMap((section) => section.layout?.flatMap((item) => item.keys.filter((key) => !adminFieldKeys.has(key))) ?? []) ?? [];
-    expect(new Set(laidOutManagerKeys)).toEqual(new Set(["displayName", "communityServer", "publicPort", "gamePort", "queryPort", "restApiEnabled", "restApiPort", "rconEnabled", "rconPort", "autostart", "crashGuard", "legacyPerfFlags", "platform", "installDir", "extraArgs", "environment", "wineBinary", "winePrefix", "wineLaunchFlags", "registrationActions"]));
+    expect(new Set(laidOutManagerKeys)).toEqual(new Set(["displayName", "communityServer", "publicPort", "gamePort", "queryPort", "restApiEnabled", "restApiPort", "rconEnabled", "rconPort", "autostart", "crashGuard", "legacyPerfFlags", "platform", "installDir", "extraArgs", "environment", "wineBinary", "winePrefix", "wineLaunchFlags"]));
   });
   it("organizes every guided field exactly once across five presentation tabs", () => {
     const layoutKeys = PALWORLD_SETTING_TABS.flatMap((tab) => tab.sections.flatMap((section) => section.fields.map((field) => field.key)));
@@ -237,7 +237,7 @@ describe("PalWorldSettings transformations", () => {
     expect([...layoutKeys].sort()).toEqual(PALWORLD_SETTING_FIELDS.map((field) => field.key).sort());
     expect(PALWORLD_SETTING_TABS.flatMap((tab) => tab.sections).filter((section) => section.managed).map((section) => [section.title, section.managed])).toEqual([
       ["Server Identity", "identity"], ["Community Listing", "listing"], ["Network & Ports", "network"], ["Lifecycle & Recovery", "lifecycle"],
-      ["Performance & Synchronization", "performance"], ["Installation & Launch", "launch"], ["Registration & Removal", "registration"],
+      ["Performance & Synchronization", "performance"], ["Installation & Launch", "launch"],
     ]);
   });
   it("exposes and validates the complete original structured field inventory", () => {
@@ -286,6 +286,21 @@ describe("PalWorldSettings transformations", () => {
 
 describe("job cancellation", () => {
   setupTestDataDirectory("psm-jobs-test-");
+
+  it("lists and counts operations by world or for the manager alone", async () => {
+    const { jobHistoryCounts, listJobs, startJob } = await import("@/server/services/jobs");
+    const { createWorld } = await import("@/server/services/worlds");
+    const world = await createWorld({ displayName: "Scoped", installDir: path.join(process.env.PALWORLD_MANAGER_DATA_DIR!, "..", "scoped-world"), gamePort: 39411, queryPort: 39412, restApiPort: 39413, rconPort: 39414 });
+    const settle = async (id: string) => { for (let attempt = 0; attempt < 100; attempt += 1) { const job = (await listJobs(500)).find((item) => item.id === id); if (job && job.state !== "running" && job.state !== "queued") return; await new Promise((resolve) => setTimeout(resolve, 10)); } };
+    await settle(await startJob(world.id, "scope-world", async () => {}));
+    await settle(await startJob(null, "mod-download", async () => {}));
+    expect((await listJobs(500, { app: true })).every((job) => job.worldId === null)).toBe(true);
+    expect((await listJobs(500, { app: true })).some((job) => job.kind === "mod-download")).toBe(true);
+    expect((await listJobs(500, { worldId: world.id })).map((job) => job.kind)).toEqual(["scope-world"]);
+    expect(jobHistoryCounts({ worldId: world.id }).total).toBe(1);
+    expect(jobHistoryCounts({ app: true }).total).toBeGreaterThanOrEqual(1);
+    expect(jobHistoryCounts().total).toBe(jobHistoryCounts({ app: true }).total + (await listJobs(500)).filter((job) => job.worldId !== null).length);
+  });
 
   it("cancels an attached long-running job and records cancellation", async () => {
     const id = await startJob(null, "cancel-test", async ({ signal }) => await new Promise<void>((_resolve, reject) => {

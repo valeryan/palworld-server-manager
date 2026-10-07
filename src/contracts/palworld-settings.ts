@@ -8,7 +8,7 @@ export type PalworldSettingField = {
   key: string; label: string; type: PalworldSettingType; help: string; evidence: PalworldSettingEvidence;
   options?: readonly string[]; min?: number; max?: number; allowEmpty?: boolean; presentation?: PalworldSettingPresentation;
 };
-export type PalworldSettingSection = { id: string; title: string; description: string; fields: readonly PalworldSettingField[]; managed?: "identity" | "listing" | "network" | "lifecycle" | "performance" | "launch" | "registration"; layout?: readonly PalworldSettingLayoutItem[] };
+export type PalworldSettingSection = { id: string; title: string; description: string; fields: readonly PalworldSettingField[]; managed?: "identity" | "listing" | "network" | "lifecycle" | "performance" | "launch"; layout?: readonly PalworldSettingLayoutItem[] };
 export type PalworldSettingTab = { id: string; title: string; description: string; sections: readonly PalworldSettingSection[] };
 export type PalworldSettingValue = string | number | boolean | string[];
 export type DecodedSettingValue =
@@ -194,7 +194,7 @@ export const PALWORLD_SETTING_TABS: readonly PalworldSettingTab[] = [
     ] },
     { id: "saving-logs", title: "Saving & Logs", description: "World saving, rolling backup protection, and log format.", fields: [
       { key: "AutoSaveSpan", label: "Auto-save interval (s)", type: "float", help: "Time between automatic world saves. Lower saves more often but increases disk work; higher reduces disk work but increases possible crash-related progress loss.", evidence: "official" },
-      { key: "bIsUseBackupSaveData", label: "Rolling save backups", type: "bool", help: "Enables Palworld's own rolling backups inside save data. On increases disk activity and is separate from manager-created backup archives.", evidence: "official" },
+      { key: "bIsUseBackupSaveData", label: "Rolling save backups", type: "bool", help: "Enables Palworld's own rolling backups inside the save folder (SaveGames/…/backup). It is separate from the manager's Backups tab, which skips that folder so archives never nest backups inside backups; turn it off if the manager's scheduled backups are enough.", evidence: "official" },
       { key: "LogFormatType", label: "Log format", type: "select", help: "Text is human-readable; Json is structured for log-processing tools.", evidence: "official", options: ["Text","Json"] },
     ], layout: [
       { keys: ["AutoSaveSpan"], span: 4 }, { keys: ["bIsUseBackupSaveData"], span: 4 }, { keys: ["LogFormatType"], span: 4 },
@@ -214,9 +214,6 @@ export const PALWORLD_SETTING_TABS: readonly PalworldSettingTab[] = [
       { keys: ["platform"], span: 4 }, { keys: ["installDir"], span: 8, presentation: "wide" },
       { keys: ["extraArgs"], span: 12, presentation: "wide" }, { keys: ["environment"], span: 12, presentation: "wide" },
       { keys: ["wineBinary"], span: 6 }, { keys: ["winePrefix"], span: 6 }, { keys: ["wineLaunchFlags"], span: 12, presentation: "wide" },
-    ] },
-    { id: "registration-removal", title: "Registration & Removal", description: "Export this PSM registration or remove it without deleting server files.", managed: "registration", fields: [], layout: [
-      { keys: ["registrationActions"], span: 12, presentation: "wide" },
     ] },
   ] },
 ];

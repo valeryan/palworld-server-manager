@@ -1,4 +1,4 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { JOB_STATES } from "@/contracts/job";
 import { SCHEDULE_ACTIONS, SCHEDULE_MODES } from "@/contracts/schedule";
 import { ARGUMENT_FORMATS, PLATFORMS, WORLD_STATUSES } from "@/contracts/world";
@@ -96,6 +96,15 @@ export const sessions = sqliteTable("sessions", {
   userId: text("user_id"), playerName: text("player_name"), event: text("event", { enum: ["join", "leave"] }).notNull(), createdAt: integer("created_at").notNull(),
 }, (table) => [index("sessions_world_created_idx").on(table.worldId, table.createdAt)]);
 
+// Every player the presence poller has seen in a world, kept across activity retention so
+// moderation can target a player who is offline.
+export const worldPlayers = sqliteTable("world_players", {
+  worldId: text("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }), userId: text("user_id").notNull(),
+  playerName: text("player_name").notNull(), accountName: text("account_name"),
+  firstSeenAt: integer("first_seen_at").notNull(), lastSeenAt: integer("last_seen_at").notNull(), lastLeftAt: integer("last_left_at"),
+  joinCount: integer("join_count").notNull().default(1), bannedAt: integer("banned_at"),
+}, (table) => [primaryKey({ columns: [table.worldId, table.userId] }), index("world_players_world_seen_idx").on(table.worldId, table.lastSeenAt)]);
+
 export const deaths = sqliteTable("deaths", {
   id: integer("id").primaryKey({ autoIncrement: true }), worldId: text("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
   victim: text("victim").notNull(), cause: text("cause"), killer: text("killer"), killerRaw: text("killer_raw"), killerKind: text("killer_kind"), createdAt: integer("created_at").notNull(),
@@ -121,40 +130,3 @@ export const modRuntimes = sqliteTable("mod_runtimes", {
 });
 
 export const appSettings = sqliteTable("app_settings", { key: text("key").primaryKey(), value: text("value", { mode: "json" }).$type<unknown>() });
-
-export const remoteAccessCodes = sqliteTable("remote_access_codes", {
-  id: text("id").primaryKey(),
-  codeHash: text("code_hash").notNull(),
-  codeHint: text("code_hint").notNull(),
-  label: text("label").notNull(),
-  scope: text("scope", { enum: ["all", "world"] }).notNull(),
-  worldId: text("world_id").references(() => worlds.id, { onDelete: "cascade" }),
-  permissions: text("permissions", { mode: "json" }).$type<string[]>().notNull(),
-  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
-  createdAt: integer("created_at").notNull(),
-  lastUsedAt: integer("last_used_at"),
-}, (table) => [index("remote_codes_world_idx").on(table.worldId)]);
-
-export const remoteSessions = sqliteTable("remote_sessions", {
-  id: text("id").primaryKey(),
-  tokenHash: text("token_hash").notNull(),
-  codeId: text("code_id").notNull().references(() => remoteAccessCodes.id, { onDelete: "cascade" }),
-  createdAt: integer("created_at").notNull(),
-  lastSeenAt: integer("last_seen_at").notNull(),
-  expiresAt: integer("expires_at").notNull(),
-  revokedAt: integer("revoked_at"),
-  ipAddress: text("ip_address"),
-  userAgent: text("user_agent"),
-}, (table) => [uniqueIndex("remote_sessions_token_unique").on(table.tokenHash), index("remote_sessions_code_idx").on(table.codeId)]);
-
-export const remoteAudit = sqliteTable("remote_audit", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  codeId: text("code_id").references(() => remoteAccessCodes.id, { onDelete: "set null" }),
-  principalLabel: text("principal_label").notNull(),
-  action: text("action").notNull(),
-  worldId: text("world_id").references(() => worlds.id, { onDelete: "set null" }),
-  detail: text("detail"),
-  ipAddress: text("ip_address"),
-  createdAt: integer("created_at").notNull(),
-}, (table) => [index("remote_audit_created_idx").on(table.createdAt), index("remote_audit_code_idx").on(table.codeId)]);
-

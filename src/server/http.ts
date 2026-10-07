@@ -43,7 +43,7 @@ type RouteParams = Record<string, string>;
 type RouteResult = Response | Record<string, unknown> | void;
 type RouteContext<P> = { params: Promise<P> };
 type RouteOptions = {
-  /** Require the desktop admin cookie (default). Remote and public routes pass false and authenticate themselves. */
+  /** Require the desktop admin cookie (default). Public routes pass false. */
   admin?: boolean;
   /** Status for a successful JSON result; 200 by default, 201/202 for creations and accepted jobs. */
   status?: number;

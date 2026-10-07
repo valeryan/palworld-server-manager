@@ -4,7 +4,7 @@ import path from "node:path";
 import { assertLocalWindowsPath } from "../src/server/host";
 import { UpgradePreflightError } from "../src/server/db/upgrade";
 import { setLaunchAtLogin } from "./autostart";
-import { host, port } from "./binding";
+import { bindPort, host, port } from "./binding";
 import { dataDir, isDev, launcherLogPath, log, profileSetupError, quitState, startHidden } from "./environment";
 import { registerIpcHandlers } from "./ipc";
 import { preferences, writePreferences } from "./preferences";
@@ -52,10 +52,10 @@ async function reportStartupFailure(error: unknown): Promise<void> {
 
 async function start(): Promise<void> {
   const profileError = profileSetupError(); if (profileError) throw profileError;
-  assertLocalWindowsPath(dataDir()); mkdirSync(dataDir(), { recursive: true }); assertLocalWindowsPath(realpathSync(dataDir())); log(`Desktop ready (data ${dataDir()}, bind ${host}:${port}, AppImage ${Boolean(process.env.APPIMAGE)}, hidden ${startHidden})`); powerSaveBlocker.start("prevent-app-suspension");
+  assertLocalWindowsPath(dataDir()); mkdirSync(dataDir(), { recursive: true }); assertLocalWindowsPath(realpathSync(dataDir())); await bindPort(); log(`Desktop ready (data ${dataDir()}, bind ${host}:${port()}, AppImage ${Boolean(process.env.APPIMAGE)}, hidden ${startHidden})`); powerSaveBlocker.start("prevent-app-suspension");
   if (!isDev) await activatePackagedVersion();
   if (upgradeWindowOpen()) await showUpgradeProgress("starting");
-  startServer(); await waitForServer(); log("Bundled web server is ready");
+  await startServer(); await waitForServer(); log("Bundled web server is ready");
   if (!isDev) { writePreferences({ lastSuccessfulAppVersion: app.getVersion() }); if (process.platform === "win32" && preferences().launchAtLogin) setLaunchAtLogin(true, true); }
   if (upgradeWindowOpen() && !await showUpgradeCompletion()) { quitState.quitting = true; await stopServer(); app.quit(); return; }
   createTray(); await createWindow(!startHidden);

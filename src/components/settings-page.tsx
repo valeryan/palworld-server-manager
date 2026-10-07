@@ -11,7 +11,7 @@ import { updateChannels, type UpdateChannel } from "@/contracts/application-upda
 import type { LanguageCatalog } from "@/contracts/localization";
 import { defaultRetentionSettings, retentionLimits, retentionSettingKeys, type RetentionSettingKey, type RetentionSettings } from "@/contracts/retention";
 import { AppShell } from "./app-shell";
-import { RemoteAccessSettings } from "./remote-access-settings";
+import { ServerBuildsSettings } from "./server-builds-settings";
 import { SettingHelp } from "./setting-help";
 import { Toast } from "./toast";
 import { useTheme } from "./theme-provider";
@@ -29,18 +29,16 @@ export function SettingsPage() {
   const query = useQuery({ queryKey: ["app-settings"], queryFn: async () => (await responseJson<{ settings: Paths }>("/api/settings")).settings });
   const languages = useQuery({ queryKey: ["languages"], queryFn: async () => (await responseJson<{ catalog: LanguageCatalog }>("/api/i18n/languages")).catalog });
   const [closeToTray, setCloseToTray] = useState(true);
-  const [loginDisabledByOS, setLoginDisabledByOS] = useState(false);
+  const [loginDisabledByOS, setLoginDisabledByOS] = useState(false); const [loginUnavailable, setLoginUnavailable] = useState(false);
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
   const [launchOptions, setLaunchOptions] = useState<LaunchAtLoginOptions>(defaultLaunchAtLoginOptions);
-  const [managerPort, setManagerPort] = useState("4318");
-  const [activeManagerPort, setActiveManagerPort] = useState(4318);
   const [desktopReady, setDesktopReady] = useState(false);
   const [retentionDraft, setRetentionDraft] = useState<RetentionSettings | null>(null);
   const [documentLocale, setDocumentLocale] = useState({ code: "en", direction: "ltr" as "ltr" | "rtl" });
   const [notice, setNotice] = useState<string | null>(null); const client = useQueryClient();
   // One pending flag per control group; `notify` covers actions that never disabled anything.
-  const notify = useNoticeAction(setNotice); const launchSave = useNoticeAction(setNotice); const portSave = useNoticeAction(setNotice); const retentionSave = useNoticeAction(setNotice); const themeSave = useNoticeAction(setNotice); const languageChange = useNoticeAction(setNotice); const channelSave = useNoticeAction(setNotice);
-  const savingLaunchOptions = launchSave.pending; const savingPort = portSave.pending; const savingRetention = retentionSave.pending; const savingTheme = themeSave.pending; const changingLanguage = languageChange.pending; const savingChannel = channelSave.pending;
+  const notify = useNoticeAction(setNotice); const launchSave = useNoticeAction(setNotice); const retentionSave = useNoticeAction(setNotice); const themeSave = useNoticeAction(setNotice); const languageChange = useNoticeAction(setNotice); const channelSave = useNoticeAction(setNotice);
+  const savingLaunchOptions = launchSave.pending; const savingRetention = retentionSave.pending; const savingTheme = themeSave.pending; const changingLanguage = languageChange.pending; const savingChannel = channelSave.pending;
   async function chooseUpdateChannel(updateChannel: UpdateChannel) {
     await channelSave.run(async () => { await requestJson("/api/settings", { method: "PATCH", body: JSON.stringify({ updateChannel }) }); await Promise.all([query.refetch(), client.invalidateQueries({ queryKey: ["application-update"] })]); setNotice(t(`settings.updates.savedNotice.${updateChannel}`)); });
   }
@@ -48,9 +46,9 @@ export function SettingsPage() {
 
   useEffect(() => {
     const desktop = window.psmDesktop; if (!desktop) return;
-    void desktop.getLoginStatus().then((state) => setLoginDisabledByOS(state.disabledByOS)).catch(() => undefined);
-    void Promise.all([desktop.getCloseToTray(), desktop.getLaunchAtLogin(), desktop.getLaunchAtLoginOptions(), desktop.getManagerPort()]).then(([close, launch, options, manager]) => {
-      setCloseToTray(close); setLaunchAtLogin(launch); setLaunchOptions(options); setManagerPort(String(manager.configured)); setActiveManagerPort(manager.active); setDesktopReady(true);
+    void desktop.getLoginStatus().then((state) => { setLoginDisabledByOS(state.disabledByOS); setLoginUnavailable(Boolean(state.unavailable)); }).catch(() => undefined);
+    void Promise.all([desktop.getCloseToTray(), desktop.getLaunchAtLogin(), desktop.getLaunchAtLoginOptions()]).then(([close, launch, options]) => {
+      setCloseToTray(close); setLaunchAtLogin(launch); setLaunchOptions(options); setDesktopReady(true);
     });
   }, []);
   useEffect(() => {
@@ -75,10 +73,6 @@ export function SettingsPage() {
   async function saveLaunchOptions() {
     const desktop = window.psmDesktop; if (!desktop) return;
     await launchSave.run(async () => { const saved = await desktop.setLaunchAtLoginOptions(launchOptions); setLaunchOptions(saved); setNotice(t(launchAtLogin ? "settings.launch.savedEnabledNotice" : "settings.launch.savedDisabledNotice")); });
-  }
-  async function saveManagerPort() {
-    const desktop = window.psmDesktop; if (!desktop) return;
-    await portSave.run(async () => { const result = await desktop.setManagerPort(Number(managerPort)); setManagerPort(String(result.configured)); setActiveManagerPort(result.active); setNotice(t(result.restartRequired ? "settings.port.savedRestart" : "settings.port.savedActive", { port: result.configured })); });
   }
   async function saveRetention() {
     await retentionSave.run(async () => {
@@ -127,17 +121,16 @@ export function SettingsPage() {
       <section><div><h2>{t("settings.tray.title")}{help("settings.tray.title", "settings.tray.description")}</h2></div><button className={`toggle ${closeToTray ? "on" : ""}`} disabled={!desktopReady} onClick={() => void toggleClose()}><i />{t(closeToTray ? "common.on" : "common.off")}</button></section>
       <section className="settings-launch">
         {loginDisabledByOS && <p role="status">{t("settings.launch.disabledByOS")}</p>}
-        <div className="settings-section-heading"><div><h2>{t("settings.launch.title")}{help("settings.launch.title", "settings.launch.description", "settings.launch.compatibilityHelp")}</h2></div><button className={`toggle ${launchAtLogin ? "on" : ""}`} disabled={!desktopReady} onClick={() => void toggleLaunch()}><i />{t(launchAtLogin ? "common.on" : "common.off")}</button></div>
+        {loginUnavailable && <p role="status">{t("settings.launch.development")}</p>}
+        <div className="settings-section-heading"><div><h2>{t("settings.launch.title")}{help("settings.launch.title", "settings.launch.description", "settings.launch.compatibilityHelp")}</h2></div><button className={`toggle ${launchAtLogin ? "on" : ""}`} disabled={!desktopReady || loginUnavailable} onClick={() => void toggleLaunch()}><i />{t(launchAtLogin ? "common.on" : "common.off")}</button></div>
         <div className="launch-option-grid">
           <label><input type="checkbox" checked={launchOptions.startHidden} onChange={(event) => setLaunchOption("startHidden", event.target.checked)} /><span><strong>{t("settings.launch.hidden")}{help("settings.launch.hidden", "settings.launch.hiddenHelp")}</strong></span></label>
           <label><input type="checkbox" checked={launchOptions.disableGpu} onChange={(event) => setLaunchOption("disableGpu", event.target.checked)} /><span><strong>{t("settings.launch.gpu")}{help("settings.launch.gpu", "settings.launch.gpuHelp")}</strong></span></label>
           {host === "linux" && <label><input type="checkbox" checked={launchOptions.forceX11} onChange={(event) => setLaunchOption("forceX11", event.target.checked)} /><span><strong>{t("settings.launch.x11")}{help("settings.launch.x11", "settings.launch.x11Help")}</strong></span></label>}
         </div>
         <label className="custom-launch-flags"><span><strong>{t("settings.launch.flags")}{help("settings.launch.flags", "settings.launch.flagsHelp")}</strong></span><input value={launchOptions.customFlags} onChange={(event) => setLaunchOption("customFlags", event.target.value)} placeholder={t("settings.launch.flagsPlaceholder")} spellCheck={false} /></label>
-        <div className="launch-options-footer"><button className="button primary" disabled={!desktopReady || savingLaunchOptions} onClick={() => void saveLaunchOptions()}>{t(savingLaunchOptions ? "common.saving" : "settings.launch.save")}</button></div>
+        <div className="launch-options-footer"><button className="button primary" disabled={!desktopReady || loginUnavailable || savingLaunchOptions} onClick={() => void saveLaunchOptions()}>{t(savingLaunchOptions ? "common.saving" : "settings.launch.save")}</button></div>
       </section>
-      <section className="settings-network"><div><h2>{t("settings.port.title")}{help("settings.port.title", "settings.port.description")}</h2></div><div className="manager-port-control"><label><span>{t("settings.port.label")}{help("settings.port.label", "settings.port.labelHelp")}</span><input type="number" min={1024} max={65535} step={1} value={managerPort} onChange={(event) => setManagerPort(event.target.value)} /></label><button className="button primary" disabled={!desktopReady || savingPort} onClick={() => void saveManagerPort()}>{t(savingPort ? "common.saving" : "settings.port.save")}</button><small>{t("settings.port.active", { port: activeManagerPort })}{Number(managerPort) !== activeManagerPort ? ` · ${t("settings.port.restartRequired")}` : ""}</small></div></section>
-      <RemoteAccessSettings onNotice={setNotice} />
       <section className="settings-retention"><div><h2>{t("settings.retention.title")}{help("settings.retention.title", "settings.retention.description", "settings.retention.help")}</h2></div><div className="retention-grid">
         {retentionSettingKeys.map((key) => { const name = retentionLabels[key]; const [min, max] = retentionLimits[key]; return <label key={key}><span>{t(`settings.retention.${name}`)}{help(`settings.retention.${name}`, `settings.retention.${name}Help`)}</span><input type="number" min={min} max={max} value={retention[key]} onChange={(event) => setRetentionOption(key, event.target.value)} /></label>; })}
       </div><div className="retention-footer"><button className="button primary" disabled={savingRetention || query.isLoading} onClick={() => void saveRetention()}>{t(savingRetention ? "settings.retention.cleaning" : "settings.retention.save")}</button></div></section>
@@ -146,9 +139,10 @@ export function SettingsPage() {
         <input ref={languageFile} type="file" accept="application/json,.json" hidden onChange={(event) => void installLanguage(event)} /><div className="language-actions"><button className="button ghost" onClick={() => languageFile.current?.click()}>{t("settings.language.install")}</button><a className="button ghost" href="/api/i18n/template">{t("settings.language.downloadTemplate")}</a><button className="button ghost" disabled={!desktopReady || !languages.data} onClick={() => void window.psmDesktop?.openPath(languages.data!.directory)}>{t("settings.language.openFolder")}</button></div>
       </div></section>
       <section className="settings-updates"><div><h2>{t("settings.updates.title")}{help("settings.updates.title", "settings.updates.description")}</h2></div><div className="language-control">
-        {query.data ? <><label><span>{t("settings.updates.channel")}{help("settings.updates.channel", "settings.updates.channelHelp")}</span><select value={query.data.updateChannel} disabled={savingChannel || Boolean(query.data.updateChecksDisabled)} onChange={(event) => void chooseUpdateChannel(event.target.value as UpdateChannel)}>{updateChannels.map((channel) => <option key={channel} value={channel}>{t(`settings.updates.option.${channel}`)}</option>)}</select></label>{query.data.updateChecksDisabled && <p className="muted">{t("settings.updates.development")}</p>}</> : <p>{t("settings.updates.loading")}</p>}
+        {query.data ? <><label><span>{t("settings.updates.channel")}{help("settings.updates.channel", "settings.updates.channelHelp")}</span><select value={query.data.updateChannel} disabled={savingChannel} onChange={(event) => void chooseUpdateChannel(event.target.value as UpdateChannel)}>{updateChannels.map((channel) => <option key={channel} value={channel}>{t(`settings.updates.option.${channel}`)}</option>)}</select></label>{query.data.updateChecksDisabled && <p className="muted">{t("settings.updates.development")}</p>}</> : <p>{t("settings.updates.loading")}</p>}
+        <p className="muted">{t(host === "win32" ? "settings.updates.manualWindows" : "settings.updates.manualLinux")}</p>
       </div></section>
-      <p>{t(host === "win32" ? "settings.updates.manualWindows" : "settings.updates.manualLinux")}</p>
+      <ServerBuildsSettings onNotice={setNotice} />
       <section className="settings-paths"><div><h2>{t("settings.data.title")}{help("settings.data.title", "settings.data.description")}</h2></div>{query.data && <dl><div><dt>{t("settings.data.directory")}</dt><dd>{query.data.dataDirectory}</dd></div><div><dt>{t("settings.data.database")}</dt><dd>{query.data.database}</dd></div><div><dt>{t("settings.data.steamcmd")}</dt><dd>{query.data.steamCmd}</dd></div><div><dt>{t("settings.data.logs")}</dt><dd>{query.data.logs}</dd></div></dl>}<button className="button ghost" disabled={!desktopReady || !query.data} onClick={() => void window.psmDesktop?.openPath(query.data!.dataDirectory)}>{t("settings.data.open")}</button></section>
     </div>
   </AppShell></Tooltip.Provider>;

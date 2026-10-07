@@ -23,9 +23,11 @@ export function restoreAutostart(filePath: string, content: string | null): void
 function loginExecutable(): string { return process.env.PORTABLE_EXECUTABLE_FILE || (process.env.PORTABLE_EXECUTABLE_DIR && process.env.PORTABLE_EXECUTABLE_APP_FILENAME ? path.join(process.env.PORTABLE_EXECUTABLE_DIR, process.env.PORTABLE_EXECUTABLE_APP_FILENAME) : process.execPath); }
 
 export function loginStatus() {
-  if (process.platform !== "win32") return { configured: preferences().launchAtLogin, enabled: preferences().launchAtLogin, disabledByOS: false };
+  // A development run reads the installed app's home directory; it must neither report nor edit that entry.
+  if (isDev) return { configured: false, enabled: false, disabledByOS: false, unavailable: true };
+  if (process.platform !== "win32") return { configured: preferences().launchAtLogin, enabled: preferences().launchAtLogin, disabledByOS: false, unavailable: false };
   const state = app.getLoginItemSettings({ path: loginExecutable(), args: launchAtLoginArguments({ ...preferences().launchOptions, forceX11: false }, persistentDataArguments()) });
-  return { configured: state.openAtLogin, enabled: state.openAtLogin && state.executableWillLaunchAtLogin, disabledByOS: state.openAtLogin && !state.executableWillLaunchAtLogin };
+  return { configured: state.openAtLogin, enabled: state.openAtLogin && state.executableWillLaunchAtLogin, disabledByOS: state.openAtLogin && !state.executableWillLaunchAtLogin, unavailable: false };
 }
 
 export function setLaunchAtLogin(enabled: boolean, preserveApproval = false): boolean {

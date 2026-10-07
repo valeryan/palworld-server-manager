@@ -362,6 +362,10 @@ echo "Success! App '2394010' fully installed."
   it("backs up and restores a fake filesystem tree without touching external paths", async () => {
     const installDir = path.join(root, "filesystem-world"); const saveFile = path.join(installDir, "Pal", "Saved", "SaveGames", "world.sav");
     await mkdir(path.dirname(saveFile), { recursive: true }); await writeFile(saveFile, "before");
+    // Palworld's own rolling backups live beside the save and must not be archived again.
+    const rollingBackup = path.join(installDir, "Pal", "Saved", "SaveGames", "0", "WORLDID", "backup", "world", "Level.sav");
+    await mkdir(path.dirname(rollingBackup), { recursive: true }); await writeFile(rollingBackup, "server backup");
+    const liveLevel = path.join(installDir, "Pal", "Saved", "SaveGames", "0", "WORLDID", "Level.sav"); await writeFile(liveLevel, "live level");
     const backupConfig = path.join(installDir, "Pal", "Saved", "Config", "LinuxServer", "PalWorldSettings.ini");
     await mkdir(path.dirname(backupConfig), { recursive: true }); await writeFile(backupConfig, '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(ServerName="Backup")\n');
     const { createWorld } = await import("@/server/services/worlds");
@@ -370,6 +374,9 @@ echo "Success! App '2394010' fully installed."
     const world = await createWorld({ displayName: "Fake filesystem", installDir, gamePort: 39511, queryPort: 39512, restApiPort: 39513, rconPort: 39514 });
     const context: JobContext = { signal: new AbortController().signal, log: () => undefined, update: async () => undefined };
     const backupId = await createBackup(world.id, "adapter-test", context);
+    const { listBackups } = await import("@/server/services/backups"); const AdmZip = (await import("adm-zip")).default;
+    const archived = new AdmZip((await listBackups(world.id)).find((item) => item.id === backupId)!.filePath).getEntries().map((entry) => entry.entryName);
+    expect(archived).toContain("Saved/SaveGames/0/WORLDID/Level.sav"); expect(archived.some((name) => name.includes("/backup/"))).toBe(false);
     const settings = await readSettingsState(world.id); const blockedParent = path.join(root, "restore-not-a-directory"); await writeFile(blockedParent, "file");
     expect(await saveDesiredSettings(world.id, { baseRevision: settings.desiredRevision, manager: { ...settings.desiredManager, installDir: path.join(blockedParent, "child") }, content: settings.desiredContent })).toMatchObject({ pendingApply: true });
     await writeFile(saveFile, "after");

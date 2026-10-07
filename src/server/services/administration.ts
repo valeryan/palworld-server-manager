@@ -1,7 +1,7 @@
 import "server-only";
 import { and, desc, eq } from "drizzle-orm";
 import { database } from "@/server/db";
-import { events, sessions } from "@/server/db/schema";
+import { events, sessions, worldPlayers } from "@/server/db/schema";
 import type { RestAdminAction } from "@/contracts/admin";
 import { moderationEventMessage } from "@/lib/moderation-presentation";
 import { ConflictError } from "@/server/errors";
@@ -26,6 +26,7 @@ export async function runRestAdminAction(worldId: string, action: RestAdminActio
     const playerName = providedName ?? recentSession?.playerName ?? null;
     message = moderationEventMessage(action.action, action.userId, playerName);
     metadata = { action: action.action, userId: action.userId, playerName };
+    if (action.action !== "kick") await database().update(worldPlayers).set({ bannedAt: action.action === "ban" ? Date.now() : null }).where(and(eq(worldPlayers.worldId, worldId), eq(worldPlayers.userId, action.userId)));
   } else message = action.action === "announce" ? "Sent server announcement" : "Saved the world";
   await database().insert(events).values({ worldId, kind: "administrator", message, metadata, createdAt: Date.now() });
   return result;

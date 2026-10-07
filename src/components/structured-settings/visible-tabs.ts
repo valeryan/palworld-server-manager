@@ -16,7 +16,6 @@ const managedSearchText = (t: TFunction): Record<ManagedSection, string> => ({
   lifecycle: ["lifecycle autostart crash recovery save logs", t("properties.autostart"), t("properties.crashRecovery")].join(" ").toLowerCase(),
   performance: ["performance flags synchronization", t("properties.performance")].join(" ").toLowerCase(),
   launch: ["installation path platform launch wine environment", t("properties.installDirectory"), t("properties.environment")].join(" ").toLowerCase(),
-  registration: ["registration export unregister removal"].join(" ").toLowerCase(),
 });
 
 export const managedCount = (kind: ManagedSection, changes: ChangeSets) => managerSectionKeys[kind].filter((key) => changes.managerChangedKeys.has(key)).length;

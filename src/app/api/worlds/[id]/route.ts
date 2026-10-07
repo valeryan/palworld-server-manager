@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { publicWorld, route } from "@/server/http";
 import { patchWorldRegistration } from "@/server/services/configuration";
 import { installationHealth } from "@/server/services/installation";
@@ -13,4 +14,8 @@ export const PATCH = route<{ id: string }>(async (request, { id }) => {
   return { world: publicWorld(await requireWorld(id)), configuration };
 });
 
-export const DELETE = route<{ id: string }>(async (_request, { id }) => { await unregisterWorld(id); });
+// `?files=delete` also removes the server folder; the default keeps every file on disk.
+export const DELETE = route<{ id: string }>(async (request, { id }) => {
+  const files = z.enum(["keep", "delete"]).default("keep").parse(new URL(request.url).searchParams.get("files") ?? undefined);
+  await unregisterWorld(id, { deleteFiles: files === "delete" });
+});

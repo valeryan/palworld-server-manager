@@ -7,7 +7,7 @@ import { schedules } from "@/server/db/schema";
 import { recoverInterruptedRestores } from "../backups";
 import { bootstrapWorldSettings } from "../configuration";
 import { reconcileInterruptedJobs, startJob } from "../jobs";
-import { reconcileProcesses, startWorld } from "../lifecycle";
+import { adoptOrphanedServers, reconcileProcesses, startWorld } from "../lifecycle";
 import { applyRetentionPolicy } from "../retention";
 import { nextRun } from "../schedules";
 import { listWorlds } from "../worlds";
@@ -57,6 +57,7 @@ export async function startRuntime(): Promise<void> {
   await bootStep("interrupted operation recovery", reconcileInterruptedJobs);
   await bootStep("settings bootstrap", () => bootstrapWorldSettings());
   await bootStep("process reconciliation", reconcileProcesses);
+  await bootStep("running server adoption", adoptOrphanedServers);
   await bootStep("schedule repair", async () => {
     for (const schedule of await database().select().from(schedules)) if (schedule.nextRunAt && schedule.nextRunAt < Date.now()) await database().update(schedules).set({ nextRunAt: nextRun(schedule) }).where(eq(schedules.id, schedule.id));
   });

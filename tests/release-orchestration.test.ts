@@ -12,7 +12,8 @@ const roots: string[] = [];
 const names = ["PSM-x64.AppImage", "PSM-Setup-x64.exe", "PSM-Portable-x64.exe"];
 
 // Run the actual release script in a disposable directory. The tool doubles record build
-// provenance, produce fixture packages, and never run npm, Wine or a real application.
+// provenance, produce fixture packages, and never run npm, Wine or a real application. A release
+// only builds and packages; checks and tests are separate commands.
 const tool = String.raw`#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
@@ -26,16 +27,11 @@ function build() {
 }
 function prepare() { fs.copyFileSync("compiled.txt", "prepared.txt"); }
 if (command === "npm") {
-  if (args[1] === "test:e2e") {
-    build(); prepare();
-    fs.mkdirSync("release/linux-unpacked", {recursive:true});
-    fs.copyFileSync("prepared.txt", "tested.txt");
-  } else if (args[1] === "build") build();
+  if (args[1] === "build") build();
   else if (args[1] === "prepare:standalone") prepare();
-  else if (args[1] === "dist") throw new Error("dist would rebuild already-tested source");
+  else throw new Error("A release runs only build and prepare:standalone; got " + args.join(" "));
 } else if (command === "npx") {
   const contents = fs.readFileSync("prepared.txt", "utf8");
-  if (fs.existsSync("tested.txt") && fs.readFileSync("tested.txt", "utf8") !== contents) throw new Error("Packaging different output from tests");
   fs.mkdirSync("release/win-unpacked", {recursive:true});
   for (const name of ["PSM-x64.AppImage", "PSM-Setup-x64.exe", "PSM-Portable-x64.exe", "installer.blockmap"]) fs.writeFileSync(path.join("release",name), contents);
 }
@@ -62,17 +58,17 @@ async function fixture() {
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 
 describe("release orchestration", () => {
-  it("packages the checked build once, keeps exactly three artifacts and verifies their digests", async () => {
+  it("builds and prepares once, packages that output, keeps exactly three artifacts and verifies their digests", async () => {
     const { root, run, calls } = await fixture();
     const result = await run();
     const trace = await calls();
-    expect(trace.filter((call) => call.command === "npm").map((call) => call.args[1])).toEqual(["typecheck", "lint", "test", "test:e2e"]);
+    expect(trace.filter((call) => call.command === "npm").map((call) => call.args[1])).toEqual(["build", "prepare:standalone"]);
     expect(trace.find((call) => call.command === "npx")?.args).toEqual(["electron-builder", "--linux", "AppImage", "--win", "nsis", "portable", "--x64", "--publish", "never"]);
     expect((await readdir(path.join(root, "release"))).sort()).toEqual([...names, "SHA256SUMS.txt"].sort());
     const sums = await readFile(path.join(root, "release", "SHA256SUMS.txt"), "utf8");
     for (const name of names) {
       const content = await readFile(path.join(root, "release", name));
-      expect(content.toString()).toBe(await readFile(path.join(root, "tested.txt"), "utf8"));
+      expect(content.toString()).toBe(await readFile(path.join(root, "prepared.txt"), "utf8"));
       expect(sums).toContain(`${createHash("sha256").update(content).digest("hex")}  ${name}`);
     }
     expect(trace.at(-1)?.command).toBe("wineserver");
@@ -80,15 +76,9 @@ describe("release orchestration", () => {
     expect(result.stdout).toContain("Release candidate ready");
   });
 
-  it("builds and prepares exactly once when checks are explicitly skipped", async () => {
-    const { run, calls } = await fixture();
-    await run(["--skip-checks"]);
-    expect((await calls()).filter((call) => call.command === "npm").map((call) => call.args[1])).toEqual(["build", "prepare:standalone"]);
-  });
-
-  it("stops before cleaning the previous release if a check fails", async () => {
+  it("stops before cleaning the previous release if the build fails", async () => {
     const { root, run, calls } = await fixture();
-    await expect(run([], "test:e2e")).rejects.toThrow();
+    await expect(run([], "build")).rejects.toThrow();
     expect(await readFile(path.join(root, "release", "previous.exe"), "utf8")).toBe("previous candidate");
     expect((await calls()).some((call) => call.command === "npx")).toBe(false);
   });

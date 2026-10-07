@@ -64,9 +64,3 @@ export function ManagerField({ fieldKey: key, manager, admin, appliedAdmin, pend
   const textKey = key as "extraArgs" | "wineBinary" | "winePrefix" | "wineLaunchFlags";
   return <label className={`manager-field ${changedClass}`}>{label}<input aria-label={text} value={manager[textKey]} onChange={(event) => onChange(textKey, event.target.value)} /></label>;
 }
-
-/** Export and unregister, shown in the registration section of the settings layout. */
-export function RegistrationActions({ pending, worldRunning, onExport, onUnregister }: { pending: boolean; worldRunning: boolean; onExport(): void; onUnregister(): void }) {
-  const { t } = useTranslation();
-  return <div className="registration-actions"><p>{t("properties.security")}</p><div className="management-actions"><button type="button" className="button ghost" disabled={pending} onClick={onExport}>{t("properties.export")}</button><button type="button" className="button danger" disabled={pending || worldRunning} onClick={onUnregister}>{t("properties.unregister")}</button></div></div>;
-}

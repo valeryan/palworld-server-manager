@@ -1,18 +1,19 @@
 import "server-only";
 import { assertSupportedTarget, assertLocalWindowsPath, hostCapabilities, hostPlatform } from "@/server/host";
 import path from "node:path";
-import { realpath } from "node:fs/promises";
-import { and, eq, ne } from "drizzle-orm";
+import { readdir, realpath, rm } from "node:fs/promises";
+import { and, eq, isNotNull, ne } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { ArgumentFormat, CreateWorldInput, ManagedWorldSettings, PortField, WorldPorts, WorldRegistration, WorldView } from "@/contracts/world";
 import { createWorldSchema, defaultWorldPorts, isWorldStopped, managedWorldSettingsSchema, pickManaged, PORT_FIELDS, worldRegistrationSchema } from "@/contracts/world";
 import { ConflictError, NotFoundError } from "@/server/errors";
 import { database } from "@/server/db";
-import { worlds, worldSettings } from "@/server/db/schema";
+import { backupSettings, worlds, worldSettings } from "@/server/db/schema";
 import { paths } from "@/server/paths";
 import { eventBus } from "./events";
 import { withReservationLock } from "./reservations";
 import { holdWorldLock } from "./locks";
+import { managesWinePrefix } from "./wine";
 
 type WorldRow = typeof worlds.$inferSelect;
 type Reservation = Pick<CreateWorldInput, "installDir" | PortField>;
@@ -163,13 +164,35 @@ export function exportWorldRegistration(world: WorldView): WorldRegistration {
   });
 }
 
-export async function unregisterWorld(id: string): Promise<void> {
+// Deleting a world's files is `rm -rf` on its install directory, so a wrong directory is
+// unrecoverable. Refuse anything that is not clearly one self-contained Palworld server folder.
+const INSTALL_MARKERS = ["PalServer.sh", "PalServer.exe", "Pal", "steamapps"];
+const containsPath = (parent: string, child: string) => { const relative = path.relative(parent, child); return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative)); };
+export async function assertDeletableInstall(world: WorldView): Promise<string> {
+  const target = await canonicalInstallDir(world.installDir);
+  if (target === path.parse(target).root) throw new ConflictError("Refusing to delete a drive or filesystem root.");
+  for (const { row, reserved } of await reservations(world.id)) for (const reservation of reserved) if (pathsOverlap(target, await canonicalInstallDir(reservation.installDir))) throw new ConflictError(`Refusing to delete files shared with ${row.displayName}.`);
+  if (pathsOverlap(target, await canonicalInstallDir(paths.data()))) throw new ConflictError("Refusing to delete manager-owned data.");
+  for (const { destinationDir } of await database().select({ destinationDir: backupSettings.destinationDir }).from(backupSettings).where(isNotNull(backupSettings.destinationDir))) if (destinationDir && pathsOverlap(target, await canonicalInstallDir(destinationDir))) throw new ConflictError("Refusing to delete a backup destination.");
+  if (containsPath(target, await canonicalInstallDir(process.getBuiltinModule("node:os").homedir()))) throw new ConflictError("Refusing to delete the home directory or a folder that contains it.");
+  const entries = await readdir(path.join(/* turbopackIgnore: true */ target)).catch((error: NodeJS.ErrnoException) => error.code === "ENOENT" ? null : Promise.reject(error));
+  if (entries && entries.length && !INSTALL_MARKERS.some((name) => entries.includes(name))) throw new ConflictError("This folder does not look like a Palworld server installation; delete it manually.");
+  return target;
+}
+
+/** Removes the registration; with `deleteFiles` the install directory and manager-owned Wine prefix go too. */
+export async function unregisterWorld(id: string, options: { deleteFiles?: boolean } = {}): Promise<void> {
   return holdWorldLock(id, () => withReservationLock(async () => {
     const world = await getWorld(id);
     if (!world) return;
     assertWorldStopped(world, "Stop the world before removing its registration.");
+    if (options.deleteFiles) {
+      const target = await assertDeletableInstall(world);
+      await rm(path.join(/* turbopackIgnore: true */ target), { recursive: true, force: true });
+      if (managesWinePrefix(world)) await rm(path.join(/* turbopackIgnore: true */ paths.winePrefix(world.id)), { recursive: true, force: true });
+    }
     await database().delete(worlds).where(and(eq(worlds.id, id), ne(worlds.status, "running")));
-    eventBus().publish({ type: "world", worldId: id, data: { action: "unregistered" } });
+    eventBus().publish({ type: "world", worldId: id, data: { action: "unregistered", filesDeleted: Boolean(options.deleteFiles) } });
   }));
 }
 

@@ -3,11 +3,12 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { desc, eq } from "drizzle-orm";
 import { database } from "@/server/db";
-import { deaths, events, sessions } from "@/server/db/schema";
+import { deaths, events, sessions, worldPlayers } from "@/server/db/schema";
 import { paths } from "@/server/paths";
 import { NotFoundError } from "@/server/errors";
 import { requireWorld } from "./worlds";
 import { palworldRest } from "./rest";
+import type { KnownPlayer } from "@/contracts/world";
 import { legacyModerationEvent, moderationEventMessage } from "@/lib/moderation-presentation";
 
 export async function worldActivity(worldId: string, requestedLimit = 25) {
@@ -26,6 +27,12 @@ export async function worldActivity(worldId: string, requestedLimit = 25) {
     return { ...event, message: moderationEventMessage(legacy.action, legacy.userId, nearest?.playerName) };
   });
   return { events: presentedEvents, sessions: sessionRows.slice(0, limit), deaths: deathRows.slice(0, limit), hasMore: { events: eventRows.length > limit, sessions: sessionRows.length > limit, deaths: deathRows.length > limit } };
+}
+
+/** Every player seen in the world, most recently seen first. */
+export async function knownPlayers(worldId: string): Promise<KnownPlayer[]> {
+  await requireWorld(worldId);
+  return database().select({ userId: worldPlayers.userId, playerName: worldPlayers.playerName, accountName: worldPlayers.accountName, firstSeenAt: worldPlayers.firstSeenAt, lastSeenAt: worldPlayers.lastSeenAt, joinCount: worldPlayers.joinCount, lastLeftAt: worldPlayers.lastLeftAt, bannedAt: worldPlayers.bannedAt }).from(worldPlayers).where(eq(worldPlayers.worldId, worldId)).orderBy(desc(worldPlayers.lastSeenAt)).limit(500);
 }
 
 export async function worldLogs(worldId: string, selected?: string) {

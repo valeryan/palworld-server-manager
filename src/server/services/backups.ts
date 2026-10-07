@@ -18,6 +18,9 @@ import { validateConfiguration } from "@/lib/palworld-ini";
 import { adoptRestoredConfiguration } from "./configuration";
 import { safeEntries } from "./archive";
 
+// Palworld keeps its own rolling backups (bIsUseBackupSaveData) under SaveGames/<user>/<world>/backup.
+// Archiving them again would nest backups inside backups, so manager archives leave them out.
+const PALWORLD_ROLLING_BACKUP = /^Saved\/SaveGames\/[^/]+\/[^/]+\/backup(?:\/|$)/;
 function saveDirectory(installDir: string): string { return path.join(/* turbopackIgnore: true */ installDir, "Pal", "Saved"); }
 
 export async function createBackup(worldId: string, reason: string, context: JobContext): Promise<string> {
@@ -30,7 +33,7 @@ export async function createBackup(worldId: string, reason: string, context: Job
   const directory = await validateDestination(worldId, settings.destinationDir) ?? paths.backups(worldId);
   await mkdir(directory, { recursive: true });
   const destination = path.join(/* turbopackIgnore: true */ directory, `${Date.now()}-${id}.zip`);
-  const zip = new AdmZip(); zip.addLocalFolder(source, "Saved"); zip.writeZip(destination);
+  const zip = new AdmZip(); zip.addLocalFolder(source, "Saved", (relative) => !PALWORLD_ROLLING_BACKUP.test(relative.split(path.sep).join("/"))); zip.writeZip(destination);
   await privateFile(destination);
   const verified = new AdmZip(destination).test();
   if (!verified) { await rm(destination, { force: true }); throw new Error("Backup verification failed."); }

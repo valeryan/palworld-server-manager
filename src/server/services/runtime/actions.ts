@@ -3,12 +3,12 @@ import type { schedules } from "@/server/db/schema";
 import { deliverNotice } from "@/server/mods/relays";
 import { createBackup } from "../backups";
 import { startJob, type JobContext } from "../jobs";
-import { restartWorld, startWorld, stopWorld } from "../lifecycle";
+import { restartWorld, stopWorld } from "../lifecycle";
 import { warnBeforeShutdown } from "../maintenance";
 import { palworldRest } from "../rest";
 import { parseCustomHttp } from "../schedules";
-import { installOrUpdate } from "../steamcmd";
-import { getWorld, requireWorld } from "../worlds";
+import { updateWorldWithRestart } from "../builds";
+import { getWorld } from "../worlds";
 import { log } from "./log";
 
 // What a schedule does once it is due: each action as an operation on the world's job queue.
@@ -55,17 +55,8 @@ export async function queueSchedule(schedule: ScheduleRow): Promise<boolean> {
       await safetyBackup(schedule, schedule.action === "idle_stop" ? "pre-idle-stop" : "pre-scheduled-stop", context);
       const waitSeconds = await warnBeforeShutdown(schedule.worldId, "stop", context.signal);
       await context.update(70, "Stopping server"); await stopWorld(schedule.worldId, false, { waitSeconds, message: "Scheduled shutdown." });
-    } else if (schedule.action === "update") {
-      const before = await requireWorld(schedule.worldId);
-      const wasRunning = before.status === "running";
-      if (wasRunning) { const waitSeconds = await warnBeforeShutdown(schedule.worldId, "update", context.signal); await stopWorld(schedule.worldId, false, { waitSeconds, message: "Scheduled update." }); }
-      await safetyBackup(schedule, "pre-scheduled-update", context);
-      let updateError: unknown;
-      try { await installOrUpdate((await getWorld(schedule.worldId))!, context); }
-      catch (error) { updateError = error; }
-      if (wasRunning) { await context.update(95, "Restoring prior running state"); await startWorld(schedule.worldId); }
-      if (updateError) throw updateError;
-    } else if (schedule.action === "system_message" || schedule.action === "onscreen_notice") {
+    } else if (schedule.action === "update") await updateWorldWithRestart(schedule.worldId, context, { backup: "pre-scheduled-update", message: "Scheduled update." });
+    else if (schedule.action === "system_message" || schedule.action === "onscreen_notice") {
       const fresh = await getWorld(schedule.worldId); if (!fresh || fresh.status !== "running") throw new Error("Server is not running.");
       if (schedule.action === "onscreen_notice") {
         const route = await deliverNotice(fresh, schedule.message ?? "");

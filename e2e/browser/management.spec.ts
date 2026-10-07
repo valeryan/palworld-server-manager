@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import path from "node:path";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { authenticate } from "./fixtures";
 
 const worldDirectory = path.join(process.cwd(), ".e2e-runtime", "world");
@@ -12,6 +12,12 @@ async function waitForLatestJob(page: Page, kind: string) {
     const job = payload.jobs.find((item) => item.kind === kind);
     return job ? `${job.state}:${job.error ?? ""}` : "missing";
   }, { timeout: 30_000 }).toBe("succeeded:");
+}
+
+/** Opens the Settings tab's cog menu and chooses an item by its accessible name. */
+async function settingsMenu(page: Page, name: string, role: "menuitem" | "menuitemradio" = "menuitem") {
+  await page.getByRole("button", { name: "Settings options", exact: true }).click();
+  await page.getByRole(role, { name, exact: true }).click();
 }
 
 test("adopts and manages an isolated world through critical browser workflows", async ({ page }) => {
@@ -61,20 +67,26 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await expect(daySpeedTooltip.locator("strong")).toHaveText("DayTimeSpeedRate");
   await expect(daySpeedTooltip).toContainText("Higher makes daytime pass faster and become shorter");
   await expect(page.locator(".setting-label > small")).toHaveCount(0);
-  await page.getByRole("button", { name: "Casual PvE", exact: true }).click();
+  await settingsMenu(page, "Casual PvE");
   await expect(page.getByText("Reviewing 4 staged changes")).toBeVisible();
   await expect(page.locator(".structured-field.changed")).toHaveCount(4);
+  await page.getByRole("button", { name: "Settings options", exact: true }).click();
+  for (const item of ["Export game settings (.zip)", "Import game settings (.zip)…", "Export world registration (.json)", "Remove from manager…", "Remove and delete server files…"]) await expect(page.getByRole("menuitem", { name: item, exact: true })).toBeVisible();
+  await expect(page.locator(".settings-mode, .settings-preset-actions, .settings-file-actions")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Settings options", exact: true })).toBeFocused();
   await page.getByRole("button", { name: "Discard", exact: true }).click();
-  await page.getByRole("button", { name: "Raw INI & history" }).click();
+  await settingsMenu(page, "Raw INI & history", "menuitemradio");
   const editor = page.locator(".settings-editor");
   await expect(editor).toContainText("E2E World");
   await editor.fill('[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(ServerName="Automated E2E",Difficulty=None,ExpRate=2.000000,ServerReplicatePawnCullDistance=NaN)\n');
   await page.getByRole("button", { name: "Save raw settings" }).click();
   await expect(page.getByText("Configuration saved; restart to apply changes")).toBeVisible();
   await expect(page.getByText("saved", { exact: true }).first()).toBeVisible();
-  await page.getByRole("button", { name: "Guided configuration", exact: true }).click();
+  await settingsMenu(page, "Guided configuration", "menuitemradio");
   await page.getByRole("tab", { name: "Server Admin", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Community Listing" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Registration & Removal" })).toHaveCount(0);
   await expect(page.locator(".service-block")).toHaveCount(2);
   const descriptionInput = page.getByLabel("Description", { exact: true });
   const descriptionLayout = descriptionInput.locator("xpath=ancestor::div[contains(@class,'structured-layout-item')][1]");
@@ -116,6 +128,7 @@ test("adopts and manages an isolated world through critical browser workflows", 
   }).toBe("15000.000000");
   await page.reload();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Search settings", exact: true }).click();
   await page.getByPlaceholder("Search settings or keys…").fill("DenyTechnologyList");
   const deniedTechnologies = page.getByLabel("Denied technologies", { exact: true });
   await deniedTechnologies.fill('(TechnologyA,"Technology B")');
@@ -180,7 +193,7 @@ test("adopts and manages an isolated world through critical browser workflows", 
     const payload = await response.json() as { configuration: { options: Record<string, string> } };
     return `${payload.configuration.options.AdminPassword}:${payload.configuration.options.ServerPassword}`;
   }).toBe('"":""');
-  await page.getByRole("button", { name: "Raw INI & history", exact: true }).click();
+  await settingsMenu(page, "Raw INI & history", "menuitemradio");
   const reconciledEditor = page.locator(".settings-editor");
   const beforeRawReconcile = await reconciledEditor.inputValue();
   const oldRestPort = beforeRawReconcile.match(/RESTAPIPort=(\d+)/)?.[1];
@@ -196,7 +209,7 @@ test("adopts and manages an isolated world through critical browser workflows", 
     const response = await page.request.get(`/api/worlds/${new URL(page.url()).pathname.split("/").at(-1)}`);
     return ((await response.json()) as { world: { restApiPort: number } }).world.restApiPort;
   }).toBe(Number(oldRestPort));
-  await page.getByRole("button", { name: "Guided configuration", exact: true }).click();
+  await settingsMenu(page, "Guided configuration", "menuitemradio");
   await page.getByRole("tab", { name: "Server Admin", exact: true }).click();
   await expect(page.locator(".port-summary")).toContainText("49611");
   await page.getByLabel("Game port", { exact: true }).fill("39621");
@@ -330,7 +343,7 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await expect(page.getByText("UE4SS for Linux 1.0.4-palworld-linux")).toBeVisible();
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
-  for (const setting of ["Close to system tray", "Launch at login", "Manager web port", "History and log retention", "Authenticated remote administration", "Language", "Manager data"]) {
+  for (const setting of ["Close to system tray", "Launch at login", "History and log retention", "Language", "Manager data"]) {
     await expect(page.getByRole("button", { name: `Help for ${setting}` })).toBeVisible();
   }
   await page.getByRole("button", { name: "Help for Completed operations" }).hover();
@@ -340,7 +353,7 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await expect(page.locator(".launch-option-grid small, .custom-launch-flags small, .retention-footer small, .language-control > small")).toHaveCount(0);
 });
 
-test("removes an incomplete world from the overview without deleting its files", async ({ page }) => {
+test("removes an incomplete world from the settings menu without deleting its files", async ({ page }) => {
   await authenticate(page);
   const installDir = path.join(process.cwd(), ".e2e-runtime", "removal-world");
   const created = await page.request.post("/api/worlds", { data: { displayName: "Incomplete removal fixture", installDir, platform: "linux", gamePort: 39771, queryPort: 39772, restApiPort: 39773, rconPort: 39774 } });
@@ -350,14 +363,58 @@ test("removes an incomplete world from the overview without deleting its files",
   const savedFile = path.join(installDir, "saved-fixture.txt");
   await writeFile(savedFile, "preserve this save");
   await page.goto(`/worlds/${world.id}`);
-  const remove = page.getByRole("button", { name: "Remove from manager", exact: true });
-  await expect(remove).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove from manager", exact: true })).toHaveCount(0);
+  await expect(page.locator(".overview-card")).toHaveCount(5);
+  await expect(page.locator(".overview-card").filter({ hasText: "Server health" })).toContainText("Not installed");
+  await expect(page.getByText("No operations have run for this world yet.")).toBeVisible();
+  await page.getByRole("button", { name: "Players", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Known players" })).toBeVisible();
+  await expect(page.getByText("No players have joined this world while the manager was watching.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Kick", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   page.once("dialog", (dialog) => dialog.dismiss());
-  await remove.click();
+  await settingsMenu(page, "Remove from manager…");
   expect((await page.request.get(`/api/worlds/${world.id}`)).ok()).toBe(true);
   page.once("dialog", async (dialog) => { expect(dialog.message()).toContain("Server files and saves will be kept"); await dialog.accept(); });
-  await remove.click();
+  await settingsMenu(page, "Remove from manager…");
   await expect(page).toHaveURL("/");
   expect((await page.request.get(`/api/worlds/${world.id}`)).status()).toBe(404);
   expect(await readFile(savedFile, "utf8")).toBe("preserve this save");
+});
+
+test("deletes a stopped world's server files only after its name is typed, and refuses unrecognized folders", async ({ page }) => {
+  await authenticate(page);
+  const refusedDir = path.join(process.cwd(), ".e2e-runtime", "refused-world");
+  const refused = await page.request.post("/api/worlds", { data: { displayName: "Refused fixture", installDir: refusedDir, platform: "linux", gamePort: 39791, queryPort: 39792, restApiPort: 39793, rconPort: 39794 } });
+  expect(refused.ok()).toBe(true);
+  await mkdir(refusedDir, { recursive: true }); await writeFile(path.join(refusedDir, "notes.txt"), "not a server");
+  await page.goto(`/worlds/${((await refused.json()) as { world: { id: string } }).world.id}`);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await settingsMenu(page, "Remove and delete server files…");
+  const refusedDialog = page.getByRole("dialog", { name: "Delete Refused fixture and its server files?" });
+  await expect(refusedDialog.getByRole("button", { name: "Delete files and remove" })).toBeDisabled();
+  await refusedDialog.getByLabel("Type Refused fixture to confirm").fill("Refused fixture");
+  await refusedDialog.getByRole("button", { name: "Delete files and remove" }).click();
+  await expect(refusedDialog.getByRole("alert")).toContainText("does not look like a Palworld server installation");
+  await refusedDialog.getByRole("button", { name: "Cancel" }).click();
+  expect(await readFile(path.join(refusedDir, "notes.txt"), "utf8")).toBe("not a server");
+
+  const installDir = path.join(process.cwd(), ".e2e-runtime", "deletion-world");
+  const created = await page.request.post("/api/worlds", { data: { displayName: "Deletion fixture", installDir, platform: "linux", gamePort: 39781, queryPort: 39782, restApiPort: 39783, rconPort: 39784 } });
+  expect(created.ok()).toBe(true);
+  const { world } = await created.json() as { world: { id: string } };
+  await mkdir(path.join(installDir, "Pal", "Saved"), { recursive: true });
+  await writeFile(path.join(installDir, "PalServer.sh"), "#!/bin/sh\n"); await writeFile(path.join(installDir, "Pal", "Saved", "save.txt"), "save");
+  await page.goto(`/worlds/${world.id}`);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await settingsMenu(page, "Remove and delete server files…");
+  const dialog = page.getByRole("dialog", { name: "Delete Deletion fixture and its server files?" });
+  await expect(dialog).toContainText(installDir);
+  await dialog.getByLabel("Type Deletion fixture to confirm").fill("Deletion");
+  await expect(dialog.getByRole("button", { name: "Delete files and remove" })).toBeDisabled();
+  await dialog.getByLabel("Type Deletion fixture to confirm").fill("Deletion fixture");
+  await dialog.getByRole("button", { name: "Delete files and remove" }).click();
+  await expect(page).toHaveURL("/");
+  expect((await page.request.get(`/api/worlds/${world.id}`)).status()).toBe(404);
+  await expect(access(installDir)).rejects.toThrow();
 });

@@ -5,7 +5,7 @@ import { copyFile, mkdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { drizzle } from "drizzle-orm/node-sqlite";
 import { migrate } from "drizzle-orm/node-sqlite/migrator";
-import { migrationDigest, releasedMigrations, verifyMigrationFiles } from "./migration-catalog";
+import { migrationDigest, releasedMigrations, verifyMigrationFiles, type MigrationCatalog } from "./migration-catalog";
 
 const { backup, DatabaseSync } = process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
 
@@ -18,6 +18,8 @@ export type PreflightOptions = {
   onProgress?: (stage: UpgradeStage) => void | Promise<void>;
   beforeMigrate?: () => void | Promise<void>;
   injectFailure?: "backup" | "migration" | "post-check";
+  /** Test-only: the catalog the bundled folder must match, instead of the released one. */
+  catalog?: MigrationCatalog;
 };
 export type PreflightResult = {
   result: "fresh" | "current" | "upgraded";
@@ -48,16 +50,22 @@ function integrity(client: DatabaseConnection): void {
   const foreign = client.prepare("PRAGMA foreign_key_check").all();
   if (foreign.length) throw new Error(`SQLite foreign-key check found ${foreign.length} violation(s).`);
 }
-function appliedMigrations(client: DatabaseConnection): AppliedMigration[] {
+function appliedMigrations(client: DatabaseConnection, catalog: MigrationCatalog): AppliedMigration[] {
   if (!tableExists(client, "__drizzle_migrations")) return [];
   const columns = new Set((client.prepare("PRAGMA table_info('__drizzle_migrations')").all() as Array<{ name: string }>).map((row) => row.name));
   const rows = client.prepare(`SELECT hash${columns.has("name") ? ", name" : ""} FROM __drizzle_migrations ORDER BY id`).all() as Array<{ hash: string; name?: string | null }>;
-  return rows.map((row, index) => ({ name: row.name ?? releasedMigrations.find((item) => item.hash === row.hash)?.name ?? `unknown-${index + 1}`, hash: row.hash }));
+  return rows.map((row, index) => ({ name: row.name ?? catalog.find((item) => item.hash === row.hash)?.name ?? `unknown-${index + 1}`, hash: row.hash }));
 }
-function validateApplied(applied: AppliedMigration[]): void {
-  if (applied.length > releasedMigrations.length) throw new Error("This database was created by a newer application and cannot be opened safely.");
+export const INCOMPATIBLE_DATABASE_MESSAGE = "This database was created by an earlier development build with an incompatible schema and cannot be upgraded. Quit the manager, delete registry-v3.sqlite and its -wal and -shm files from the data folder, and start again.";
+function validateApplied(applied: AppliedMigration[], catalog: MigrationCatalog): void {
+  // A history that extends ours belongs to a newer build; one with names we never shipped is an
+  // older development database whose schema was reset.
+  const extendsCatalog = catalog.every((expected, index) => applied[index]?.name === expected.name && applied[index]?.hash === expected.hash);
+  const known = new Set(catalog.map((item) => item.name));
+  if (!extendsCatalog && applied.some((row) => !known.has(row.name))) throw new Error(INCOMPATIBLE_DATABASE_MESSAGE);
+  if (applied.length > catalog.length) throw new Error("This database was created by a newer application and cannot be opened safely.");
   applied.forEach((row, index) => {
-    const expected = releasedMigrations[index];
+    const expected = catalog[index];
     if (!expected || row.hash !== expected.hash || row.name !== expected.name) throw new Error(`Database migration ${row.name} is not an ordered prefix of this application's migrations.`);
   });
 }
@@ -80,15 +88,16 @@ async function replaceDatabase(source: string, target: string): Promise<void> {
 export async function runDatabasePreflight(options: PreflightOptions): Promise<PreflightResult> {
   const resolved = { ...options, databasePath: path.resolve(/* turbopackIgnore: true */ options.databasePath), dataDirectory: path.resolve(/* turbopackIgnore: true */ options.dataDirectory), migrationsFolder: path.resolve(/* turbopackIgnore: true */ options.migrationsFolder) };
   await resolved.onProgress?.("preparing");
-  await mkdir(path.dirname(resolved.databasePath), { recursive: true, mode: 0o700 }); verifyMigrationFiles(resolved.migrationsFolder);
+  const catalog = options.catalog ?? releasedMigrations;
+  await mkdir(path.dirname(resolved.databasePath), { recursive: true, mode: 0o700 }); verifyMigrationFiles(resolved.migrationsFolder, catalog);
   const existed = (await stat(resolved.databasePath).catch(() => null))?.isFile() === true;
   const client = new DatabaseSync(resolved.databasePath, { timeout: 5_000 });
   let snapshot: string | null = null; let sourceSchemaHead: string | null = null; let pending = false;
   try {
     configure(client); await privateFile(resolved.databasePath);
-    integrity(client); const applied = appliedMigrations(client);
+    integrity(client); const applied = appliedMigrations(client, catalog);
     if (!applied.length && existed && applicationTables(client).length) throw new Error("The existing database has application tables but no recognized migration history.");
-    validateApplied(applied); sourceSchemaHead = applied.at(-1)?.name ?? null; pending = applied.length < releasedMigrations.length;
+    validateApplied(applied, catalog); sourceSchemaHead = applied.at(-1)?.name ?? null; pending = applied.length < catalog.length;
     if (pending && existed) {
       await resolved.onProgress?.("backing-up");
       if (options.injectFailure === "backup") throw new Error("Injected backup failure.");
@@ -99,10 +108,10 @@ export async function runDatabasePreflight(options: PreflightOptions): Promise<P
     await resolved.onProgress?.("migrating"); migrate(drizzle({ client }), { migrationsFolder: resolved.migrationsFolder });
     if (options.injectFailure === "post-check") throw new Error("Injected post-migration validation failure.");
     await resolved.onProgress?.("verifying"); integrity(client);
-    const finalApplied = appliedMigrations(client); validateApplied(finalApplied);
-    if (finalApplied.length !== releasedMigrations.length) throw new Error("Not all bundled migrations were applied.");
+    const finalApplied = appliedMigrations(client, catalog); validateApplied(finalApplied, catalog);
+    if (finalApplied.length !== catalog.length) throw new Error("Not all bundled migrations were applied.");
     markDatabasePrepared(resolved.databasePath);
-    return { result: !existed ? "fresh" : pending ? "upgraded" : "current", migrated: pending, schemaHead: finalApplied.at(-1)?.name ?? null, sourceSchemaHead, backupPath: snapshot, migrationDigest: migrationDigest() };
+    return { result: !existed ? "fresh" : pending ? "upgraded" : "current", migrated: pending, schemaHead: finalApplied.at(-1)?.name ?? null, sourceSchemaHead, backupPath: snapshot, migrationDigest: migrationDigest(catalog) };
   } catch (cause) {
     const detail = cause instanceof Error ? cause.message : String(cause); try { client.close(); } catch {}
     try {
