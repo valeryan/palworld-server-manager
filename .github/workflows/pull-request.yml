@@ -1,5 +1,10 @@
 name: Pull request checks
 
+# Ordinary pull requests get the source checks and the browser workflow. A release pull request
+# (head branch release/*, opened by Prepare release) gets the full Build release instead: every
+# check, the packaged artifacts, and the Windows runtime test, so a release is proven before it is
+# merged and Publish release can reuse the files it built.
+
 on:
   pull_request:
     branches:
@@ -15,6 +20,7 @@ concurrency:
 jobs:
   source:
     name: Source checks
+    if: ${{ !startsWith(github.head_ref, 'release/') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -47,6 +53,7 @@ jobs:
 
   browser:
     name: Browser workflow
+    if: ${{ !startsWith(github.head_ref, 'release/') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
@@ -64,6 +71,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Restore the Next.js build cache
+        uses: actions/cache@v6
+        with:
+          path: .next/cache
+          key: next-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**', 'next.config.ts', 'tsconfig.json') }}
+          restore-keys: next-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
+
+      - name: Restore Playwright's browser
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
       - name: Install Chromium
         run: npx playwright install --with-deps --only-shell chromium
 
@@ -80,3 +100,10 @@ jobs:
             test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  release-build:
+    name: Release build
+    if: ${{ startsWith(github.head_ref, 'release/') }}
+    uses: ./.github/workflows/build-release.yml
+    with:
+      ref: ${{ github.event.pull_request.head.sha }}

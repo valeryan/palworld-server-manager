@@ -1,9 +1,11 @@
 name: Build release
 
-# Checks and builds the release files for one ref: the Linux AppImage and the Windows Setup and
-# portable exes, then exercises the Windows exes on a Windows runner. Run it by hand on any branch
-# to get the files as workflow artifacts without publishing anything; Publish release calls it for
-# the commit it is about to tag. Nothing here touches main, tags, or releases.
+# Checks and builds the release files for one ref. Two jobs run side by side: `verify` runs the
+# checks and the browser and packaged-Electron workflows, `package` builds the Linux AppImage and
+# the Windows Setup and portable exes. The Windows exes are then exercised on Windows runners, one
+# per flavor. Run it by hand on any branch to get the files as workflow artifacts without
+# publishing; the pull request checks call it for release branches and Publish release reuses
+# what they built. Nothing here touches main, tags, or releases.
 
 on:
   workflow_dispatch:
@@ -22,10 +24,10 @@ on:
     outputs:
       version:
         description: "Version in package.json at the built ref"
-        value: ${{ jobs.build.outputs.version }}
+        value: ${{ jobs.package.outputs.version }}
       artifact:
         description: "Name of the workflow artifact holding the release files"
-        value: ${{ jobs.build.outputs.artifact }}
+        value: ${{ jobs.package.outputs.artifact }}
 
 concurrency:
   group: build-release-${{ inputs.ref || github.ref }}
@@ -34,10 +36,87 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  REF: ${{ inputs.ref || github.sha }}
+
 jobs:
-  build:
-    name: Check and build the release files
+  verify:
+    name: Checks and workflows
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the ref
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.REF }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Restore the Next.js build cache
+        uses: actions/cache@v6
+        with:
+          path: .next/cache
+          key: next-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**', 'next.config.ts', 'tsconfig.json') }}
+          restore-keys: next-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
+
+      - name: Restore Playwright's browser
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Restore electron-builder's downloads
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install browser dependencies
+        run: npx playwright install --with-deps --only-shell chromium
+
+      # Cheapest checks first, so a failure shows within a minute or two.
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check import cycles
+        run: npm run check:cycles
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Build and prepare an unpacked app for the workflows
+        run: npm run pack
+
+      - name: Run browser and packaged-Electron workflows
+        run: xvfb-run -a npx playwright test
+
+      - name: Upload workflow diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: workflow-diagnostics-${{ github.run_id }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  package:
+    name: Build the release files
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     outputs:
       version: ${{ steps.version.outputs.version }}
       artifact: ${{ steps.version.outputs.artifact }}
@@ -45,7 +124,7 @@ jobs:
       - name: Check out the ref
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ env.REF }}
 
       - name: Read the version
         id: version
@@ -65,8 +144,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install browser dependencies
-        run: npx playwright install --with-deps --only-shell chromium
+      - name: Restore the Next.js build cache
+        uses: actions/cache@v6
+        with:
+          path: .next/cache
+          key: next-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**', 'next.config.ts', 'tsconfig.json') }}
+          restore-keys: next-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
+
+      - name: Restore electron-builder's downloads
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       # The Windows installer is cross-built here; electron-builder runs it under Wine to
       # extract the uninstaller. The NSIS stub is 32-bit, so 32-bit Wine is needed too. On
@@ -77,27 +168,7 @@ jobs:
           sudo dpkg --add-architecture i386
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends wine wine64 wine32:i386
-          wine --version|
-          sudo dpkg --add-architecture i386
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends wine64 wine32:i386
-
-      # Every check runs before anything is packaged. The release script itself only builds,
-      # so the same steps stay separate commands locally.
-      - name: Type-check
-        run: npm run typecheck
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Check import cycles
-        run: npm run check:cycles
-
-      - name: Run unit tests
-        run: npm test
-
-      - name: Run browser and packaged-Electron workflows
-        run: xvfb-run -a npm run test:e2e
+          wine --version
 
       - name: Build
         run: npm run release
@@ -115,20 +186,24 @@ jobs:
           retention-days: 14
 
   windows-runtime:
-    name: Test Linux-built Windows executables
-    needs: build
+    name: Test the Windows ${{ matrix.flavor }} exe
+    needs: package
     runs-on: windows-2025
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [Portable, Setup]
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ env.REF }}
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
       - uses: actions/download-artifact@v8
         with:
-          name: ${{ needs.build.outputs.artifact }}
+          name: ${{ needs.package.outputs.artifact }}
           path: release
       - name: Install artifact harness only
         shell: pwsh
@@ -136,12 +211,12 @@ jobs:
           New-Item -ItemType Directory -Force .artifact-harness | Out-Null
           Copy-Item e2e/windows/artifacts.mjs .artifact-harness/windows.mjs
           npm install --prefix .artifact-harness --no-audit --no-fund playwright@1.63.0
-      - name: Exercise Setup and Portable
-        run: node .artifact-harness/windows.mjs release windows-artifact-results
+      - name: Exercise the ${{ matrix.flavor }} exe
+        run: node .artifact-harness/windows.mjs release windows-artifact-results ${{ matrix.flavor }}
       - name: Preserve native runtime evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: windows-runtime-${{ needs.build.outputs.version }}
+          name: windows-runtime-${{ needs.package.outputs.version }}-${{ matrix.flavor }}
           path: windows-artifact-results/
           if-no-files-found: warn
