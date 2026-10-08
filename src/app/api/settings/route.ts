@@ -4,10 +4,9 @@ import { paths } from "@/server/paths";
 import { getTheme, saveTheme } from "@/server/services/appearance";
 import { getRetentionSettings, saveRetentionSettings } from "@/server/services/retention";
 import { getUpdateChannel, saveUpdateChannel, updateChecksDisabled } from "@/server/services/update-channel";
-import packageJson from "../../../../package.json";
 
 export const GET = route(async () => {
-  const [theme, retention, updateChannel] = await Promise.all([getTheme(), getRetentionSettings(), getUpdateChannel(process.env.PSM_APP_VERSION || packageJson.version)]);
+  const [theme, retention, updateChannel] = await Promise.all([getTheme(), getRetentionSettings(), getUpdateChannel()]);
   return { settings: { dataDirectory: paths.data(), database: paths.database(), steamCmd: paths.steamCmd(), logs: paths.logs(), retention, theme, updateChannel, updateChecksDisabled: updateChecksDisabled() ?? null } };
 });
 

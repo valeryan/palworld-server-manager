@@ -26,6 +26,17 @@ export async function startServer() {
   server.on("error", (error) => { serverFailure = error.message; log(`Web server error: ${error.message}`); }); server.on("exit", (code) => { if (!quitState.quitting) serverFailure = `The bundled web server exited during startup (${code ?? "unknown status"}). The manager port ${port} may already be in use.`; log(`Web server exited: ${code}`); });
 }
 
+/** True once the bundled server has exited or failed, waiting up to `timeoutMs` for an exit that is still being reported. */
+export function serverGone(timeoutMs: number): Promise<boolean> {
+  const child = server;
+  if (!child || !serverHealthy()) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(!serverHealthy()), timeoutMs);
+    const done = () => { clearTimeout(timer); resolve(true); };
+    child.once("exit", done); child.once("error", done);
+  });
+}
+
 export async function stopServer(): Promise<void> {
   const child = server; if (!child) return; server = null;
   if (child.exitCode !== null || child.signalCode) return;

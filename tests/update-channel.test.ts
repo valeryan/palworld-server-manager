@@ -7,11 +7,11 @@ afterAll(() => { delete process.env.PSM_ADMIN_TOKEN; delete process.env.PSM_PACK
 describe("update channel setting", () => {
   it("defaults from the installed version, saves a choice, and refuses anything else", async () => {
     const { getUpdateChannel, saveUpdateChannel } = await import("@/server/services/update-channel");
-    expect(await getUpdateChannel("1.0.0-alpha.2")).toBe("stable");
-    expect(await getUpdateChannel("1.0.0")).toBe("stable");
+    expect(await getUpdateChannel()).toBe("stable");
+    expect(await getUpdateChannel()).toBe("stable");
     await expect(saveUpdateChannel("beta")).rejects.toThrow("invalid");
     expect(await saveUpdateChannel("stable")).toBe("stable");
-    expect(await getUpdateChannel("1.0.0-alpha.2")).toBe("stable");
+    expect(await getUpdateChannel()).toBe("stable");
   });
 
   it("is read and changed through the settings API, and only packaged runs check for updates", async () => {

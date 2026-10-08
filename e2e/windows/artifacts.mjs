@@ -36,22 +36,37 @@ for (const flavor of flavors) {
   if (flavor === "Setup") execFileSync(artifact, ["/S", `/D=${install}`], { timeout: 120_000 });
   const executable = flavor === "Portable" ? artifact : path.join(install, "Palworld Server Manager.exe");
   const profile = path.join(directory, flavor === "Portable" ? "PSM-Data" : "profile");
-  const webPort = port++; const debugPort = port++;
+  const webPort = port++; let debugPort;
   let child; let browser; let page;
   async function launch() {
+    // A new debugging port per launch: the detached game server inherits the previous desktop
+    // instance's listening socket and keeps that port half-open after the desktop has exited.
+    debugPort = port++;
     const env = { ...process.env, PSM_PORT: String(webPort) }; delete env.ELECTRON_RUN_AS_NODE;
     child = spawn(executable, [`--user-data-dir=${profile}`, `--remote-debugging-port=${debugPort}`, "--remote-debugging-address=127.0.0.1"], { env, windowsHide: false, stdio: "ignore" });
     browser = await until(() => chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`));
-    page = await until(async () => {
-      const pages = browser.contexts().flatMap((context) => context.pages());
-      for (const candidate of pages) {
-        if (candidate.url().startsWith("data:")) {
-          const confirm = candidate.getByRole("button", { name: /^(Upgrade|Continue)$/ });
-          if (await confirm.count()) await confirm.first().click();
+    try {
+      page = await until(async () => {
+        const pages = browser.contexts().flatMap((context) => context.pages());
+        for (const candidate of pages) {
+          if (candidate.url().startsWith("data:")) {
+            const confirm = candidate.getByRole("button", { name: /^(Upgrade|Continue)$/ });
+            if (await confirm.count()) await confirm.first().click();
+          }
         }
+        return pages.find((candidate) => candidate.url().startsWith(`http://127.0.0.1:${webPort}`));
+      });
+    } catch (error) {
+      // Record what the desktop was showing instead of the application, then fail.
+      const pages = browser.contexts().flatMap((context) => context.pages());
+      const seen = [];
+      for (const [index, candidate] of pages.entries()) {
+        seen.push(`${candidate.url()} | ${await candidate.title().catch(() => "?")}`);
+        await candidate.screenshot({ path: path.join(output, `${flavor}-launch-page-${index}.png`) }).catch(() => {});
       }
-      return pages.find((candidate) => candidate.url().startsWith(`http://127.0.0.1:${webPort}`));
-    });
+      await writeFile(path.join(output, `${flavor}-launch-pages.txt`), seen.join("\n") || "(no pages)");
+      throw new Error(`No window at http://127.0.0.1:${webPort}; open pages: ${seen.join("; ") || "none"} (${error instanceof Error ? error.message : error})`);
+    }
     await page.waitForLoadState("domcontentloaded");
     await until(() => page.evaluate(() => Boolean(window.psmDesktop)));
   }
@@ -75,7 +90,11 @@ for (const flavor of flavors) {
   async function quit() {
     await page.evaluate(() => window.psmDesktop.setCloseToTray(false)); await page.close();
     await until(async () => { try { await fetch(`http://127.0.0.1:${webPort}/api/host`); return false; } catch { return true; } });
-    await browser.close(); await delay(1_000);
+    await browser.close();
+    // Wait for the desktop process itself, not only its web server: until it exits it still owns
+    // the remote-debugging port, and the next launch would attach to the dying instance.
+    await until(() => child.exitCode !== null, 180_000);
+    await delay(500);
   }
   try {
     // Seed the baseline schema with WAL-backed data; the preflight inside the EXE must open it as current.
@@ -114,32 +133,24 @@ for (const flavor of flavors) {
     await quit(); await launch();
     assert.equal((await api(`/api/worlds/${id}`)).body.world.displayName, "Recoverable native world");
     // Compile only a small fixture executable; application development remains Linux-based.
+    // The manager starts PalServer-Win64-Shipping-Cmd.exe directly and hands it the server log as
+    // its stdout, exactly as it does for the real console server binary, so the fixture is the
+    // server: it records whether a console window is visible and which arguments arrived, prints
+    // its start line to stdout, and heartbeats until it is killed.
     const fixture = path.join(directory, "Fixture server"); await mkdir(path.join(fixture, "Pal", "Binaries", "Win64"), { recursive: true });
     const cs = path.join(directory, "Fixture.cs");
     await writeFile(cs, String.raw`
 using System;
 using System.IO;
 using System.Threading;
-using System.Diagnostics;
-using System.Collections.Generic;
 using System.Runtime.InteropServices;
 class Fixture {
   [DllImport("kernel32.dll")] static extern IntPtr GetConsoleWindow();
   [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr window);
   static void Main(string[] args) {
-    if (Path.GetFileName(Environment.GetCommandLineArgs()[0]) == "PalServer.exe") throw new Exception("Native launch must preserve handles by starting the shipping server directly.");
-    bool child = Array.IndexOf(args, "--child") >= 0;
-    File.WriteAllText(child ? "child-console.txt" : "launcher-console.txt", IsWindowVisible(GetConsoleWindow()).ToString());
-    if (!child) {
-      var forwarded = new List<string>();
-      foreach (var arg in args) forwarded.Add("\"" + arg.Replace("\"", "\\\"") + "\"");
-      forwarded.Add("--child");
-      Process.Start(new ProcessStartInfo {
-        FileName = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PalServer-Win64-Shipping.exe"),
-        Arguments = String.Join(" ", forwarded.ToArray()), UseShellExecute = false, CreateNoWindow = true
-      });
-      return;
-    }
+    var self = Path.GetFileName(Environment.GetCommandLineArgs()[0]);
+    if (self != "PalServer-Win64-Shipping-Cmd.exe") throw new Exception("The manager must start the shipped console server binary directly, not " + self + ".");
+    File.WriteAllText("console.txt", IsWindowVisible(GetConsoleWindow()).ToString());
     File.WriteAllLines("argv.txt", args);
     Console.WriteLine("Fixture shipping server started"); Console.Out.Flush();
     while (true) {
@@ -165,7 +176,7 @@ class Fixture {
     assert.ok(backups.length); await job(api(`/api/worlds/${fixtureId}/actions`, { action: "restore", backupId: backups[0].id }));
     assert.equal(await readFile(path.join(configDir, "PalWorldSettings.ini"), "utf8"), ini);
     await job(api(`/api/worlds/${fixtureId}/actions`, { action: "start" }));
-    for (const name of ["launcher-console.txt", "child-console.txt"]) assert.equal(await until(() => readFile(path.join(fixture, name), "utf8")), "False", `${name}: no separate console window may be visible`);
+    assert.equal(await until(() => readFile(path.join(fixture, "console.txt"), "utf8")), "False", "No console window may be visible for the server");
     await until(async () => (await api(`/api/worlds/${fixtureId}/logs`)).body.logs.content.includes("Fixture shipping server started"));
     const argv = (await readFile(path.join(fixture, "argv.txt"), "utf8")).split(/\r?\n/).slice(0, -1);
     assert.ok(argv.includes("-Log=C:\\Server Logs\\fixture.log")); assert.ok(argv.includes(""), "An explicit empty argument must reach the native child");

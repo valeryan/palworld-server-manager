@@ -8,7 +8,7 @@ import { bindPort, host, port } from "./binding";
 import { dataDir, isDev, launcherLogPath, log, profileSetupError, quitState, startHidden } from "./environment";
 import { registerIpcHandlers } from "./ipc";
 import { preferences, writePreferences } from "./preferences";
-import { runtimeRequest, serverHealthy, serverStarted, startServer, stopServer, waitForServer } from "./server-process";
+import { runtimeRequest, serverGone, serverHealthy, serverStarted, startServer, stopServer, waitForServer } from "./server-process";
 import { activatePackagedVersion, preflightOptions } from "./upgrade";
 import { destroyUpgradeWindow, focusUpgradeWindow, showUpgradeCompletion, showUpgradeProgress, upgradeWindowOpen } from "./upgrade-ui";
 import { createTray, createWindow, destroyTray, mainWindow, trayAvailable } from "./window";
@@ -40,7 +40,12 @@ async function drainAndQuit(): Promise<void> {
       while (true) { const state = await runtimeRequest("drain", "POST"); if (state.active === 0) break; await new Promise((resolve) => setTimeout(resolve, 500)); }
     }
     await stopServer(); quitState.quitDrained = true; app.quit();
-  } catch (error) { quitState.drainingQuit = false; quitState.quitting = false; log(`Quit delayed: ${String(error)}`); await dialog.showMessageBox({ type: "error", message: "The manager could not finish shutting down safely.", detail: `${String(error)}\nInspect Operations and retry Quit. Running servers have not been stopped.` }); }
+  } catch (error) {
+    // A drain request fails when the web server has already died (its exit may still be being
+    // reported); there is nothing left to drain, so quit instead of showing the dialog meant for a
+    // live server that refuses to finish.
+    if (await serverGone(2_000)) { log(`Quitting after the web server exited: ${String(error)}`); await stopServer().catch(() => undefined); quitState.quitDrained = true; app.quit(); return; }
+    quitState.drainingQuit = false; quitState.quitting = false; log(`Quit delayed: ${String(error)}`); await dialog.showMessageBox({ type: "error", message: "The manager could not finish shutting down safely.", detail: `${String(error)}\nInspect Operations and retry Quit. Running servers have not been stopped.` }); }
 }
 
 async function reportStartupFailure(error: unknown): Promise<void> {
