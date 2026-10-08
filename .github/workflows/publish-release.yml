@@ -86,7 +86,7 @@ jobs:
         if: steps.check.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          ARTIFACT: release-${{ steps.check.outputs.version }}
+          PREFIX: release-${{ steps.check.outputs.version }}
         run: |
           set -euo pipefail
           tree="$(git rev-parse "$GITHUB_SHA^{tree}")"
@@ -97,10 +97,10 @@ jobs:
             if [[ "$(git rev-parse "$head^{tree}")" != "$tree" ]]; then echo "Pull request #$number ($head) built a different tree."; continue; fi
             run="$(gh run list --workflow pull-request.yml --commit "$head" --status success --json databaseId --jq '.[0].databaseId // ""')"
             [[ -n "$run" ]] || { echo "Pull request #$number has no successful checks run for $head."; continue; }
-            id="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" --jq ".artifacts[] | select(.name == \"$ARTIFACT\" and .expired == false) | .id" | head -n 1)"
-            [[ -n "$id" ]] || { echo "Run $run has no $ARTIFACT artifact."; continue; }
+            found="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" --jq "[.artifacts[] | select((.name == \"$PREFIX-linux\" or .name == \"$PREFIX-windows\") and .expired == false) | .name] | unique | length")"
+            [[ "$found" == "2" ]] || { echo "Run $run does not hold both $PREFIX-linux and $PREFIX-windows."; continue; }
             reuse="$run"
-            echo "Reusing $ARTIFACT from run $run: pull request #$number built this exact tree."
+            echo "Reusing $PREFIX-linux and $PREFIX-windows from run $run: pull request #$number built this exact tree."
             break
           done < <(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '.[] | select(.merged_at != null) | "\(.number) \(.head.sha)"')
           [[ -n "$reuse" ]] || echo "No reusable build; Build release runs now."
@@ -131,11 +131,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Both platform artifacts land in their own folder; each carries its SHA256SUMS.txt.
       - name: Download the files built on the pull request
         if: needs.check.outputs.reuse-run != ''
         uses: actions/download-artifact@v8
         with:
-          name: release-${{ needs.check.outputs.version }}
+          pattern: release-${{ needs.check.outputs.version }}-*
           path: release
           run-id: ${{ needs.check.outputs.reuse-run }}
           github-token: ${{ github.token }}
@@ -144,7 +145,7 @@ jobs:
         if: needs.check.outputs.reuse-run == ''
         uses: actions/download-artifact@v8
         with:
-          name: release-${{ needs.check.outputs.version }}
+          pattern: release-${{ needs.check.outputs.version }}-*
           path: release
 
       # Each step below can run again: a re-run finishes a release that stopped partway.
@@ -199,7 +200,7 @@ jobs:
       - name: Upload the release files
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "v$VERSION" release/*.AppImage release/*.exe --clobber
+        run: gh release upload "v$VERSION" release/*/*.AppImage release/*/*.exe --clobber
 
       - name: Remove the release branch
         run: git push origin --delete "release/v$VERSION" 2>/dev/null || echo "No release/v$VERSION branch to delete."
@@ -215,5 +216,5 @@ jobs:
             echo
             if [[ -n "$REUSED" ]]; then echo "Files reused from pull request run $REUSED."; else echo "Files built in this run."; fi
             echo
-            sed 's/^/    /' release/SHA256SUMS.txt
+            cat release/*/SHA256SUMS.txt | sed 's/^/    /'
           } >> "$GITHUB_STEP_SUMMARY"

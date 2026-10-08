@@ -126,7 +126,8 @@
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "Palworld-Server-Manager-${version}-Setup-${arch}.${ext}"
+      "artifactName": "Palworld-Server-Manager-${version}-Setup-${arch}.${ext}",
+      "differentialPackage": false
     },
     "portable": {
       "artifactName": "Palworld-Server-Manager-${version}-Portable-${arch}.${ext}"

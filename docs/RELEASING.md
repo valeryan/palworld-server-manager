@@ -30,11 +30,11 @@ The Windows builds are unsigned and labelled test builds in the release notes un
 
 ## Building without publishing
 
-**Build release** (Actions → Build release → Run workflow, on any branch, optionally naming a ref) runs the checks and the browser and Electron workflows in one job while a second job builds the three release files, then exercises the Setup and portable exes on two Windows runners, and keeps the files as workflow artifacts for 14 days. It never tags or publishes anything.
+**Build release** (Actions → Build release → Run workflow, on any branch, optionally naming a ref) runs three jobs at once: the checks with the browser and Electron workflows, the Linux AppImage, and the Windows Setup and portable exes (packaging is compression-bound, so each platform gets its own runner). It then exercises the Setup and portable exes on two Windows runners and keeps the files as the `release-<version>-linux` and `release-<version>-windows` workflow artifacts for 14 days. It never tags or publishes anything.
 
 ## Local builds
 
-`npm run release` empties `release/` and builds all three artifacts with `SHA256SUMS.txt`, the same as the workflow. `npm run dist` builds them without emptying `release/` or writing the sums; `dist:linux` and `dist:windows` build one platform. On Linux the Windows builds are cross-built through Wine; the release script gives Wine a throwaway prefix with no display and no desktop integration.
+`npm run release` empties `release/` and builds all three artifacts with `SHA256SUMS.txt`; `node scripts/release.mjs --linux` or `--windows` builds one platform the way the workflow jobs do. `npm run dist` builds them without emptying `release/` or writing the sums; `dist:linux` and `dist:windows` build one platform. On Linux the Windows builds are cross-built through Wine; the release script gives Wine a throwaway prefix with no display and no desktop integration.
 
 The release builds and prepares the application once, then packages that output; `typecheck`, `lint`, `test`, and `test:e2e` are separate commands to run when you want them. Standalone `pack`, `dist`, and test commands remain usable independently.
 

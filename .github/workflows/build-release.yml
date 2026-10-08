@@ -1,9 +1,10 @@
 name: Build release
 
-# Checks and builds the release files for one ref. Two jobs run side by side: `verify` runs the
-# checks and the browser and packaged-Electron workflows, `package` builds the Linux AppImage and
-# the Windows Setup and portable exes. The Windows exes are then exercised on Windows runners, one
-# per flavor. Run it by hand on any branch to get the files as workflow artifacts without
+# Checks and builds the release files for one ref. Three jobs run side by side: `verify` runs the
+# checks and the browser and packaged-Electron workflows, `package-linux` builds the AppImage, and
+# `package-windows` builds the Setup and portable exes. Packaging is compression-bound, so the two
+# platforms get their own runners. The Windows exes are then exercised on Windows runners, one per
+# flavor. Artifacts are `release-<version>-linux` and `release-<version>-windows`. Run it by hand on any branch to get the files as workflow artifacts without
 # publishing; the pull request checks call it for release branches and Publish release reuses
 # what they built. Nothing here touches main, tags, or releases.
 
@@ -23,11 +24,8 @@ on:
         type: string
     outputs:
       version:
-        description: "Version in package.json at the built ref"
-        value: ${{ jobs.package.outputs.version }}
-      artifact:
-        description: "Name of the workflow artifact holding the release files"
-        value: ${{ jobs.package.outputs.artifact }}
+        description: "Version in package.json at the built ref; the artifacts are release-<version>-linux and release-<version>-windows"
+        value: ${{ jobs.package-linux.outputs.version }}
 
 concurrency:
   group: build-release-${{ inputs.ref || github.ref }}
@@ -113,13 +111,12 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  package:
-    name: Build the release files
+  package-linux:
+    name: Build the Linux AppImage
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
       version: ${{ steps.version.outputs.version }}
-      artifact: ${{ steps.version.outputs.artifact }}
     steps:
       - name: Check out the ref
         uses: actions/checkout@v7
@@ -133,7 +130,63 @@ jobs:
           version="$(node -p "require('./package.json').version")"
           echo "Building $version from $(git rev-parse --short HEAD)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "artifact=release-$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Restore the Next.js build cache
+        uses: actions/cache@v6
+        with:
+          path: .next/cache
+          key: next-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**', 'next.config.ts', 'tsconfig.json') }}
+          restore-keys: next-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
+
+      - name: Restore electron-builder's downloads
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Build
+        run: node scripts/release.mjs --linux
+
+      - name: Keep the release files
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ steps.version.outputs.version }}-linux
+          path: |
+            release/*.AppImage
+            release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  package-windows:
+    name: Build the Windows exes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check out the ref
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.REF }}
+
+      - name: Read the version
+        id: version
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          echo "Building $version from $(git rev-parse --short HEAD)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -171,14 +224,13 @@ jobs:
           wine --version
 
       - name: Build
-        run: npm run release
+        run: node scripts/release.mjs --windows
 
       - name: Keep the release files
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ steps.version.outputs.artifact }}
+          name: release-${{ steps.version.outputs.version }}-windows
           path: |
-            release/*.AppImage
             release/*-Setup-*.exe
             release/*-Portable-*.exe
             release/SHA256SUMS.txt
@@ -187,7 +239,7 @@ jobs:
 
   windows-runtime:
     name: Test the Windows ${{ matrix.flavor }} exe
-    needs: package
+    needs: package-windows
     runs-on: windows-2025
     timeout-minutes: 30
     strategy:
@@ -203,7 +255,7 @@ jobs:
           node-version-file: .nvmrc
       - uses: actions/download-artifact@v8
         with:
-          name: ${{ needs.package.outputs.artifact }}
+          name: release-${{ needs.package-windows.outputs.version }}-windows
           path: release
       - name: Install artifact harness only
         shell: pwsh
@@ -217,6 +269,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: windows-runtime-${{ needs.package.outputs.version }}-${{ matrix.flavor }}
+          name: windows-runtime-${{ needs.package-windows.outputs.version }}-${{ matrix.flavor }}
           path: windows-artifact-results/
           if-no-files-found: warn
