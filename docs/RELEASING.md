@@ -16,7 +16,7 @@ A release is a pull request to `main` that bumps the version, opened by a workfl
    | patch / minor / major | off | the next patch / minor / major (`1.0.0` → `1.0.1` / `1.1.0` / `2.0.0`) | `patch` releases the prerelease in flight as stable (`1.0.0-pre.3` → `1.0.0`) |
    | patch / minor / major | on | a new prerelease series at that level, starting at `.1` (`0.0.0` + major → `1.0.0-pre.1`) | counts the series in flight up (`1.0.0-pre.1` → `1.0.0-pre.2`) unless a higher level is chosen, which starts a new series (`1.0.1-pre.1` + minor → `1.1.0-pre.1`) |
 
-   The version must be newer than `package.json` and every existing release tag, and only one release pull request may be open at a time. The pull request checks do not start on their own for this bot-opened pull request (GitHub does not run workflows for events caused by the workflow token); close and reopen it to run them, or run **Build release** on its branch.
+   The version must be newer than `package.json` and every existing release tag, and only one release pull request may be open at a time. GitHub holds the checks on a pull request opened by the Actions bot until someone with write access clicks **Approve and run workflows**. Publish release repeats every check before tagging, so a release pull request can be merged without approving them. To have the checks run on their own, add a repository secret `RELEASE_PR_TOKEN` holding a fine-grained personal access token for this repository with **Contents** and **Pull requests** read and write; Prepare release then opens the pull request as you.
 
 2. **Review and merge** the pull request. Nothing is tagged or published until it is merged.
 
