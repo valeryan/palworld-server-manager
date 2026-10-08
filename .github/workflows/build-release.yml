@@ -69,9 +69,15 @@ jobs:
         run: npx playwright install --with-deps --only-shell chromium
 
       # The Windows installer is cross-built here; electron-builder runs it under Wine to
-      # extract the uninstaller. The NSIS stub is 32-bit, so 32-bit Wine is needed too.
+      # extract the uninstaller. The NSIS stub is 32-bit, so 32-bit Wine is needed too. On
+      # Ubuntu 24.04 the `wine` command itself comes from the `wine` package (wine64 only ships
+      # /usr/lib/wine/wine64), and it is not pulled in without recommends, so it is named here.
       - name: Install Wine
         run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends wine wine64 wine32:i386
+          wine --version|
           sudo dpkg --add-architecture i386
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends wine64 wine32:i386
