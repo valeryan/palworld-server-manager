@@ -5,7 +5,10 @@ name: Prepare release
 # on a release/v<version> branch, and opens a pull request to main. Merging that pull request is
 # the release: Publish release builds the merge commit, tags it, and creates the GitHub release.
 # Needs the repository setting "Allow GitHub Actions to create and approve pull requests"
-# (Settings → Actions → General → Workflow permissions).
+# (Settings → Actions → General → Workflow permissions). GitHub holds workflow runs on pull
+# requests opened by the Actions bot until someone approves them; a RELEASE_PR_TOKEN secret
+# (fine-grained PAT for this repository, Contents and Pull requests read/write) opens the pull
+# request as its owner instead, so the checks run on their own.
 
 on:
   workflow_dispatch:
@@ -108,7 +111,7 @@ jobs:
 
       - name: Open the pull request
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN || github.token }}
           VERSION: ${{ steps.version.outputs.version }}
           IS_PRERELEASE: ${{ steps.version.outputs.prerelease }}
           PREVIOUS: ${{ steps.version.outputs.previous-tag }}
@@ -122,7 +125,7 @@ jobs:
 
           Merging this pull request is the release. **Publish release** builds the merge commit, runs every check, tags it \`v$VERSION\`, and creates the GitHub release with GitHub's generated notes, the Linux AppImage, and the Windows Setup and portable exes.
 
-          The pull request checks do not start on their own for this bot-opened pull request. Close and reopen it to run them, or run **Build release** on \`release/v$VERSION\` to build and test the files first.
+          If this pull request was opened by the Actions bot, GitHub holds its checks until **Approve and run workflows** is clicked; with a \`RELEASE_PR_TOKEN\` secret it is opened by its owner and they run on their own. **Publish release** runs every check again before anything is tagged.
 
           Prepared by @$ACTOR.
           BODY
