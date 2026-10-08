@@ -3,8 +3,10 @@ name: Publish release
 # Publishes the version on main when it has not been released yet. Runs on every push to main
 # that changes package.json (a merged release pull request) and can be run by hand to finish a
 # release that failed partway. When the version in package.json already has a tag, or is the
-# 0.0.0 placeholder, nothing happens. Otherwise it builds that commit with Build release, tags it,
-# creates the GitHub release with GitHub's generated notes, and uploads the release files.
+# 0.0.0 placeholder, nothing happens. Otherwise it tags that commit, creates the GitHub release
+# with GitHub's generated notes, and uploads the release files. The files come from the Build
+# release that the pull request checks ran on the release branch whenever the merged tree is
+# identical to that branch; only when something else landed in between is the build repeated.
 
 on:
   push:
@@ -23,12 +25,17 @@ jobs:
   check:
     name: Decide whether to publish
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
     outputs:
       publish: ${{ steps.check.outputs.publish }}
       version: ${{ steps.check.outputs.version }}
       sha: ${{ github.sha }}
       prerelease: ${{ steps.check.outputs.prerelease }}
       previous-tag: ${{ steps.check.outputs.previous-tag }}
+      reuse-run: ${{ steps.reuse.outputs.reuse-run }}
     steps:
       - name: Require main
         if: github.ref != 'refs/heads/main'
@@ -72,10 +79,37 @@ jobs:
           echo "publish=true" >> "$GITHUB_OUTPUT"
           echo "Publishing v$version from ${{ github.sha }}"
 
+      # The pull request checks ran Build release on the release branch. When the merge produced
+      # exactly that tree, those files are the release; otherwise the build runs again below.
+      - name: Look for the files built on the merged pull request
+        id: reuse
+        if: steps.check.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREFIX: release-${{ steps.check.outputs.version }}
+        run: |
+          set -euo pipefail
+          tree="$(git rev-parse "$GITHUB_SHA^{tree}")"
+          reuse=""
+          while read -r number head; do
+            [[ -n "$number" ]] || continue
+            git fetch -q origin "refs/pull/$number/head" || { echo "Could not fetch pull request #$number."; continue; }
+            if [[ "$(git rev-parse "$head^{tree}")" != "$tree" ]]; then echo "Pull request #$number ($head) built a different tree."; continue; fi
+            run="$(gh run list --workflow pull-request.yml --commit "$head" --status success --json databaseId --jq '.[0].databaseId // ""')"
+            [[ -n "$run" ]] || { echo "Pull request #$number has no successful checks run for $head."; continue; }
+            found="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" --jq "[.artifacts[] | select((.name == \"$PREFIX-linux\" or .name == \"$PREFIX-windows\") and .expired == false) | .name] | unique | length")"
+            [[ "$found" == "2" ]] || { echo "Run $run does not hold both $PREFIX-linux and $PREFIX-windows."; continue; }
+            reuse="$run"
+            echo "Reusing $PREFIX-linux and $PREFIX-windows from run $run: pull request #$number built this exact tree."
+            break
+          done < <(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '.[] | select(.merged_at != null) | "\(.number) \(.head.sha)"')
+          [[ -n "$reuse" ]] || echo "No reusable build; Build release runs now."
+          echo "reuse-run=$reuse" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build
     needs: check
-    if: needs.check.outputs.publish == 'true'
+    if: needs.check.outputs.publish == 'true' && needs.check.outputs.reuse-run == ''
     uses: ./.github/workflows/build-release.yml
     with:
       ref: ${{ needs.check.outputs.sha }}
@@ -83,10 +117,11 @@ jobs:
   publish:
     name: Publish the release
     needs: [check, build]
-    if: needs.check.outputs.publish == 'true'
+    if: ${{ !cancelled() && needs.check.outputs.publish == 'true' && (needs.build.result == 'success' || (needs.build.result == 'skipped' && needs.check.outputs.reuse-run != '')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     env:
       VERSION: ${{ needs.check.outputs.version }}
       SHA: ${{ needs.check.outputs.sha }}
@@ -96,10 +131,21 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download the release files
+      # Both platform artifacts land in their own folder; each carries its SHA256SUMS.txt.
+      - name: Download the files built on the pull request
+        if: needs.check.outputs.reuse-run != ''
         uses: actions/download-artifact@v8
         with:
-          name: ${{ needs.build.outputs.artifact }}
+          pattern: release-${{ needs.check.outputs.version }}-*
+          path: release
+          run-id: ${{ needs.check.outputs.reuse-run }}
+          github-token: ${{ github.token }}
+
+      - name: Download the files built in this run
+        if: needs.check.outputs.reuse-run == ''
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-${{ needs.check.outputs.version }}-*
           path: release
 
       # Each step below can run again: a re-run finishes a release that stopped partway.
@@ -154,7 +200,7 @@ jobs:
       - name: Upload the release files
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "v$VERSION" release/*.AppImage release/*.exe --clobber
+        run: gh release upload "v$VERSION" release/*/*.AppImage release/*/*.exe --clobber
 
       - name: Remove the release branch
         run: git push origin --delete "release/v$VERSION" 2>/dev/null || echo "No release/v$VERSION branch to delete."
@@ -162,10 +208,13 @@ jobs:
       - name: Summarize
         env:
           URL: ${{ steps.release.outputs.url }}
+          REUSED: ${{ needs.check.outputs.reuse-run }}
         run: |
           {
             echo "### Release v$VERSION"
             echo "[$URL]($URL)"
             echo
-            sed 's/^/    /' release/SHA256SUMS.txt
+            if [[ -n "$REUSED" ]]; then echo "Files reused from pull request run $REUSED."; else echo "Files built in this run."; fi
+            echo
+            cat release/*/SHA256SUMS.txt | sed 's/^/    /'
           } >> "$GITHUB_STEP_SUMMARY"

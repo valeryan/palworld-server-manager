@@ -11,6 +11,9 @@ import { chromium } from "playwright";
 if (process.platform !== "win32") throw new Error("Run this harness on a Windows artifact runner.");
 const release = path.resolve(process.argv[2] || "release");
 const output = path.resolve(process.argv[3] || "windows-artifact-results");
+// An optional third argument limits the run to one flavor so the two can run on separate runners.
+const flavors = ["Portable", "Setup"].filter((name) => !process.argv[4] || name === process.argv[4]);
+if (!flavors.length) throw new Error(`Unknown flavor "${process.argv[4]}"; use Portable or Setup.`);
 await mkdir(output, { recursive: true });
 const root = await mkdtemp(path.join(os.tmpdir(), "PSM artifact Ω "));
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -21,7 +24,7 @@ async function until(action, timeout = 90_000) {
 }
 const results = [];
 let port = 45380;
-for (const flavor of ["Portable", "Setup"]) {
+for (const flavor of flavors) {
   const filename = (await readdir(release)).find((name) => name.includes(`-${flavor}-`) && name.endsWith(".exe"));
   assert.ok(filename, `${flavor} release EXE is missing`);
   const directory = path.join(root, flavor); await mkdir(directory);

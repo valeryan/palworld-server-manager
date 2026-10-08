@@ -1,0 +1,3 @@
+# Every text file is checked out with LF endings on every platform. The migration catalog
+# hashes drizzle/*/migration.sql byte for byte, so a CRLF checkout on Windows would change it.
+* text=auto eol=lf
