@@ -5,5 +5,5 @@ import { getUpdateChannel, updateChecksDisabled } from "@/server/services/update
 
 export const GET = route(async () => {
   const version = process.env.PSM_APP_VERSION || packageJson.version;
-  return { status: await applicationUpdateStatus(version, { channel: await getUpdateChannel(version), disabled: updateChecksDisabled() }) };
+  return { status: await applicationUpdateStatus(version, { channel: await getUpdateChannel(), disabled: updateChecksDisabled() }) };
 });

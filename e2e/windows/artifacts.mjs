@@ -36,9 +36,12 @@ for (const flavor of flavors) {
   if (flavor === "Setup") execFileSync(artifact, ["/S", `/D=${install}`], { timeout: 120_000 });
   const executable = flavor === "Portable" ? artifact : path.join(install, "Palworld Server Manager.exe");
   const profile = path.join(directory, flavor === "Portable" ? "PSM-Data" : "profile");
-  const webPort = port++; const debugPort = port++;
+  const webPort = port++; let debugPort;
   let child; let browser; let page;
   async function launch() {
+    // A new debugging port per launch: the detached game server inherits the previous desktop
+    // instance's listening socket and keeps that port half-open after the desktop has exited.
+    debugPort = port++;
     const env = { ...process.env, PSM_PORT: String(webPort) }; delete env.ELECTRON_RUN_AS_NODE;
     child = spawn(executable, [`--user-data-dir=${profile}`, `--remote-debugging-port=${debugPort}`, "--remote-debugging-address=127.0.0.1"], { env, windowsHide: false, stdio: "ignore" });
     browser = await until(() => chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`));
@@ -90,7 +93,7 @@ for (const flavor of flavors) {
     await browser.close();
     // Wait for the desktop process itself, not only its web server: until it exits it still owns
     // the remote-debugging port, and the next launch would attach to the dying instance.
-    await until(() => child.exitCode !== null, 60_000);
+    await until(() => child.exitCode !== null, 180_000);
     await delay(500);
   }
   try {

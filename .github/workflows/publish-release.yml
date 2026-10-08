@@ -23,7 +23,7 @@ jobs:
   check:
     name: Decide whether to publish
     if: ${{ github.event.pull_request.merged && startsWith(github.event.pull_request.head.ref, 'release/') }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       actions: read
@@ -112,7 +112,7 @@ jobs:
     name: Publish the release
     needs: [check, build]
     if: ${{ !cancelled() && needs.check.outputs.publish == 'true' && (needs.build.result == 'success' || (needs.build.result == 'skipped' && needs.check.outputs.reuse-run != '')) }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     permissions:
       contents: write
       actions: read
