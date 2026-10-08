@@ -20,7 +20,7 @@ on:
         description: "Publish a prerelease (1.0.1-pre.1; run again for pre.2) instead of a stable version. Off from a prerelease: patch releases it as stable"
         required: true
         type: boolean
-        default: true
+        default: false
 
 run-name: Prepare ${{ inputs.release }}${{ inputs.prerelease && ' prerelease' || '' }}
 
