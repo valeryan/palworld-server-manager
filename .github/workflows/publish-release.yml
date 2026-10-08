@@ -1,0 +1,171 @@
+name: Publish release
+
+# Publishes the version on main when it has not been released yet. Runs on every push to main
+# that changes package.json (a merged release pull request) and can be run by hand to finish a
+# release that failed partway. When the version in package.json already has a tag, or is the
+# 0.0.0 placeholder, nothing happens. Otherwise it builds that commit with Build release, tags it,
+# creates the GitHub release with GitHub's generated notes, and uploads the release files.
+
+on:
+  push:
+    branches: [main]
+    paths: [package.json]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Decide whether to publish
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.check.outputs.publish }}
+      version: ${{ steps.check.outputs.version }}
+      sha: ${{ github.sha }}
+      prerelease: ${{ steps.check.outputs.prerelease }}
+      previous-tag: ${{ steps.check.outputs.previous-tag }}
+    steps:
+      - name: Require main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Releases are published from main; this ran on ${{ github.ref }}."
+          exit 1
+
+      - name: Check out the commit with full history
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check the version against the release tags
+        id: check
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$version" == "0.0.0" ]]; then
+            echo "package.json is at the 0.0.0 placeholder; nothing to publish."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git rev-parse -q --verify "refs/tags/v$version^{commit}" >/dev/null; then
+            echo "v$version is already released; nothing to publish."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mapfile -t tags < <(git tag -l 'v*')
+          npx tsx scripts/release/prepare.ts check "$version" - "${tags[@]}" >> "$GITHUB_OUTPUT"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+          echo "Publishing v$version from ${{ github.sha }}"
+
+  build:
+    name: Build
+    needs: check
+    if: needs.check.outputs.publish == 'true'
+    uses: ./.github/workflows/build-release.yml
+    with:
+      ref: ${{ needs.check.outputs.sha }}
+
+  publish:
+    name: Publish the release
+    needs: [check, build]
+    if: needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      SHA: ${{ needs.check.outputs.sha }}
+    steps:
+      - name: Check out with full history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download the release files
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: release
+
+      # Each step below can run again: a re-run finishes a release that stopped partway.
+      - name: Resolve and push the tag
+        run: |
+          set -euo pipefail
+          tag="v$VERSION"
+          existing="$(git rev-parse -q --verify "refs/tags/${tag}^{commit}" || true)"
+          if [[ -n "$existing" && "$existing" != "$SHA" ]]; then
+            echo "::error::Tag $tag already points to $existing instead of $SHA."
+            exit 1
+          fi
+          if [[ -z "$existing" ]]; then
+            git tag "$tag" "$SHA"
+            git push origin "$tag"
+          else
+            echo "Tag already identifies the release commit: $tag"
+          fi
+
+      - name: Create or reuse the GitHub release
+        id: release
+        uses: actions/github-script@v9
+        env:
+          PRERELEASE: ${{ needs.check.outputs.prerelease }}
+          PREVIOUS: ${{ needs.check.outputs.previous-tag }}
+        with:
+          script: |
+            const tag = `v${process.env.VERSION}`;
+            const prerelease = process.env.PRERELEASE === "true";
+            let release;
+            try {
+              release = (await github.rest.repos.getReleaseByTag({ owner: context.repo.owner, repo: context.repo.repo, tag })).data;
+              core.info(`Reusing ${release.html_url}`);
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              const notes = await github.rest.repos.generateReleaseNotes({
+                owner: context.repo.owner, repo: context.repo.repo, tag_name: tag,
+                ...(process.env.PREVIOUS ? { previous_tag_name: process.env.PREVIOUS } : {}),
+              });
+              const windows = "> **Windows (Setup and Portable):** test builds, not yet validated on Windows. The Linux AppImage is the supported artifact. The portable exe keeps its data in a PSM-Data folder beside it and is updated by downloading a new release.";
+              release = (await github.rest.repos.createRelease({
+                owner: context.repo.owner, repo: context.repo.repo, tag_name: tag, name: tag,
+                prerelease, make_latest: prerelease ? "false" : "true",
+                body: `${windows}\n\n${notes.data.body}\n\nRelease created by @${context.actor}`,
+              })).data;
+              core.info(`Created ${release.html_url}`);
+            }
+            core.setOutput("url", release.html_url);
+
+      # The release holds the AppImage and the two Windows exes; GitHub adds the source archives
+      # and shows each file's SHA-256, so SHA256SUMS.txt stays in the artifact and run summary.
+      - name: Upload the release files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "v$VERSION" release/*.AppImage release/*.exe --clobber
+
+      - name: Remove the release branch
+        run: git push origin --delete "release/v$VERSION" 2>/dev/null || echo "No release/v$VERSION branch to delete."
+
+      - name: Summarize
+        env:
+          URL: ${{ steps.release.outputs.url }}
+        run: |
+          {
+            echo "### Release v$VERSION"
+            echo "[$URL]($URL)"
+            echo
+            sed 's/^/    /' release/SHA256SUMS.txt
+          } >> "$GITHUB_STEP_SUMMARY"

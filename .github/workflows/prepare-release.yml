@@ -1,0 +1,135 @@
+name: Prepare release
+
+# Opens the pull request that releases the next version. Run it by hand on main: it picks the
+# version with `npm version` from the two inputs, writes it to package.json and package-lock.json
+# on a release/v<version> branch, and opens a pull request to main. Merging that pull request is
+# the release: Publish release builds the merge commit, tags it, and creates the GitHub release.
+# Needs the repository setting "Allow GitHub Actions to create and approve pull requests"
+# (Settings → Actions → General → Workflow permissions).
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "What to release"
+        required: true
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      prerelease:
+        description: "Publish a prerelease (1.0.1-pre.1; run again for pre.2) instead of a stable version. Off from a prerelease: patch releases it as stable"
+        required: true
+        type: boolean
+        default: true
+
+run-name: Prepare ${{ inputs.release }}${{ inputs.prerelease && ' prerelease' || '' }}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  PREID: pre
+  RELEASE: ${{ inputs.release }}
+  PRERELEASE: ${{ inputs.prerelease }}
+
+jobs:
+  prepare:
+    name: Open the release pull request
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Releases are prepared from main; this ran on ${{ github.ref }}."
+          exit 1
+
+      - name: Check out main with full history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `npm version` writes package.json and package-lock.json; the keywords come from the two
+      # inputs (see scripts/release/prepare.ts). A new prerelease series starts at .1.
+      - name: Compute and check the version
+        id: version
+        run: |
+          set -euo pipefail
+          current="$(node -p "require('./package.json').version")"
+          for keyword in $(npx tsx scripts/release/prepare.ts keywords "$current" "$RELEASE" "$PRERELEASE"); do
+            version="$(npm version "$keyword" --preid "$PREID" --no-git-tag-version)"
+          done
+          version="${version#v}"
+          echo "Releasing $version (from $current)"
+          mapfile -t tags < <(git tag -l 'v*')
+          npx tsx scripts/release/prepare.ts check "$version" "$current" "${tags[@]}" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Require no release in flight
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --heads origin "release/v$VERSION" >/dev/null; then
+            echo "::error::Branch release/v$VERSION already exists. Merge, close, or delete that release first."
+            exit 1
+          fi
+          open="$(gh pr list --state open --limit 100 --json number,headRefName --jq '.[] | select(.headRefName | startswith("release/")) | "#\(.number) \(.headRefName)"')"
+          if [[ -n "$open" ]]; then
+            echo "::error::A release pull request is already open: $open. Merge or close it first."
+            exit 1
+          fi
+
+      - name: Push the release branch
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "release/v$VERSION"
+          git add package.json package-lock.json
+          git commit -m "Release v$VERSION"
+          git push origin "release/v$VERSION"
+
+      - name: Open the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          IS_PRERELEASE: ${{ steps.version.outputs.prerelease }}
+          PREVIOUS: ${{ steps.version.outputs.previous-tag }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          kind="stable release"; if [[ "$IS_PRERELEASE" == "true" ]]; then kind="prerelease"; fi
+          since="the first release"; if [[ -n "$PREVIOUS" ]]; then since="everything merged since $PREVIOUS"; fi
+          cat > pr-body.md <<BODY
+          Releases **v$VERSION** as a $kind: $since.
+
+          Merging this pull request is the release. **Publish release** builds the merge commit, runs every check, tags it \`v$VERSION\`, and creates the GitHub release with GitHub's generated notes, the Linux AppImage, and the Windows Setup and portable exes.
+
+          The pull request checks do not start on their own for this bot-opened pull request. Close and reopen it to run them, or run **Build release** on \`release/v$VERSION\` to build and test the files first.
+
+          Prepared by @$ACTOR.
+          BODY
+          url="$(gh pr create --base main --head "release/v$VERSION" --title "Release v$VERSION" --body-file pr-body.md)"
+          {
+            echo "### Release v$VERSION"
+            echo "[$url]($url)"
+            echo
+            echo "Merge it to publish."
+          } >> "$GITHUB_STEP_SUMMARY"

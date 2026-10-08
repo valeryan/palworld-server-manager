@@ -1,41 +1,53 @@
-import { readFileSync, writeFileSync } from "node:fs";
 import { compareSemanticVersions, isPrerelease, parseSemanticVersion } from "../../src/lib/semver";
 
-// Release rules the Generate release workflow checks before it changes anything.
-export function checkReleaseVersion(input: { version: string; prerelease: boolean; current: string; tags: string[] }): { tag: string; previousTag: string | null } {
-  const { version, prerelease, current, tags } = input;
-  if (version.startsWith("v") || !parseSemanticVersion(version)) throw new Error(`"${version}" is not a version like 1.0.0 or 1.0.0-alpha.3 (no leading v).`);
-  if (isPrerelease(version) && !prerelease) throw new Error(`${version} has a prerelease label, so it must be released as a prerelease.`);
+export type ReleaseLevel = "patch" | "minor" | "major";
+const levels: ReleaseLevel[] = ["patch", "minor", "major"];
+
+// The `npm version` keywords, run in order, that take `current` to the requested release.
+// With prerelease on, a series already in flight at the chosen level or higher counts up
+// (pre.1 → pre.2); otherwise a new series starts and the second keyword moves npm's `.0` to `.1`.
+export function releaseKeywords(current: string, level: ReleaseLevel, prerelease: boolean): string[] {
+  const parsed = parseSemanticVersion(current);
+  if (!parsed) throw new Error(`"${current}" is not a semantic version.`);
+  if (!levels.includes(level)) throw new Error(`"${level}" is not patch, minor, or major.`);
+  if (!prerelease) return [level];
+  if (parsed.prerelease.length) {
+    // Only pre<level> bumps produce prerelease bases, so the base's shape names the series' level.
+    const inFlight: ReleaseLevel = parsed.patch > 0 ? "patch" : parsed.minor > 0 ? "minor" : "major";
+    if (levels.indexOf(level) <= levels.indexOf(inFlight)) return ["prerelease"];
+  }
+  return [`pre${level}`, "prerelease"];
+}
+
+// Release rules checked before anything is pushed or published. `current` is the version being
+// replaced (omitted when checking what is already on main against the release tags).
+export function checkReleaseVersion(input: { version: string; current?: string; tags: string[] }): { tag: string; previousTag: string | null; prerelease: boolean } {
+  const { version, current, tags } = input;
+  if (version.startsWith("v") || !parseSemanticVersion(version)) throw new Error(`"${version}" is not a version like 1.0.0 or 1.0.0-pre.1 (no leading v).`);
   const tag = `v${version}`;
   if (tags.includes(tag)) throw new Error(`Tag ${tag} already exists.`);
-  if ((compareSemanticVersions(version, current) ?? 0) <= 0) throw new Error(`${version} is not newer than the current version ${current}.`);
+  if (current !== undefined && (compareSemanticVersions(version, current) ?? 0) <= 0) throw new Error(`${version} is not newer than the current version ${current}.`);
   const released = tags.filter((name) => /^v/.test(name) && parseSemanticVersion(name.slice(1))).sort((a, b) => compareSemanticVersions(b.slice(1), a.slice(1)) ?? 0);
   const newer = released.find((name) => (compareSemanticVersions(name.slice(1), version) ?? 0) >= 0);
   if (newer) throw new Error(`${version} is not newer than the released ${newer}.`);
-  return { tag, previousTag: released[0] ?? null };
+  // A prerelease's notes cover what changed since the previous tag of any kind; a stable release's
+  // notes cover everything since the previous stable release, its prereleases included.
+  const prerelease = isPrerelease(version);
+  const previousTag = (prerelease ? released : released.filter((name) => !isPrerelease(name.slice(1))))[0] ?? null;
+  return { tag, previousTag, prerelease };
 }
 
-// Adds the release to the top of CHANGELOG.md, below its title. GitHub's generated notes use
-// "##" headings, which are moved one level down to sit under the release heading.
-export function addChangelogEntry(changelog: string, version: string, date: string, notes: string): string {
-  const body = notes.trim().replace(/^(#{2,5}) /gm, "#$1 ");
-  const entry = `## ${version} — ${date}\n\n${body}\n\n`;
-  const firstRelease = changelog.search(/^## /m);
-  return firstRelease < 0 ? `${changelog.trimEnd()}\n\n${entry}` : `${changelog.slice(0, firstRelease)}${entry}${changelog.slice(firstRelease)}`;
-}
-
-// CLI used by the workflow:
-//   tsx scripts/release/prepare.ts check <version> <prerelease> <tags…>   → prints previous tag
-//   tsx scripts/release/prepare.ts changelog <version> <date> <notes-file>
+// CLI used by the release workflows:
+//   tsx scripts/release/prepare.ts keywords <current> <patch|minor|major> <true|false>  → npm version keywords, space-separated
+//   tsx scripts/release/prepare.ts check <version> <current|-> <tags…>                 → previous-tag=… and prerelease=… for $GITHUB_OUTPUT
 if (process.argv[1]?.endsWith("prepare.ts")) {
   const [command, ...args] = process.argv.slice(2);
-  if (command === "check") {
-    const [version, prerelease, ...tags] = args;
-    const current = JSON.parse(readFileSync("package.json", "utf8")).version as string;
-    const result = checkReleaseVersion({ version: version ?? "", prerelease: prerelease === "true", current, tags });
-    console.log(result.previousTag ?? "");
-  } else if (command === "changelog") {
-    const [version, date, notesFile] = args;
-    writeFileSync("CHANGELOG.md", addChangelogEntry(readFileSync("CHANGELOG.md", "utf8"), version!, date!, readFileSync(notesFile!, "utf8")));
-  } else throw new Error(`Unknown command "${command}"; use check or changelog.`);
+  if (command === "keywords") {
+    const [current, level, prerelease] = args;
+    console.log(releaseKeywords(current ?? "", level as ReleaseLevel, prerelease === "true").join(" "));
+  } else if (command === "check") {
+    const [version, current, ...tags] = args;
+    const result = checkReleaseVersion({ version: version ?? "", current: current === "-" ? undefined : current ?? "", tags });
+    console.log(`previous-tag=${result.previousTag ?? ""}\nprerelease=${result.prerelease}`);
+  } else throw new Error(`Unknown command "${command}"; use keywords or check.`);
 }

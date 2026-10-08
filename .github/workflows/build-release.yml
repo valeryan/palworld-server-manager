@@ -1,0 +1,141 @@
+name: Build release
+
+# Checks and builds the release files for one ref: the Linux AppImage and the Windows Setup and
+# portable exes, then exercises the Windows exes on a Windows runner. Run it by hand on any branch
+# to get the files as workflow artifacts without publishing anything; Publish release calls it for
+# the commit it is about to tag. Nothing here touches main, tags, or releases.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag, or commit to build (empty = the branch you run it on)"
+        required: false
+        type: string
+        default: ""
+  workflow_call:
+    inputs:
+      ref:
+        description: "Commit to build"
+        required: true
+        type: string
+    outputs:
+      version:
+        description: "Version in package.json at the built ref"
+        value: ${{ jobs.build.outputs.version }}
+      artifact:
+        description: "Name of the workflow artifact holding the release files"
+        value: ${{ jobs.build.outputs.artifact }}
+
+concurrency:
+  group: build-release-${{ inputs.ref || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Check and build the release files
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      artifact: ${{ steps.version.outputs.artifact }}
+    steps:
+      - name: Check out the ref
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Read the version
+        id: version
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          echo "Building $version from $(git rev-parse --short HEAD)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "artifact=release-$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install browser dependencies
+        run: npx playwright install --with-deps --only-shell chromium
+
+      # The Windows installer is cross-built here; electron-builder runs it under Wine to
+      # extract the uninstaller. The NSIS stub is 32-bit, so 32-bit Wine is needed too.
+      - name: Install Wine
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends wine64 wine32:i386
+
+      # Every check runs before anything is packaged. The release script itself only builds,
+      # so the same steps stay separate commands locally.
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check import cycles
+        run: npm run check:cycles
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Run browser and packaged-Electron workflows
+        run: xvfb-run -a npm run test:e2e
+
+      - name: Build
+        run: npm run release
+
+      - name: Keep the release files
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.version.outputs.artifact }}
+          path: |
+            release/*.AppImage
+            release/*-Setup-*.exe
+            release/*-Portable-*.exe
+            release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  windows-runtime:
+    name: Test Linux-built Windows executables
+    needs: build
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: release
+      - name: Install artifact harness only
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force .artifact-harness | Out-Null
+          Copy-Item e2e/windows/artifacts.mjs .artifact-harness/windows.mjs
+          npm install --prefix .artifact-harness --no-audit --no-fund playwright@1.63.0
+      - name: Exercise Setup and Portable
+        run: node .artifact-harness/windows.mjs release windows-artifact-results
+      - name: Preserve native runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-runtime-${{ needs.build.outputs.version }}
+          path: windows-artifact-results/
+          if-no-files-found: warn
