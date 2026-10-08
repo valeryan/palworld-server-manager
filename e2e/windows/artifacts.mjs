@@ -42,16 +42,28 @@ for (const flavor of flavors) {
     const env = { ...process.env, PSM_PORT: String(webPort) }; delete env.ELECTRON_RUN_AS_NODE;
     child = spawn(executable, [`--user-data-dir=${profile}`, `--remote-debugging-port=${debugPort}`, "--remote-debugging-address=127.0.0.1"], { env, windowsHide: false, stdio: "ignore" });
     browser = await until(() => chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`));
-    page = await until(async () => {
-      const pages = browser.contexts().flatMap((context) => context.pages());
-      for (const candidate of pages) {
-        if (candidate.url().startsWith("data:")) {
-          const confirm = candidate.getByRole("button", { name: /^(Upgrade|Continue)$/ });
-          if (await confirm.count()) await confirm.first().click();
+    try {
+      page = await until(async () => {
+        const pages = browser.contexts().flatMap((context) => context.pages());
+        for (const candidate of pages) {
+          if (candidate.url().startsWith("data:")) {
+            const confirm = candidate.getByRole("button", { name: /^(Upgrade|Continue)$/ });
+            if (await confirm.count()) await confirm.first().click();
+          }
         }
+        return pages.find((candidate) => candidate.url().startsWith(`http://127.0.0.1:${webPort}`));
+      });
+    } catch (error) {
+      // Record what the desktop was showing instead of the application, then fail.
+      const pages = browser.contexts().flatMap((context) => context.pages());
+      const seen = [];
+      for (const [index, candidate] of pages.entries()) {
+        seen.push(`${candidate.url()} | ${await candidate.title().catch(() => "?")}`);
+        await candidate.screenshot({ path: path.join(output, `${flavor}-launch-page-${index}.png`) }).catch(() => {});
       }
-      return pages.find((candidate) => candidate.url().startsWith(`http://127.0.0.1:${webPort}`));
-    });
+      await writeFile(path.join(output, `${flavor}-launch-pages.txt`), seen.join("\n") || "(no pages)");
+      throw new Error(`No window at http://127.0.0.1:${webPort}; open pages: ${seen.join("; ") || "none"} (${error instanceof Error ? error.message : error})`);
+    }
     await page.waitForLoadState("domcontentloaded");
     await until(() => page.evaluate(() => Boolean(window.psmDesktop)));
   }
@@ -75,7 +87,11 @@ for (const flavor of flavors) {
   async function quit() {
     await page.evaluate(() => window.psmDesktop.setCloseToTray(false)); await page.close();
     await until(async () => { try { await fetch(`http://127.0.0.1:${webPort}/api/host`); return false; } catch { return true; } });
-    await browser.close(); await delay(1_000);
+    await browser.close();
+    // Wait for the desktop process itself, not only its web server: until it exits it still owns
+    // the remote-debugging port, and the next launch would attach to the dying instance.
+    await until(() => child.exitCode !== null, 60_000);
+    await delay(500);
   }
   try {
     // Seed the baseline schema with WAL-backed data; the preflight inside the EXE must open it as current.

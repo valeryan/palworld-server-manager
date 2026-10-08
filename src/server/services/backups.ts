@@ -44,6 +44,19 @@ export async function createBackup(worldId: string, reason: string, context: Job
   return id;
 }
 
+// Windows refuses to rename a directory while an antivirus scan or the indexer still holds a file
+// inside it. The hold lasts a moment, so retry briefly before giving up.
+async function renameRetrying(from: string, to: string): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try { await rename(from, to); return; }
+    catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (!["EPERM", "EACCES", "EBUSY"].includes(code ?? "") || attempt >= 50) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+}
+
 export async function restoreBackup(worldId: string, backupId: string, context: JobContext): Promise<void> {
   const world = await requireWorld(worldId);
   assertWorldStopped(world, "Stop the server before restoring a backup.");
@@ -68,10 +81,10 @@ export async function restoreBackup(worldId: string, backupId: string, context: 
   await writeFile(journal, JSON.stringify({ worldId, saved, staging, displaced }), { flag: "wx", mode: 0o600 });
   try {
     await adoptRestoredConfiguration(worldId, restoredConfiguration, async () => {
-      await rename(saved, displaced);
-      try { await rename(extracted, saved); }
-      catch (cause) { await rename(displaced, saved); throw cause; }
-      return async () => { await rm(saved, { recursive: true, force: true }); await rename(displaced, saved); };
+      await renameRetrying(saved, displaced);
+      try { await renameRetrying(extracted, saved); }
+      catch (cause) { await renameRetrying(displaced, saved); throw cause; }
+      return async () => { await rm(saved, { recursive: true, force: true }); await renameRetrying(displaced, saved); };
     });
     await rm(journal);
   } catch (error) {
@@ -164,8 +177,8 @@ export async function recoverInterruptedRestores(): Promise<void> {
     const expected = saveDirectory(world.installDir);
     if (record.saved !== expected || !record.displaced.startsWith(`${expected}.before-`) || path.dirname(record.displaced) !== path.dirname(expected)) throw new Error("Invalid restore recovery journal; inspect the manager logs.");
     if (await stat(record.displaced).catch(() => null)) {
-      if (await stat(expected).catch(() => null)) await rename(expected, `${expected}.interrupted-${randomUUID()}`);
-      await rename(record.displaced, expected);
+      if (await stat(expected).catch(() => null)) await renameRetrying(expected, `${expected}.interrupted-${randomUUID()}`);
+      await renameRetrying(record.displaced, expected);
       await database().update(worldSettings).set({ drift: true, driftReason: "An interrupted restore was rolled back. Import the recovered configuration before starting.", lastApplyError: "Interrupted restore recovered; configuration reconciliation required." }).where(eq(worldSettings.worldId, world.id));
     }
     await rm(journal);
