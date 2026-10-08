@@ -1,18 +1,16 @@
 name: Publish release
 
-# Publishes the version on main when it has not been released yet. Runs on every push to main
-# that changes package.json (a merged release pull request) and can be run by hand to finish a
-# release that failed partway. When the version in package.json already has a tag, or is the
-# 0.0.0 placeholder, nothing happens. Otherwise it tags that commit, creates the GitHub release
-# with GitHub's generated notes, and uploads the release files. The files come from the Build
-# release that the pull request checks ran on the release branch whenever the merged tree is
-# identical to that branch; only when something else landed in between is the build repeated.
+# Runs when a release pull request (head branch release/*, opened by Prepare release) is merged,
+# and for no other reason. It tags the merge commit, creates the GitHub release with GitHub's
+# generated notes, and uploads the release files. The files come from the Build release that the
+# pull request checks ran on the release branch whenever the merged tree is identical to that
+# branch; only when something else landed in between is the build repeated. To finish a release
+# that failed partway, use "Re-run failed jobs" on its run: every step reuses what already exists.
 
 on:
-  push:
+  pull_request:
+    types: [closed]
     branches: [main]
-    paths: [package.json]
-  workflow_dispatch:
 
 concurrency:
   group: release
@@ -24,29 +22,27 @@ permissions:
 jobs:
   check:
     name: Decide whether to publish
+    if: ${{ github.event.pull_request.merged && startsWith(github.event.pull_request.head.ref, 'release/') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       actions: read
-      pull-requests: read
+    env:
+      SHA: ${{ github.event.pull_request.merge_commit_sha }}
+      HEAD: ${{ github.event.pull_request.head.sha }}
+      NUMBER: ${{ github.event.pull_request.number }}
     outputs:
       publish: ${{ steps.check.outputs.publish }}
       version: ${{ steps.check.outputs.version }}
-      sha: ${{ github.sha }}
+      sha: ${{ github.event.pull_request.merge_commit_sha }}
       prerelease: ${{ steps.check.outputs.prerelease }}
       previous-tag: ${{ steps.check.outputs.previous-tag }}
       reuse-run: ${{ steps.reuse.outputs.reuse-run }}
     steps:
-      - name: Require main
-        if: github.ref != 'refs/heads/main'
-        run: |
-          echo "::error::Releases are published from main; this ran on ${{ github.ref }}."
-          exit 1
-
-      - name: Check out the commit with full history
+      - name: Check out the merge commit with full history
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.SHA }}
           fetch-depth: 0
 
       - name: Set up Node.js
@@ -64,11 +60,6 @@ jobs:
           set -euo pipefail
           version="$(node -p "require('./package.json').version")"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          if [[ "$version" == "0.0.0" ]]; then
-            echo "package.json is at the 0.0.0 placeholder; nothing to publish."
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           if git rev-parse -q --verify "refs/tags/v$version^{commit}" >/dev/null; then
             echo "v$version is already released; nothing to publish."
             echo "publish=false" >> "$GITHUB_OUTPUT"
@@ -77,11 +68,11 @@ jobs:
           mapfile -t tags < <(git tag -l 'v*')
           npx tsx scripts/release/prepare.ts check "$version" - "${tags[@]}" >> "$GITHUB_OUTPUT"
           echo "publish=true" >> "$GITHUB_OUTPUT"
-          echo "Publishing v$version from ${{ github.sha }}"
+          echo "Publishing v$version from $SHA (pull request #$NUMBER)"
 
       # The pull request checks ran Build release on the release branch. When the merge produced
       # exactly that tree, those files are the release; otherwise the build runs again below.
-      - name: Look for the files built on the merged pull request
+      - name: Look for the files built on the pull request
         id: reuse
         if: steps.check.outputs.publish == 'true'
         env:
@@ -89,21 +80,24 @@ jobs:
           PREFIX: release-${{ steps.check.outputs.version }}
         run: |
           set -euo pipefail
-          tree="$(git rev-parse "$GITHUB_SHA^{tree}")"
           reuse=""
-          while read -r number head; do
-            [[ -n "$number" ]] || continue
-            git fetch -q origin "refs/pull/$number/head" || { echo "Could not fetch pull request #$number."; continue; }
-            if [[ "$(git rev-parse "$head^{tree}")" != "$tree" ]]; then echo "Pull request #$number ($head) built a different tree."; continue; fi
-            run="$(gh run list --workflow pull-request.yml --commit "$head" --status success --json databaseId --jq '.[0].databaseId // ""')"
-            [[ -n "$run" ]] || { echo "Pull request #$number has no successful checks run for $head."; continue; }
-            found="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" --jq "[.artifacts[] | select((.name == \"$PREFIX-linux\" or .name == \"$PREFIX-windows\") and .expired == false) | .name] | unique | length")"
-            [[ "$found" == "2" ]] || { echo "Run $run does not hold both $PREFIX-linux and $PREFIX-windows."; continue; }
-            reuse="$run"
-            echo "Reusing $PREFIX-linux and $PREFIX-windows from run $run: pull request #$number built this exact tree."
-            break
-          done < <(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '.[] | select(.merged_at != null) | "\(.number) \(.head.sha)"')
-          [[ -n "$reuse" ]] || echo "No reusable build; Build release runs now."
+          git fetch -q origin "refs/pull/$NUMBER/head"
+          if [[ "$(git rev-parse "$HEAD^{tree}")" != "$(git rev-parse "$SHA^{tree}")" ]]; then
+            echo "The merge commit's tree differs from the pull request head ($HEAD); something else merged in between. Building again."
+          else
+            run="$(gh run list --workflow pull-request.yml --commit "$HEAD" --status success --json databaseId --jq '.[0].databaseId // ""')"
+            if [[ -z "$run" ]]; then
+              echo "No successful pull request checks run for $HEAD. Building again."
+            else
+              found="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" --jq "[.artifacts[] | select((.name == \"$PREFIX-linux\" or .name == \"$PREFIX-windows\") and .expired == false) | .name] | unique | length")"
+              if [[ "$found" == "2" ]]; then
+                reuse="$run"
+                echo "Reusing $PREFIX-linux and $PREFIX-windows from run $run: the pull request built this exact tree."
+              else
+                echo "Run $run does not hold both $PREFIX-linux and $PREFIX-windows. Building again."
+              fi
+            fi
+          fi
           echo "reuse-run=$reuse" >> "$GITHUB_OUTPUT"
 
   build:
@@ -129,6 +123,7 @@ jobs:
       - name: Check out with full history
         uses: actions/checkout@v7
         with:
+          ref: ${{ needs.check.outputs.sha }}
           fetch-depth: 0
 
       # Both platform artifacts land in their own folder; each carries its SHA256SUMS.txt.
