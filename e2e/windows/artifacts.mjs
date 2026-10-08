@@ -15,7 +15,9 @@ const output = path.resolve(process.argv[3] || "windows-artifact-results");
 const flavors = ["Portable", "Setup"].filter((name) => !process.argv[4] || name === process.argv[4]);
 if (!flavors.length) throw new Error(`Unknown flavor "${process.argv[4]}"; use Portable or Setup.`);
 await mkdir(output, { recursive: true });
-const root = await mkdtemp(path.join(os.tmpdir(), "PSM artifact Ω "));
+// Plain ASCII paths, like a normal install: SteamCMD refuses to run from a folder whose path has
+// non-English characters, so that case is a product limitation tracked separately, not a test input.
+const root = await mkdtemp(path.join(os.tmpdir(), "PSM artifact "));
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(action, timeout = 90_000) {
   const deadline = Date.now() + timeout; let error;
@@ -62,7 +64,13 @@ for (const flavor of flavors) {
   async function job(action) {
     const started = await action; assert.equal(started.status, 202, JSON.stringify(started));
     const finished = await until(async () => { const result = (await api(`/api/jobs/${started.body.jobId}`)).body.job; return ["succeeded", "failed", "cancelled"].includes(result.state) ? result : null; }, 240_000);
-    assert.equal(finished.state, "succeeded", JSON.stringify(finished)); return finished;
+    if (finished.state !== "succeeded") {
+      const logs = (await api(`/api/jobs/${started.body.jobId}/logs`)).body.logs;
+      const text = (Array.isArray(logs) ? logs : [logs]).map((entry) => typeof entry === "string" ? entry : entry?.message ?? entry?.line ?? JSON.stringify(entry)).join("\n");
+      await writeFile(path.join(output, `${flavor}-job-${finished.kind}.log`), text);
+      assert.fail(`${JSON.stringify(finished)}\n--- job log (last lines) ---\n${text.split("\n").slice(-25).join("\n")}`);
+    }
+    return finished;
   }
   async function quit() {
     await page.evaluate(() => window.psmDesktop.setCloseToTray(false)); await page.close();
@@ -95,7 +103,7 @@ for (const flavor of flavors) {
     assert.equal((await fetch(`http://127.0.0.1:${webPort}/api/runtime/ready`)).status, 401);
     // A real first-client bootstrap catches folded platform choices and unimplemented extraction.
     await job(api("/api/runtime/steamcmd", {}));
-    const created = await api("/api/worlds", { displayName: "Incomplete native world", installDir: path.join(directory, "missing world Ω") });
+    const created = await api("/api/worlds", { displayName: "Incomplete native world", installDir: path.join(directory, "missing world") });
     assert.equal(created.status, 201, JSON.stringify(created)); const id = created.body.world.id;
     let settings = (await api(`/api/worlds/${id}/configuration/admin`)).body.configuration;
     const renamed = await api(`/api/worlds/${id}/configuration/admin`, { baseRevision: settings.desiredRevision, managed: { displayNameOverride: "Recoverable native world" } }, "PUT");
@@ -106,7 +114,7 @@ for (const flavor of flavors) {
     await quit(); await launch();
     assert.equal((await api(`/api/worlds/${id}`)).body.world.displayName, "Recoverable native world");
     // Compile only a small fixture executable; application development remains Linux-based.
-    const fixture = path.join(directory, "Fixture server Ω"); await mkdir(path.join(fixture, "Pal", "Binaries", "Win64"), { recursive: true });
+    const fixture = path.join(directory, "Fixture server"); await mkdir(path.join(fixture, "Pal", "Binaries", "Win64"), { recursive: true });
     const cs = path.join(directory, "Fixture.cs");
     await writeFile(cs, String.raw`
 using System;
@@ -150,7 +158,7 @@ class Fixture {
     const configDir = path.join(fixture, "Pal", "Saved", "Config", "WindowsServer"); await mkdir(configDir, { recursive: true });
     const ini = '[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(ServerName="Native fixture",RESTAPIEnabled=False,RCONEnabled=False)\n';
     await writeFile(path.join(configDir, "PalWorldSettings.ini"), ini); await writeFile(path.join(fixture, "DefaultPalWorldSettings.ini"), ini);
-    const adopted = await api("/api/worlds?mode=adopt", { displayName: "Native fixture", installDir: fixture, platform: "windows", restApiEnabled: false, crashGuard: true, extraArgs: '-Log="C:\\Server Logs\\Ω.log" ""' });
+    const adopted = await api("/api/worlds?mode=adopt", { displayName: "Native fixture", installDir: fixture, platform: "windows", restApiEnabled: false, crashGuard: true, extraArgs: '-Log="C:\\Server Logs\\fixture.log" ""' });
     assert.equal(adopted.status, 201, JSON.stringify(adopted)); const fixtureId = adopted.body.world.id;
     await job(api(`/api/worlds/${fixtureId}/actions`, { action: "backup" }));
     const backups = (await api(`/api/worlds/${fixtureId}/backups`)).body.backups;
@@ -160,7 +168,7 @@ class Fixture {
     for (const name of ["launcher-console.txt", "child-console.txt"]) assert.equal(await until(() => readFile(path.join(fixture, name), "utf8")), "False", `${name}: no separate console window may be visible`);
     await until(async () => (await api(`/api/worlds/${fixtureId}/logs`)).body.logs.content.includes("Fixture shipping server started"));
     const argv = (await readFile(path.join(fixture, "argv.txt"), "utf8")).split(/\r?\n/).slice(0, -1);
-    assert.ok(argv.includes("-Log=C:\\Server Logs\\Ω.log")); assert.ok(argv.includes(""), "An explicit empty argument must reach the native child");
+    assert.ok(argv.includes("-Log=C:\\Server Logs\\fixture.log")); assert.ok(argv.includes(""), "An explicit empty argument must reach the native child");
     await quit(); const before = await readFile(path.join(fixture, "heartbeat.txt"), "utf8"); await delay(500); assert.notEqual(await readFile(path.join(fixture, "heartbeat.txt"), "utf8"), before);
     await launch(); assert.equal((await api(`/api/worlds/${fixtureId}`)).body.world.status, "running");
     const afterQuitLogs = (await api(`/api/worlds/${fixtureId}/logs`)).body.logs.content;

@@ -112,6 +112,7 @@ Until version 1.0.0 the registry format is still settling, so a database created
 
 - **"Desktop authentication required"** in a browser tab means you opened the app's local address outside the app window. Use the app window; the server only answers its own window.
 - **A world will not start on Windows** and the Installation card reports missing prerequisites: use its repair action, which installs the Visual C++ runtime the dedicated server needs.
+- **Installing or updating a server fails on Windows with SteamCMD exit code 4294967294**: SteamCMD cannot run from a folder whose path contains non-English characters, and the installed app keeps it under `%APPDATA%\palworld-server-manager-next`, which includes your Windows username. Until the app moves SteamCMD elsewhere in that case, use the portable exe from a plain folder such as `C:\PSM`.
 - **Ports already in use**: every port must be unique across worlds and free on the host. Pick different ports under **Settings → Server Admin**, then restart.
 - **A server is running but the app shows it stopped**: add its folder with **Use existing server**; the app attaches to the running process so it can be monitored and stopped.
 - **Something went wrong during an operation**: the **Operations** page keeps every job's output. The app's own launcher log is `launcher-v3.log` in the data folder.
