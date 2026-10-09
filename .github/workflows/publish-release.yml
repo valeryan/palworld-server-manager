@@ -2,10 +2,11 @@ name: Publish release
 
 # Runs when a release pull request (head branch release/*, opened by Prepare release) is merged,
 # and for no other reason. It tags the merge commit, creates the GitHub release with GitHub's
-# generated notes, and uploads the release files. The files come from the Build release that the
-# pull request checks ran on the release branch whenever the merged tree is identical to that
-# branch; only when something else landed in between is the build repeated. To finish a release
-# that failed partway, use "Re-run failed jobs" on its run: every step reuses what already exists.
+# generated notes, and uploads the release files built and tested by the pull request checks on
+# the release branch. Nothing is built here: if the merged tree is not the one the release branch
+# built, or that build did not succeed, this stops with an error and the release is prepared
+# again. To finish a release that failed partway, use "Re-run failed jobs" on its run: every step
+# reuses what already exists.
 
 on:
   pull_request:
@@ -70,9 +71,10 @@ jobs:
           echo "publish=true" >> "$GITHUB_OUTPUT"
           echo "Publishing v$version from $SHA (pull request #$NUMBER)"
 
-      # The pull request checks ran Build release on the release branch. When the merge produced
-      # exactly that tree, those files are the release; otherwise the build runs again below.
-      - name: Look for the files built on the pull request
+      # The pull request checks ran Build release on the release branch. Those files are the
+      # release, and only they: the merge must have produced exactly that tree and the checks must
+      # have passed, or nothing is published.
+      - name: Find the files built on the pull request
         id: reuse
         if: steps.check.outputs.publish == 'true'
         env:
@@ -80,38 +82,28 @@ jobs:
           PREFIX: release-${{ steps.check.outputs.version }}
         run: |
           set -euo pipefail
-          reuse=""
           git fetch -q origin "refs/pull/$NUMBER/head"
           if [[ "$(git rev-parse "$HEAD^{tree}")" != "$(git rev-parse "$SHA^{tree}")" ]]; then
-            echo "The merge commit's tree differs from the pull request head ($HEAD); something else merged in between. Building again."
-          else
-            run="$(gh run list --workflow pull-request.yml --commit "$HEAD" --status success --json databaseId --jq '.[0].databaseId // ""')"
-            if [[ -z "$run" ]]; then
-              echo "No successful pull request checks run for $HEAD. Building again."
-            else
-              found="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" --jq "[.artifacts[] | select((.name == \"$PREFIX-linux\" or .name == \"$PREFIX-windows\") and .expired == false) | .name] | unique | length")"
-              if [[ "$found" == "2" ]]; then
-                reuse="$run"
-                echo "Reusing $PREFIX-linux and $PREFIX-windows from run $run: the pull request built this exact tree."
-              else
-                echo "Run $run does not hold both $PREFIX-linux and $PREFIX-windows. Building again."
-              fi
-            fi
+            echo "::error::The merged tree is not the one release branch $HEAD built; something else merged to main in between. Nothing was published. Close this release, delete its branch, and run Prepare release again."
+            exit 1
           fi
-          echo "reuse-run=$reuse" >> "$GITHUB_OUTPUT"
-
-  build:
-    name: Build
-    needs: check
-    if: needs.check.outputs.publish == 'true' && needs.check.outputs.reuse-run == ''
-    uses: ./.github/workflows/build-release.yml
-    with:
-      ref: ${{ needs.check.outputs.sha }}
+          run="$(gh run list --workflow pull-request.yml --commit "$HEAD" --status success --json databaseId --jq '.[0].databaseId // ""')"
+          if [[ -z "$run" ]]; then
+            echo "::error::The pull request checks for $HEAD have not succeeded, so there are no verified files to publish. Once they pass, use Re-run failed jobs on this run."
+            exit 1
+          fi
+          found="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" --jq "[.artifacts[] | select((.name == \"$PREFIX-linux\" or .name == \"$PREFIX-windows\") and .expired == false) | .name] | unique | length")"
+          if [[ "$found" != "2" ]]; then
+            echo "::error::Run $run no longer holds both $PREFIX-linux and $PREFIX-windows (artifacts expire after 14 days). Run Prepare release again."
+            exit 1
+          fi
+          echo "Publishing $PREFIX-linux and $PREFIX-windows from run $run: the pull request built this exact tree."
+          echo "reuse-run=$run" >> "$GITHUB_OUTPUT"
 
   publish:
     name: Publish the release
-    needs: [check, build]
-    if: ${{ !cancelled() && needs.check.outputs.publish == 'true' && (needs.build.result == 'success' || (needs.build.result == 'skipped' && needs.check.outputs.reuse-run != '')) }}
+    needs: check
+    if: needs.check.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -128,20 +120,12 @@ jobs:
 
       # Both platform artifacts land in their own folder; each carries its SHA256SUMS.txt.
       - name: Download the files built on the pull request
-        if: needs.check.outputs.reuse-run != ''
         uses: actions/download-artifact@v8
         with:
           pattern: release-${{ needs.check.outputs.version }}-*
           path: release
           run-id: ${{ needs.check.outputs.reuse-run }}
           github-token: ${{ github.token }}
-
-      - name: Download the files built in this run
-        if: needs.check.outputs.reuse-run == ''
-        uses: actions/download-artifact@v8
-        with:
-          pattern: release-${{ needs.check.outputs.version }}-*
-          path: release
 
       # Each step below can run again: a re-run finishes a release that stopped partway.
       - name: Resolve and push the tag
@@ -209,7 +193,7 @@ jobs:
             echo "### Release v$VERSION"
             echo "[$URL]($URL)"
             echo
-            if [[ -n "$REUSED" ]]; then echo "Files reused from pull request run $REUSED."; else echo "Files built in this run."; fi
+            echo "Files built and tested by pull request run $REUSED."
             echo
             cat release/*/SHA256SUMS.txt | sed 's/^/    /'
           } >> "$GITHUB_STEP_SUMMARY"
