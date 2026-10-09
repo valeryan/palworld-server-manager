@@ -1,5 +1,5 @@
 import { _electron as electron, expect, test } from "@playwright/test";
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -17,7 +17,13 @@ test("packaged Electron boots its bundled server and exposes desktop IPC", async
   // Run outside the checkout so missing packaged dependencies cannot resolve from
   // the repository's node_modules and falsely pass this release gate.
   const packageRoot = path.join(userData, "application");
-  await cp(path.join(process.cwd(), "release", "linux-unpacked"), packageRoot, { recursive: true });
+  await cp(path.join(process.cwd(), "release", "linux-unpacked"), packageRoot, { recursive: true, verbatimSymlinks: true });
+  // A symlink that leaves the package (an absolute path into the build checkout, say) resolves on the
+  // machine that built it and on no other; v1.0.0 shipped one. Fail here rather than on a user's machine.
+  const app = path.join(packageRoot, "resources", "app");
+  const links = (await readdir(app, { recursive: true, withFileTypes: true })).filter((entry) => entry.isSymbolicLink());
+  const escaping = await Promise.all(links.map(async (entry) => { const link = path.join(entry.parentPath, entry.name); const target = await readlink(link); return path.isAbsolute(target) || !path.resolve(path.dirname(link), target).startsWith(app + path.sep) ? `${path.relative(app, link)} -> ${target}` : null; }));
+  expect(escaping.filter(Boolean), "symlinks that point outside the packaged app").toEqual([]);
   const executable = path.join(packageRoot, "palworld-server-manager-next");
   const version = JSON.parse(await readFile(path.join(process.cwd(), "package.json"), "utf8")).version as string;
   // No last successful version recorded: the launch shows the version-transition confirmation.
