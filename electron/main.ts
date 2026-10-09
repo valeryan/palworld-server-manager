@@ -63,9 +63,11 @@ async function start(): Promise<void> {
   await startServer(); await waitForServer(); log("Bundled web server is ready");
   if (!isDev) { writePreferences({ lastSuccessfulAppVersion: app.getVersion() }); if (process.platform === "win32" && preferences().launchAtLogin) setLaunchAtLogin(true, true); }
   if (upgradeWindowOpen() && !await showUpgradeCompletion()) { quitState.quitting = true; await stopServer(); app.quit(); return; }
-  createTray(); await createWindow(!startHidden);
+  // --hidden (login launches) or the start-minimized preference keeps the window in the tray, but only
+  // when a tray exists to reopen it from, and never right after the upgrade dialog promised to open it.
+  createTray(); const hidden = (startHidden || preferences().startMinimized) && trayAvailable() && !upgradeWindowOpen(); await createWindow(!hidden);
   destroyUpgradeWindow();
-  log(startHidden ? "Main window loaded hidden" : "Main window loaded");
+  log(hidden ? "Main window loaded hidden" : "Main window loaded");
 }
 
 const ownsInstanceLock = app.requestSingleInstanceLock();

@@ -20,6 +20,7 @@ export function registerIpcHandlers(): void {
   });
   ipcMain.handle("get-theme", () => nativeTheme.shouldUseDarkColors ? "dark" : "light"); ipcMain.handle("get-locale", () => app.getLocale() || "en");
   ipcMain.handle("get-close-to-tray", () => preferences().closeToTray); ipcMain.handle("set-close-to-tray", (_event, enabled: boolean) => { writePreferences({ closeToTray: Boolean(enabled) }); return Boolean(enabled); });
+  ipcMain.handle("get-start-minimized", () => preferences().startMinimized); ipcMain.handle("set-start-minimized", (_event, enabled: boolean) => { writePreferences({ startMinimized: Boolean(enabled) }); return Boolean(enabled); });
   ipcMain.handle("get-launch-at-login", () => loginStatus().configured); ipcMain.handle("get-login-status", () => loginStatus()); ipcMain.handle("set-launch-at-login", (_event, enabled: boolean) => setLaunchAtLogin(Boolean(enabled)));
   ipcMain.handle("get-launch-at-login-options", () => preferences().launchOptions);
   ipcMain.handle("set-launch-at-login-options", (_event, value: unknown) => {
