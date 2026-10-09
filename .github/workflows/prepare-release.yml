@@ -119,16 +119,14 @@ jobs:
         run: |
           set -euo pipefail
           kind="stable release"; if [[ "$IS_PRERELEASE" == "true" ]]; then kind="prerelease"; fi
-          since="the first release"; if [[ -n "$PREVIOUS" ]]; then since="everything merged since $PREVIOUS"; fi
+          # The body is the release's own notes, generated the same way Publish release will, with a
+          # note on top saying what merging does; the release repeats the notes and adds its author.
           cat > pr-body.md <<BODY
-          Releases **v$VERSION** as a $kind: $since.
+          > **Release pull request.** Merging it publishes **v$VERSION** as a $kind: Publish release tags the merge commit and creates the GitHub release with the files this pull request built.
 
-          Merging this pull request is the release. **Publish release** builds the merge commit, runs every check, tags it \`v$VERSION\`, and creates the GitHub release with GitHub's generated notes, the Linux AppImage, and the Windows Setup and portable exes.
-
-          If this pull request was opened by the Actions bot, GitHub holds its checks until **Approve and run workflows** is clicked; with a \`RELEASE_PR_TOKEN\` secret it is opened by its owner and they run on their own. **Publish release** runs every check again before anything is tagged.
-
-          Prepared by @$ACTOR.
           BODY
+          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="v$VERSION" -f target_commitish="release/v$VERSION" ${PREVIOUS:+-f previous_tag_name="$PREVIOUS"} --jq .body >> pr-body.md
+          printf '\n\nPrepared by @%s.\n' "$ACTOR" >> pr-body.md
           # The release label keeps this pull request out of GitHub's generated release notes.
           gh label create release --description "Release pull request opened by Prepare release" --color 0e8a16 --force >/dev/null
           url="$(gh pr create --base main --head "release/v$VERSION" --title "Release v$VERSION" --body-file pr-body.md --label release)"
