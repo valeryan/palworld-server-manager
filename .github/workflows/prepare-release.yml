@@ -129,7 +129,9 @@ jobs:
 
           Prepared by @$ACTOR.
           BODY
-          url="$(gh pr create --base main --head "release/v$VERSION" --title "Release v$VERSION" --body-file pr-body.md)"
+          # The release label keeps this pull request out of GitHub's generated release notes.
+          gh label create release --description "Release pull request opened by Prepare release" --color 0e8a16 --force >/dev/null
+          url="$(gh pr create --base main --head "release/v$VERSION" --title "Release v$VERSION" --body-file pr-body.md --label release)"
           {
             echo "### Release v$VERSION"
             echo "[$url]($url)"

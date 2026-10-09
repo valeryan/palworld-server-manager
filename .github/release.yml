@@ -1,8 +1,11 @@
 # Shapes GitHub's generated release notes, which Publish release puts on every GitHub release.
 # The release pull requests themselves ("Release vX.Y.Z", opened by Prepare release) are not
-# changes worth listing; both spellings of the Actions bot login are excluded to be safe.
+# changes worth listing: Prepare labels them `release`, and the Actions bot (the author when no
+# RELEASE_PR_TOKEN is set) is excluded under both spellings of its login.
 changelog:
   exclude:
+    labels:
+      - release
     authors:
       - github-actions
       - github-actions[bot]
