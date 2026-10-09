@@ -69,10 +69,9 @@ export function SettingsPage() {
   async function toggleLaunch() {
     const desktop = window.psmDesktop; if (!desktop) return;
     await notify.run(async () => {
-      let effectiveOptions = launchOptions;
-      if (!launchAtLogin) { effectiveOptions = await desktop.setLaunchAtLoginOptions(launchOptions); setLaunchOptions(effectiveOptions); }
+      if (!launchAtLogin) setLaunchOptions(await desktop.setLaunchAtLoginOptions(launchOptions));
       const value = await desktop.setLaunchAtLogin(!launchAtLogin); setLaunchAtLogin(value);
-      setNotice(t(value ? effectiveOptions.startHidden ? "settings.launch.enabledHiddenNotice" : "settings.launch.enabledWindowNotice" : "settings.launch.disabledNotice"));
+      setNotice(t(value ? startMinimized ? "settings.launch.enabledHiddenNotice" : "settings.launch.enabledWindowNotice" : "settings.launch.disabledNotice"));
     });
   }
   async function saveLaunchOptions() {
@@ -130,7 +129,6 @@ export function SettingsPage() {
         {loginUnavailable && <p role="status">{t("settings.launch.development")}</p>}
         <div className="settings-section-heading"><div><h2>{t("settings.launch.title")}{help("settings.launch.title", "settings.launch.description", "settings.launch.compatibilityHelp")}</h2></div><button className={`toggle ${launchAtLogin ? "on" : ""}`} disabled={!desktopReady || loginUnavailable} onClick={() => void toggleLaunch()}><i />{t(launchAtLogin ? "common.on" : "common.off")}</button></div>
         <div className="launch-option-grid">
-          <label><input type="checkbox" checked={launchOptions.startHidden} onChange={(event) => setLaunchOption("startHidden", event.target.checked)} /><span><strong>{t("settings.launch.hidden")}{help("settings.launch.hidden", "settings.launch.hiddenHelp")}</strong></span></label>
           <label><input type="checkbox" checked={launchOptions.disableGpu} onChange={(event) => setLaunchOption("disableGpu", event.target.checked)} /><span><strong>{t("settings.launch.gpu")}{help("settings.launch.gpu", "settings.launch.gpuHelp")}</strong></span></label>
           {host === "linux" && <label><input type="checkbox" checked={launchOptions.forceX11} onChange={(event) => setLaunchOption("forceX11", event.target.checked)} /><span><strong>{t("settings.launch.x11")}{help("settings.launch.x11", "settings.launch.x11Help")}</strong></span></label>}
         </div>

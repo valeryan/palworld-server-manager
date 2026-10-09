@@ -2,13 +2,12 @@ import { posixArguments, windowsArguments } from "../src/lib/arguments";
 
 export type LaunchAtLoginOptions = {
   argumentFormat?: "legacy" | "windows";
-  startHidden: boolean;
   disableGpu: boolean;
   forceX11: boolean;
   customFlags: string;
 };
 
-export const defaultLaunchAtLoginOptions: LaunchAtLoginOptions = { startHidden: true, disableGpu: false, forceX11: false, customFlags: "" };
+export const defaultLaunchAtLoginOptions: LaunchAtLoginOptions = { disableGpu: false, forceX11: false, customFlags: "" };
 export const defaultManagerPort = 4318;
 
 export function validateManagerPort(value: unknown): number {
@@ -18,11 +17,11 @@ export function validateManagerPort(value: unknown): number {
 }
 
 
-const reserved = new Set(["hidden", "user-data-dir", "disable-gpu", "ozone-platform", "disable-dev-shm-usage", "no-sandbox", "no-zygote", "remote-debugging-address", "remote-debugging-port"]);
+const reserved = new Set(["user-data-dir", "disable-gpu", "ozone-platform", "disable-dev-shm-usage", "no-sandbox", "no-zygote", "remote-debugging-address", "remote-debugging-port"]);
 
 export function normalizeLaunchAtLoginOptions(value: unknown): LaunchAtLoginOptions {
   const saved = value && typeof value === "object" ? value as Partial<LaunchAtLoginOptions> : {};
-  return { startHidden: saved.startHidden !== false, disableGpu: saved.disableGpu === true, forceX11: saved.forceX11 === true, customFlags: typeof saved.customFlags === "string" ? saved.customFlags : "", ...(saved.argumentFormat ? { argumentFormat: saved.argumentFormat } : {}) };
+  return { disableGpu: saved.disableGpu === true, forceX11: saved.forceX11 === true, customFlags: typeof saved.customFlags === "string" ? saved.customFlags : "", ...(saved.argumentFormat ? { argumentFormat: saved.argumentFormat } : {}) };
 }
 
 export function parseCustomLaunchFlags(value: string, format: "legacy" | "windows" = "legacy"): string[] {
@@ -39,5 +38,5 @@ export function parseCustomLaunchFlags(value: string, format: "legacy" | "window
 }
 
 export function launchAtLoginArguments(options: LaunchAtLoginOptions, preserved: string[] = []): string[] {
-  return [options.startHidden ? "--hidden" : "", options.disableGpu ? "--disable-gpu" : "", options.forceX11 ? "--ozone-platform=x11" : "", ...parseCustomLaunchFlags(options.customFlags, options.argumentFormat), ...preserved].filter(Boolean);
+  return [options.disableGpu ? "--disable-gpu" : "", options.forceX11 ? "--ozone-platform=x11" : "", ...parseCustomLaunchFlags(options.customFlags, options.argumentFormat), ...preserved].filter(Boolean);
 }
