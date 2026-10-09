@@ -122,7 +122,7 @@ jobs:
           # The body is the release's own notes, generated the same way Publish release will, with a
           # note on top saying what merging does; the release repeats the notes and adds its author.
           cat > pr-body.md <<BODY
-          > **Release pull request.** Merging it publishes **v$VERSION** as a $kind: Publish release tags the merge commit and creates the GitHub release with the files this pull request built.
+          > Merging this pull request will publish **v$VERSION** as a $kind. The Publish release action will tag the commit and create the release using this pull request's artifacts.
 
           BODY
           gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="v$VERSION" -f target_commitish="release/v$VERSION" ${PREVIOUS:+-f previous_tag_name="$PREVIOUS"} --jq .body >> pr-body.md
