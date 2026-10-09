@@ -125,7 +125,10 @@ jobs:
           > Merging this pull request will publish **v$VERSION** as a $kind. The Publish release action will tag the commit and create the release using this pull request's artifacts.
 
           BODY
-          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="v$VERSION" -f target_commitish="release/v$VERSION" ${PREVIOUS:+-f previous_tag_name="$PREVIOUS"} --jq .body >> pr-body.md
+          # Pull request URLs become #N: in a pull request body GitHub expands a bare URL into the
+          # title and number, which doubles every line; #N renders as the short link releases show.
+          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="v$VERSION" -f target_commitish="release/v$VERSION" ${PREVIOUS:+-f previous_tag_name="$PREVIOUS"} --jq .body \
+            | sed -E "s#https://github\.com/$GITHUB_REPOSITORY/pull/([0-9]+)#\\#\\1#g" >> pr-body.md
           printf '\n\nPrepared by @%s.\n' "$ACTOR" >> pr-body.md
           # The release label keeps this pull request out of GitHub's generated release notes.
           gh label create release --description "Release pull request opened by Prepare release" --color 0e8a16 --force >/dev/null
