@@ -48,7 +48,7 @@ This is an independently maintained hard fork of the original Palworld Server Ma
 - **Schedule.** Backups, graceful restarts and stops with in-game warnings, updates, system messages, on-join welcome messages, stop-when-empty, and HTTP calls, on a minute, hourly, or daily cadence.
 - **Mods.** Install UE4SS, import and toggle Lua mods, toggle Steam Workshop mods, and enable the PSM relays. Mods survive server updates, and an integrity report repairs what an update disturbed.
 - **Server builds.** One shared SteamCMD, a single check for the latest Palworld build across all worlds, and **Update all outdated worlds**, which warns players, stops, backs up, updates, and restarts each world in turn.
-- **Your app, your way.** Ten color themes, language packs, close to tray, launch at login, and a Stable or Prerelease update channel. Export and import a world's registration or its game settings as files.
+- **Your app, your way.** Ten color themes, language packs, close to tray, start minimized to the tray, launch at login, and a Stable or Prerelease update channel. Export and import a world's registration or its game settings as files.
 
 Everything runs on your machine. The app listens only on `127.0.0.1`, has no accounts, and sends nothing to the developer. See the [privacy policy](./PRIVACY.md).
 

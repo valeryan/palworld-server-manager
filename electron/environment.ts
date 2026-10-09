@@ -8,7 +8,6 @@ import path from "node:path";
 
 export const isDev = Boolean(process.env.ELECTRON_START_URL);
 export const developmentUrl = isDev ? new URL(process.env.ELECTRON_START_URL!) : null;
-export const startHidden = process.argv.includes("--hidden");
 export const token = randomBytes(32).toString("hex");
 export const launchSession = randomBytes(24).toString("hex");
 

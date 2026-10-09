@@ -5,7 +5,7 @@ import { assertLocalWindowsPath } from "../src/server/host";
 import { UpgradePreflightError } from "../src/server/db/upgrade";
 import { setLaunchAtLogin } from "./autostart";
 import { bindPort, host, port } from "./binding";
-import { dataDir, isDev, launcherLogPath, log, profileSetupError, quitState, startHidden } from "./environment";
+import { dataDir, isDev, launcherLogPath, log, profileSetupError, quitState } from "./environment";
 import { registerIpcHandlers } from "./ipc";
 import { preferences, writePreferences } from "./preferences";
 import { runtimeRequest, serverGone, serverHealthy, serverStarted, startServer, stopServer, waitForServer } from "./server-process";
@@ -57,15 +57,17 @@ async function reportStartupFailure(error: unknown): Promise<void> {
 
 async function start(): Promise<void> {
   const profileError = profileSetupError(); if (profileError) throw profileError;
-  assertLocalWindowsPath(dataDir()); mkdirSync(dataDir(), { recursive: true }); assertLocalWindowsPath(realpathSync(dataDir())); await bindPort(); log(`Desktop ready (data ${dataDir()}, bind ${host}:${port()}, AppImage ${Boolean(process.env.APPIMAGE)}, hidden ${startHidden})`); powerSaveBlocker.start("prevent-app-suspension");
+  assertLocalWindowsPath(dataDir()); mkdirSync(dataDir(), { recursive: true }); assertLocalWindowsPath(realpathSync(dataDir())); await bindPort(); log(`Desktop ready (data ${dataDir()}, bind ${host}:${port()}, AppImage ${Boolean(process.env.APPIMAGE)}, minimized ${preferences().startMinimized})`); powerSaveBlocker.start("prevent-app-suspension");
   if (!isDev) await activatePackagedVersion();
   if (upgradeWindowOpen()) await showUpgradeProgress("starting");
   await startServer(); await waitForServer(); log("Bundled web server is ready");
   if (!isDev) { writePreferences({ lastSuccessfulAppVersion: app.getVersion() }); if (process.platform === "win32" && preferences().launchAtLogin) setLaunchAtLogin(true, true); }
   if (upgradeWindowOpen() && !await showUpgradeCompletion()) { quitState.quitting = true; await stopServer(); app.quit(); return; }
-  createTray(); await createWindow(!startHidden);
+  // The start-minimized preference applies to every launch, manual or at login, but only when a tray
+  // exists to reopen the window from, and never right after the upgrade dialog promised to open it.
+  createTray(); const hidden = preferences().startMinimized && trayAvailable() && !upgradeWindowOpen(); await createWindow(!hidden);
   destroyUpgradeWindow();
-  log(startHidden ? "Main window loaded hidden" : "Main window loaded");
+  log(hidden ? "Main window loaded hidden" : "Main window loaded");
 }
 
 const ownsInstanceLock = app.requestSingleInstanceLock();

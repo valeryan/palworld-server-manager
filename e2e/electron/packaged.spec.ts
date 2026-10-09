@@ -21,7 +21,7 @@ test("packaged Electron boots its bundled server and exposes desktop IPC", async
   const executable = path.join(packageRoot, "palworld-server-manager-next");
   const version = JSON.parse(await readFile(path.join(process.cwd(), "package.json"), "utf8")).version as string;
   // No last successful version recorded: the launch shows the version-transition confirmation.
-  await writeFile(path.join(userData, "desktop-preferences.json"), JSON.stringify({ closeToTray: false, launchAtLogin: false, launchOptions: { startHidden: false, disableGpu: false, forceX11: false, customFlags: "" } }));
+  await writeFile(path.join(userData, "desktop-preferences.json"), JSON.stringify({ closeToTray: false, launchAtLogin: false, launchOptions: { disableGpu: false, forceX11: false, customFlags: "" } }));
   await createBaselineDatabase(userData);
   const home = path.join(userData, "home"); const autostart = path.join(home, ".config", "autostart", "com.palworld.servermanager.next.desktop"); await mkdir(path.dirname(autostart), { recursive: true }); await writeFile(autostart, '[Desktop Entry]\nType=Application\nExec="/obsolete/Palworld-Server-Manager-1.0.0-alpha.1-x86_64.AppImage" --hidden --custom-kept=value\nX-PSM-Test=preserved\n');
   const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));

@@ -24,6 +24,8 @@ export async function applicationUpdateStatus(currentVersion: string, options: {
   try {
     const allowPrerelease = channel === "prerelease";
     const response = await (options.fetcher ?? fetch)(allowPrerelease ? RELEASES_URL : LATEST_STABLE_URL, { headers: { accept: "application/vnd.github+json", "user-agent": "palworld-server-manager-next", "x-github-api-version": "2022-11-28" }, signal: AbortSignal.timeout(5_000) });
+    // GitHub answers 404 on releases/latest while every release is a prerelease: nothing stable to offer yet.
+    if (response.status === 404 && !allowPrerelease) { const status = empty(); cache().set(key, { expiresAt: now + CACHE_MS, status }); return status; }
     if (!response.ok) throw new Error(`GitHub returned ${response.status}.`);
     const payload = await response.json() as GitHubRelease | GitHubRelease[]; const releases = Array.isArray(payload) ? payload : [payload];
     const candidates = releases.flatMap((release) => {

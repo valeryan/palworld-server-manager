@@ -38,8 +38,8 @@ describe("Electron desktop icons", () => {
 
 describe("Electron login launch options", () => {
   it("constructs managed and custom arguments without a shell", () => {
-    expect(launchAtLoginArguments({ startHidden: true, disableGpu: true, forceX11: true, customFlags: '--enable-logging=stderr "--log-file=/tmp/PSM Next.log"' }, ["--user-data-dir=/tmp/psm data"])).toEqual([
-      "--hidden", "--disable-gpu", "--ozone-platform=x11", "--enable-logging=stderr", "--log-file=/tmp/PSM Next.log", "--user-data-dir=/tmp/psm data",
+    expect(launchAtLoginArguments({ disableGpu: true, forceX11: true, customFlags: '--enable-logging=stderr "--log-file=/tmp/PSM Next.log"' }, ["--user-data-dir=/tmp/psm data"])).toEqual([
+      "--disable-gpu", "--ozone-platform=x11", "--enable-logging=stderr", "--log-file=/tmp/PSM Next.log", "--user-data-dir=/tmp/psm data",
     ]);
   });
 

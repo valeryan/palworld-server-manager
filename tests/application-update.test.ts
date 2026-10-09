@@ -28,6 +28,10 @@ describe("application update discovery", () => {
     await applicationUpdateStatus("1.0.0-alpha.2", { channel: "prerelease", fetcher, force: true, now: 13 });
     expect(urls[0]).toMatch(/\/releases\/latest$/); expect(urls[1]).toMatch(/\/releases\?per_page=20$/);
   });
+  it("treats a 404 from the stable endpoint as no stable release yet, not a failure", async () => {
+    const status = await applicationUpdateStatus("1.0.0-pre.3", { channel: "stable", fetcher: async () => response({ message: "Not Found" }, 404), force: true, now: 14 });
+    expect(status).toMatchObject({ updateAvailable: false, publishedVersion: null }); expect(status.error).toBeUndefined();
+  });
   it("never contacts GitHub in development runs", async () => {
     let calls = 0; const fetcher = async () => { calls += 1; return response([release("9.0.0")]); };
     await expect(applicationUpdateStatus("1.0.0", { disabled: "development", fetcher, force: true, now: 14 })).resolves.toMatchObject({ disabledReason: "development", updateAvailable: false, publishedVersion: null });

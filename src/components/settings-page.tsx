@@ -28,7 +28,7 @@ export function SettingsPage() {
   const languageFile = useRef<HTMLInputElement>(null);
   const query = useQuery({ queryKey: ["app-settings"], queryFn: async () => (await responseJson<{ settings: Paths }>("/api/settings")).settings });
   const languages = useQuery({ queryKey: ["languages"], queryFn: async () => (await responseJson<{ catalog: LanguageCatalog }>("/api/i18n/languages")).catalog });
-  const [closeToTray, setCloseToTray] = useState(true);
+  const [closeToTray, setCloseToTray] = useState(true); const [startMinimized, setStartMinimized] = useState(false);
   const [loginDisabledByOS, setLoginDisabledByOS] = useState(false); const [loginUnavailable, setLoginUnavailable] = useState(false);
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
   const [launchOptions, setLaunchOptions] = useState<LaunchAtLoginOptions>(defaultLaunchAtLoginOptions);
@@ -47,8 +47,8 @@ export function SettingsPage() {
   useEffect(() => {
     const desktop = window.psmDesktop; if (!desktop) return;
     void desktop.getLoginStatus().then((state) => { setLoginDisabledByOS(state.disabledByOS); setLoginUnavailable(Boolean(state.unavailable)); }).catch(() => undefined);
-    void Promise.all([desktop.getCloseToTray(), desktop.getLaunchAtLogin(), desktop.getLaunchAtLoginOptions()]).then(([close, launch, options]) => {
-      setCloseToTray(close); setLaunchAtLogin(launch); setLaunchOptions(options); setDesktopReady(true);
+    void Promise.all([desktop.getCloseToTray(), desktop.getStartMinimized(), desktop.getLaunchAtLogin(), desktop.getLaunchAtLoginOptions()]).then(([close, minimized, launch, options]) => {
+      setCloseToTray(close); setStartMinimized(minimized); setLaunchAtLogin(launch); setLaunchOptions(options); setDesktopReady(true);
     });
   }, []);
   useEffect(() => {
@@ -61,13 +61,17 @@ export function SettingsPage() {
     const value = await desktop.setCloseToTray(!closeToTray); setCloseToTray(value);
     setNotice(t(value ? "settings.tray.enabledNotice" : "settings.tray.disabledNotice"));
   }
+  async function toggleStartMinimized() {
+    const desktop = window.psmDesktop; if (!desktop) return;
+    const value = await desktop.setStartMinimized(!startMinimized); setStartMinimized(value);
+    setNotice(t(value ? "settings.startMinimized.enabledNotice" : "settings.startMinimized.disabledNotice"));
+  }
   async function toggleLaunch() {
     const desktop = window.psmDesktop; if (!desktop) return;
     await notify.run(async () => {
-      let effectiveOptions = launchOptions;
-      if (!launchAtLogin) { effectiveOptions = await desktop.setLaunchAtLoginOptions(launchOptions); setLaunchOptions(effectiveOptions); }
+      if (!launchAtLogin) setLaunchOptions(await desktop.setLaunchAtLoginOptions(launchOptions));
       const value = await desktop.setLaunchAtLogin(!launchAtLogin); setLaunchAtLogin(value);
-      setNotice(t(value ? effectiveOptions.startHidden ? "settings.launch.enabledHiddenNotice" : "settings.launch.enabledWindowNotice" : "settings.launch.disabledNotice"));
+      setNotice(t(value ? startMinimized ? "settings.launch.enabledHiddenNotice" : "settings.launch.enabledWindowNotice" : "settings.launch.disabledNotice"));
     });
   }
   async function saveLaunchOptions() {
@@ -119,12 +123,12 @@ export function SettingsPage() {
         <div className="theme-picker" role="radiogroup" aria-label={t("settings.appearance.label")}>{themes.map((theme) => <button key={theme.id} type="button" role="radio" aria-checked={activeTheme === theme.id} className={activeTheme === theme.id ? "active" : ""} disabled={savingTheme} onClick={() => void chooseTheme(theme.id)} style={{ "--swatch": theme.palette.accent } as CSSProperties}><Image src={theme.image} alt="" width={512} height={512} sizes="72px" priority={theme.id === "pal"} /><span><strong>{theme.name}</strong><small>{t(activeTheme === theme.id ? "settings.appearance.selected" : "settings.appearance.select")}</small></span></button>)}</div>
       </section>
       <section><div><h2>{t("settings.tray.title")}{help("settings.tray.title", "settings.tray.description")}</h2></div><button className={`toggle ${closeToTray ? "on" : ""}`} disabled={!desktopReady} onClick={() => void toggleClose()}><i />{t(closeToTray ? "common.on" : "common.off")}</button></section>
+      <section><div><h2>{t("settings.startMinimized.title")}{help("settings.startMinimized.title", "settings.startMinimized.description")}</h2></div><button className={`toggle ${startMinimized ? "on" : ""}`} disabled={!desktopReady} onClick={() => void toggleStartMinimized()}><i />{t(startMinimized ? "common.on" : "common.off")}</button></section>
       <section className="settings-launch">
         {loginDisabledByOS && <p role="status">{t("settings.launch.disabledByOS")}</p>}
         {loginUnavailable && <p role="status">{t("settings.launch.development")}</p>}
         <div className="settings-section-heading"><div><h2>{t("settings.launch.title")}{help("settings.launch.title", "settings.launch.description", "settings.launch.compatibilityHelp")}</h2></div><button className={`toggle ${launchAtLogin ? "on" : ""}`} disabled={!desktopReady || loginUnavailable} onClick={() => void toggleLaunch()}><i />{t(launchAtLogin ? "common.on" : "common.off")}</button></div>
         <div className="launch-option-grid">
-          <label><input type="checkbox" checked={launchOptions.startHidden} onChange={(event) => setLaunchOption("startHidden", event.target.checked)} /><span><strong>{t("settings.launch.hidden")}{help("settings.launch.hidden", "settings.launch.hiddenHelp")}</strong></span></label>
           <label><input type="checkbox" checked={launchOptions.disableGpu} onChange={(event) => setLaunchOption("disableGpu", event.target.checked)} /><span><strong>{t("settings.launch.gpu")}{help("settings.launch.gpu", "settings.launch.gpuHelp")}</strong></span></label>
           {host === "linux" && <label><input type="checkbox" checked={launchOptions.forceX11} onChange={(event) => setLaunchOption("forceX11", event.target.checked)} /><span><strong>{t("settings.launch.x11")}{help("settings.launch.x11", "settings.launch.x11Help")}</strong></span></label>}
         </div>
