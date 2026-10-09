@@ -195,6 +195,7 @@ test("adopts and manages an isolated world through critical browser workflows", 
   }).toBe('"":""');
   await settingsMenu(page, "Raw INI & history", "menuitemradio");
   const reconciledEditor = page.locator(".settings-editor");
+  const historyRows = page.locator(".record-list > div"); const historyRowsBefore = await historyRows.count();
   const beforeRawReconcile = await reconciledEditor.inputValue();
   const oldRestPort = beforeRawReconcile.match(/RESTAPIPort=(\d+)/)?.[1];
   expect(oldRestPort).toBeTruthy();
@@ -204,7 +205,9 @@ test("adopts and manages an isolated world through critical browser workflows", 
     const response = await page.request.get(`/api/worlds/${new URL(page.url()).pathname.split("/").at(-1)}`);
     return ((await response.json()) as { world: { restApiPort: number } }).world.restApiPort;
   }).toBe(39615);
-  await page.getByRole("button", { name: "Restore", exact: true }).nth(1).click();
+  // The list refreshes after the save; clicking before the new row arrives would restore the wrong version.
+  await expect(historyRows).toHaveCount(historyRowsBefore + 1);
+  await historyRows.nth(1).getByRole("button", { name: "Restore", exact: true }).click();
   await expect.poll(async () => {
     const response = await page.request.get(`/api/worlds/${new URL(page.url()).pathname.split("/").at(-1)}`);
     return ((await response.json()) as { world: { restApiPort: number } }).world.restApiPort;
