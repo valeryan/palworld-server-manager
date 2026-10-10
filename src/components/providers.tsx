@@ -8,6 +8,7 @@ import type { LanguagePack } from "@/contracts/localization";
 import { fetchJson } from "@/lib/http-client";
 import { englishGuidedSettingTranslations } from "@/lib/localization-resources";
 import type { ThemeId } from "@/lib/themes";
+import { RepaintAfterSelect } from "./repaint-after-select";
 import { ThemeProvider } from "./theme-provider";
 
 function LiveUpdates() {
@@ -47,5 +48,5 @@ export function Providers({ children, initialTheme }: { children: ReactNode; ini
     void instance.use(initReactI18next).init({ lng: "en", fallbackLng: "en", resources: { en: { translation: { ...english.translations, ...englishGuidedSettingTranslations() } } }, keySeparator: false, nsSeparator: false, interpolation: { escapeValue: false }, react: { useSuspense: false }, initAsync: false });
     return instance;
   });
-  return <ThemeProvider initialTheme={initialTheme}><I18nextProvider i18n={localization}><QueryClientProvider client={client}><LanguageLoader instance={localization} /><LiveUpdates />{children}</QueryClientProvider></I18nextProvider></ThemeProvider>;
+  return <ThemeProvider initialTheme={initialTheme}><I18nextProvider i18n={localization}><QueryClientProvider client={client}><LanguageLoader instance={localization} /><LiveUpdates /><RepaintAfterSelect />{children}</QueryClientProvider></I18nextProvider></ThemeProvider>;
 }
