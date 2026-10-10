@@ -17,6 +17,7 @@ import { worldIsLocked } from "./locks";
 import { validateConfiguration } from "@/lib/palworld-ini";
 import { adoptRestoredConfiguration } from "./configuration";
 import { safeEntries } from "./archive";
+import { palworldRest } from "./rest";
 
 // Palworld keeps its own rolling backups (bIsUseBackupSaveData) under SaveGames/<user>/<world>/backup.
 // Archiving them again would nest backups inside backups, so manager archives leave them out.
@@ -27,6 +28,11 @@ export async function createBackup(worldId: string, reason: string, context: Job
   const world = await requireWorld(worldId);
   const source = saveDirectory(world.installDir);
   await stat(source).catch(() => { throw new Error(`Save directory does not exist: ${source}`); });
+  // A running server holds recent progress in memory; ask it to write the save first so the archive is current.
+  if (world.status === "running" && world.restApiEnabled) {
+    await context.update(5, "Saving world");
+    try { await palworldRest.save(world); } catch (error) { context.log(`Could not save the world before backing up; archiving the last save on disk: ${(error as Error).message}`); }
+  }
   await context.update(10, "Collecting save files");
   const id = randomUUID();
   const settings = await getBackupSettings(worldId);

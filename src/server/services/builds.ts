@@ -8,7 +8,8 @@ import { awaitJob, listJobs, startJob, type JobContext } from "./jobs";
 import { startWorld, stopWorld } from "./lifecycle";
 import { worldIsLocked } from "./locks";
 import { warnBeforeShutdown } from "./maintenance";
-import { installOrUpdate, LATEST_BUILD_SETTING, refreshLatestBuild, steamCmdStatus } from "./steamcmd";
+import { readBuildId } from "./steam-manifest";
+import { detectLatestBuild, installOrUpdate, LATEST_BUILD_SETTING, refreshLatestBuild, steamCmdStatus } from "./steamcmd";
 import { getWorld, listWorlds, requireWorld } from "./worlds";
 
 // Palworld builds across the fleet: the shared SteamCMD client, one build check for every world,
@@ -21,6 +22,10 @@ const latestBuildSetting = (value: unknown) => value && typeof value === "object
 /** Warns players, stops a running world, backs it up, updates it, then restores the prior running state. */
 export async function updateWorldWithRestart(worldId: string, context: JobContext, reason: { backup: string; message: string }): Promise<void> {
   const before = await requireWorld(worldId);
+  await context.update(2, "Checking the latest Palworld build");
+  const latest = await detectLatestBuild(worldId, context.signal).catch((error) => { context.signal.throwIfAborted(); context.log(`Build discovery unavailable; updating anyway: ${(error as Error).message}`); return null; });
+  const installed = readBuildId(before);
+  if (latest && installed === latest) { await context.update(100, `Already on build ${latest}`, { preserveOnSuccess: true }); return; }
   const wasRunning = before.status === "running";
   if (wasRunning) { const waitSeconds = await warnBeforeShutdown(worldId, "update", context.signal); await stopWorld(worldId, false, { waitSeconds, message: reason.message }); }
   await context.update(10, "Creating safety backup");

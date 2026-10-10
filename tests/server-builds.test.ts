@@ -75,6 +75,26 @@ describe("server builds", () => {
     expect((await listJobs(500)).find((job) => job.kind === "update-restart")).toMatchObject({ state: "failed", error: "Disk write failure" });
   });
 
+  it("finishes a single world update without touching the server when it is already current", async () => {
+    const steamcmd = await import("@/server/services/steamcmd");
+    const { awaitJob, startJob } = await import("@/server/services/jobs");
+    const { updateWorldWithRestart } = await import("@/server/services/builds");
+    const { createBackup } = await import("@/server/services/backups");
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    vi.mocked(steamcmd.installOrUpdate).mockReset(); vi.mocked(createBackup).mockClear();
+    const manifest = async (target: { installDir: string }, buildid: string) => { await mkdir(path.join(target.installDir, "steamapps"), { recursive: true }); await writeFile(path.join(target.installDir, "steamapps", "appmanifest_2394010.acf"), `"AppState"\n{\n\t"appid"\t\t"2394010"\n\t"buildid"\t\t"${buildid}"\n}\n`); };
+    const current = await world("already-current", "500"); await manifest(current, "500");
+    const outdated = await world("behind", "400"); await manifest(outdated, "400");
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => steamPayload("500"));
+    const run = (id: string) => startJob(id, "update-restart", (job) => updateWorldWithRestart(id, job, { backup: "pre-scheduled-update", message: "Scheduled update." })).then(awaitJob);
+    expect(await run(current.id)).toMatchObject({ state: "succeeded", message: "Already on build 500" });
+    expect(steamcmd.installOrUpdate).not.toHaveBeenCalled();
+    expect(createBackup).not.toHaveBeenCalled();
+    expect(await run(outdated.id)).toMatchObject({ state: "succeeded" });
+    expect(steamcmd.installOrUpdate).toHaveBeenCalledTimes(1);
+    expect(createBackup).toHaveBeenCalledTimes(1);
+  });
+
   it("cancels the running world update when the fleet update is cancelled", async () => {
     const steamcmd = await import("@/server/services/steamcmd");
     const { awaitJob, cancelJob, listJobs, startJob } = await import("@/server/services/jobs");
