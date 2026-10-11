@@ -44,11 +44,19 @@ function scheduleRecovery(world: WorldView): void {
   recoveryTimers().set(world.id, timer); timer.unref();
 }
 
-async function recordCrash(world: WorldView, roots: ProcessIdentity[], snapshot: ProcessIdentity[]): Promise<void> {
+async function recordCrash(world: WorldView, roots: ProcessIdentity[], snapshot: ProcessIdentity[], startup: boolean): Promise<void> {
   const reused = roots.some((root) => snapshot.some((entry) => entry.pid === root.pid && !sameProcess(root, entry)));
-  if (reused) { await setRuntimeState(world.id, "unknown", world.processId); return; }
+  if (reused && !startup) { await setRuntimeState(world.id, "unknown", world.processId); return; }
   await stopDeathCapture(world).catch(() => undefined); await releaseInstallation(world);
   await database().update(worlds).set({ processIdentity: null }).where(eq(worlds.id, world.id));
+  // Crash guard only covers exits seen during this manager session. A server already gone when the
+  // manager starts (host reboot, power loss, or an exit while the manager was closed) is simply
+  // stopped; the autostart setting alone decides whether it comes back.
+  if (startup) {
+    await setRuntimeState(world.id, "stopped", null);
+    await database().insert(events).values({ worldId: world.id, kind: "lifecycle", message: `The server was no longer running when the manager started. ${world.autostart ? "Autostart will relaunch it." : "It stays stopped because autostart is off."}`, createdAt: Date.now() }).catch(() => undefined);
+    return;
+  }
   await setRuntimeState(world.id, "crashed", null);
   const pause = await recordUnexpectedExit(world.id, { code: null, uptimeMs: world.lastStartedAt ? Date.now() - world.lastStartedAt : 0 }).catch(() => true);
   if (world.crashGuard && !pause && !globalThis.__psmDraining) {
@@ -57,7 +65,7 @@ async function recordCrash(world: WorldView, roots: ProcessIdentity[], snapshot:
   }
 }
 
-async function reconcileWorld(world: WorldView, snapshot: ProcessIdentity[]): Promise<void> {
+async function reconcileWorld(world: WorldView, snapshot: ProcessIdentity[], startup: boolean): Promise<void> {
   if (world.status === "starting" && !world.processId && children().has(world.id)) return;
   const roots = await identities(world.id);
   if (!roots.length && world.processId) { await setRuntimeState(world.id, "unknown", world.processId); return; }
@@ -68,10 +76,11 @@ async function reconcileWorld(world: WorldView, snapshot: ProcessIdentity[]): Pr
     startDeathCapture(world); return;
   }
   if (world.status === "stopping") return;
-  if (world.processId || world.status === "running") await recordCrash(world, roots, snapshot);
+  if (world.processId || world.status === "running") await recordCrash(world, roots, snapshot, startup);
 }
 
-export async function reconcileProcesses(): Promise<void> {
+/** Reconciles every registered world against the host process table; `startup` marks the one call made while the manager boots. */
+export async function reconcileProcesses(options: { startup?: boolean } = {}): Promise<void> {
   if (globalThis.__psmReconciling) return; globalThis.__psmReconciling = true;
   const releases: Array<() => void> = [];
   try {
@@ -92,7 +101,7 @@ export async function reconcileProcesses(): Promise<void> {
       if (globalThis.__psmInspectionError !== message) { globalThis.__psmInspectionError = message; console.error(`Process inspection failed; ownership remains unverified: ${message}`); }
       startProcessMonitor(); return;
     }
-    for (const world of registered) await reconcileWorld(world, snapshot);
+    for (const world of registered) await reconcileWorld(world, snapshot, options.startup === true);
     startProcessMonitor();
   } finally { for (const release of releases) release(); globalThis.__psmReconciling = false; }
 }
