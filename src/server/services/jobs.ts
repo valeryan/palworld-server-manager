@@ -12,6 +12,7 @@ import { claimOperationLease, steamCmdProcess } from "./leases";
 import { acquireWorldLock, activeChangeCount, assertAdmission, holdWorldLock } from "./locks";
 import { processSnapshot } from "./process-inspection";
 import { applyOperationRetention } from "./retention";
+import { setRuntimePhase } from "./runtime-phase";
 import { requireWorld } from "./worlds";
 
 export interface JobContext {
@@ -134,7 +135,7 @@ export async function listJobLogs(jobId: string, limit = 1_000) {
   return database().select().from(jobLogs).where(eq(jobLogs.jobId, jobId)).orderBy(jobLogs.id).limit(Math.min(Math.max(Math.trunc(limit) || 1_000, 1), 5_000));
 }
 
-export function beginDrain(): number { globalThis.__psmDraining = true; return activeOperationCount(); }
+export function beginDrain(): number { setRuntimePhase("draining"); return activeOperationCount(); }
 export function activeOperationCount(): number { return controllers().size + activeChangeCount(); }
 
 export async function reconcileInterruptedJobs(): Promise<void> {

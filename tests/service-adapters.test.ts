@@ -95,6 +95,37 @@ describe("service boundaries with isolated fakes", () => {
     expect(await getWorld(processWorldId)).toMatchObject({ status: "stopped", processId: null });
   });
 
+  // A manager restart leaves no monitor timer and no memory of which servers it saw alive.
+  const simulateManagerRestart = async (pid: number) => {
+    const { processSnapshot } = await import("@/server/services/process-inspection");
+    clearInterval(globalThis.__psmProcessTimer); globalThis.__psmProcessTimer = undefined;
+    process.kill(-pid, "SIGKILL");
+    await waitFor(async () => !(await processSnapshot()).some((entry) => entry.pid === pid), "Fake server did not exit.");
+    globalThis.__psmConfirmedLive?.clear();
+  };
+
+  it("marks a server already gone at manager startup as stopped, not crashed", async () => {
+    const { startWorld, reconcileProcesses } = await import("@/server/services/lifecycle");
+    const { getWorld } = await import("@/server/services/worlds");
+    await startWorld(processWorldId);
+    const world = (await getWorld(processWorldId))!;
+    await simulateManagerRestart(world.processId!);
+    await reconcileProcesses();
+    expect(await getWorld(processWorldId)).toMatchObject({ status: "stopped", processId: null });
+    expect(globalThis.__psmRecoveryTimers?.has(processWorldId) ?? false).toBe(false);
+  });
+
+  it("settles a world the previous manager left mid-stop", async () => {
+    const { startWorld, reconcileProcesses } = await import("@/server/services/lifecycle");
+    const { getWorld, setRuntimeState } = await import("@/server/services/worlds");
+    await startWorld(processWorldId);
+    const world = (await getWorld(processWorldId))!;
+    await simulateManagerRestart(world.processId!);
+    await setRuntimeState(processWorldId, "stopping", world.processId);
+    await reconcileProcesses();
+    expect(await getWorld(processWorldId)).toMatchObject({ status: "stopped", processId: null });
+  });
+
   it.skipIf(process.getuid?.() === 0)("returns captured server output and reports log-directory read failures", async () => {
     const { worldLogs, worldLogFile } = await import("@/server/services/observability");
     const { paths } = await import("@/server/paths");

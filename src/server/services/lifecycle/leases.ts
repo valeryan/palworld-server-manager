@@ -5,9 +5,11 @@ import type { WorldView } from "@/contracts/world";
 import { database } from "@/server/db";
 import { worlds } from "@/server/db/schema";
 import { writeFileAtomic } from "@/server/fs";
+import { stopDeathCapture } from "@/server/mods/relays";
 import { paths } from "@/server/paths";
 import { claimLease, readLease, runtimeLeasePath, type RuntimeLease } from "../leases";
 import { insideDirectory, ownedTree, processSnapshot, sameProcess, type ProcessIdentity } from "../process-inspection";
+import { confirmedLive } from "./state";
 
 // The runtime lease on a world installation and the saved process identities it protects. The
 // database row is what the manager trusts; the lease file is what another manager can see.
@@ -39,6 +41,15 @@ export async function releaseInstallation(world: WorldView): Promise<void> {
   const file = runtimeLeasePath(world.installDir);
   const lease = await readLease<RuntimeLease>(file).catch(() => null);
   if (lease?.profile === paths.data()) await rm(file, { force: true });
+}
+
+/** Drops everything tied to a server tree that is no longer running: death capture, the saved
+ * identities, the runtime lease, and the session's record of it. Callers set the resulting status. */
+export async function releaseOwnership(world: WorldView): Promise<void> {
+  await stopDeathCapture(world).catch(() => undefined);
+  await database().update(worlds).set({ processIdentity: null }).where(eq(worlds.id, world.id));
+  await releaseInstallation(world);
+  confirmedLive().delete(world.id);
 }
 
 export function belongsToInstall(entry: ProcessIdentity, world: WorldView): boolean {

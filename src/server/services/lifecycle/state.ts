@@ -8,11 +8,14 @@ declare global {
   var __psmLifecycleLocks: Map<string, Promise<void>> | undefined;
   var __psmRecoveryTimers: Map<string, NodeJS.Timeout> | undefined;
   var __psmChildren: Map<string, ChildProcess> | undefined;
+  var __psmConfirmedLive: Set<string> | undefined;
 }
 const lifecycleLocks = () => (globalThis.__psmLifecycleLocks ??= new Map<string, Promise<void>>());
 export const recoveryTimers = () => (globalThis.__psmRecoveryTimers ??= new Map<string, NodeJS.Timeout>());
 /** Launcher children this manager spawned and has not yet seen exit. */
 export const children = () => (globalThis.__psmChildren ??= new Map<string, ChildProcess>());
+/** Worlds whose server tree this manager session has observed alive; only these can crash. */
+export const confirmedLive = () => (globalThis.__psmConfirmedLive ??= new Set<string>());
 
 /** Takes the lifecycle lock without waiting; null when another lifecycle action holds it. */
 export function tryLifecycleLock(worldId: string): (() => void) | null {
