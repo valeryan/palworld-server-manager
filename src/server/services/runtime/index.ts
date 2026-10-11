@@ -8,6 +8,7 @@ import { recoverInterruptedRestores } from "../backups";
 import { bootstrapWorldSettings } from "../configuration";
 import { reconcileInterruptedJobs, startJob } from "../jobs";
 import { adoptOrphanedServers, reconcileProcesses, startWorld } from "../lifecycle";
+import { trackActiveChange } from "../locks";
 import { applyRetentionPolicy } from "../retention";
 import { isDraining, runtimePhase, setRuntimePhase } from "../runtime-phase";
 import { nextRun } from "../schedules";
@@ -53,19 +54,22 @@ async function bootStep(name: string, work: () => Promise<void>): Promise<void> 
 export async function startRuntime(): Promise<void> {
   if (runtimePhase()) return;
   setRuntimePhase("booting");
-  await bootStep("restore recovery", recoverInterruptedRestores);
-  await bootStep("interrupted operation recovery", reconcileInterruptedJobs);
-  await bootStep("settings bootstrap", () => bootstrapWorldSettings());
-  await bootStep("process reconciliation", reconcileProcesses);
-  await bootStep("running server adoption", adoptOrphanedServers);
-  await bootStep("schedule repair", async () => {
-    for (const schedule of await database().select().from(schedules)) if (schedule.nextRunAt && schedule.nextRunAt < Date.now()) await database().update(schedules).set({ nextRunAt: nextRun(schedule) }).where(eq(schedules.id, schedule.id));
-  });
-  await bootStep("autostart", async () => {
-    for (const world of await listWorlds()) {
-      if (!world.autostart || !isWorldStopped(world)) continue;
-      await startJob(world.id, "autostart", async () => startWorld(world.id)).catch((error) => log(world.id, "startup", `Autostart could not be queued: ${errorMessage(error)}`));
-    }
+  // The boot counts as an active operation so a drain requested mid-boot waits for the steps to finish.
+  await trackActiveChange(async () => {
+    await bootStep("restore recovery", recoverInterruptedRestores);
+    await bootStep("interrupted operation recovery", reconcileInterruptedJobs);
+    await bootStep("settings bootstrap", () => bootstrapWorldSettings());
+    await bootStep("process reconciliation", reconcileProcesses);
+    await bootStep("running server adoption", adoptOrphanedServers);
+    await bootStep("schedule repair", async () => {
+      for (const schedule of await database().select().from(schedules)) if (schedule.nextRunAt && schedule.nextRunAt < Date.now()) await database().update(schedules).set({ nextRunAt: nextRun(schedule) }).where(eq(schedules.id, schedule.id));
+    });
+    await bootStep("autostart", async () => {
+      for (const world of await listWorlds()) {
+        if (!world.autostart || !isWorldStopped(world)) continue;
+        await startJob(world.id, "autostart", async () => startWorld(world.id)).catch((error) => log(world.id, "startup", `Autostart could not be queued: ${errorMessage(error)}`));
+      }
+    });
   });
   const tick = () => void runtimeTick().catch((error) => log(null, "scheduler", `Runtime tick failed: ${errorMessage(error)}`).catch(() => undefined));
   tick();
