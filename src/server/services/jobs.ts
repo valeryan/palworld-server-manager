@@ -1,6 +1,5 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { setRuntimePhase } from "./runtime-phase";
 import { desc, eq, inArray, isNull } from "drizzle-orm";
 import { EXTERNAL_WORKER_JOB_KINDS, type JobScope, type JobView } from "@/contracts/job";
 import type { WorldView } from "@/contracts/world";
@@ -13,6 +12,7 @@ import { claimOperationLease, steamCmdProcess } from "./leases";
 import { acquireWorldLock, activeChangeCount, assertAdmission, holdWorldLock } from "./locks";
 import { processSnapshot } from "./process-inspection";
 import { applyOperationRetention } from "./retention";
+import { setRuntimePhase } from "./runtime-phase";
 import { requireWorld } from "./worlds";
 
 export interface JobContext {
