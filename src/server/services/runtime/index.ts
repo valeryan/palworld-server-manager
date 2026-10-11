@@ -2,14 +2,14 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { isWorldStopped } from "@/contracts/world";
 import { errorMessage } from "@/lib/errors";
-import { isDraining, runtimePhase, setRuntimePhase } from "../runtime-phase";
 import { database } from "@/server/db";
 import { schedules } from "@/server/db/schema";
 import { recoverInterruptedRestores } from "../backups";
 import { bootstrapWorldSettings } from "../configuration";
 import { reconcileInterruptedJobs, startJob } from "../jobs";
-import { adoptOrphanedServers, reconcileProcessesAtStartup, startWorld } from "../lifecycle";
+import { adoptOrphanedServers, reconcileProcesses, startWorld } from "../lifecycle";
 import { applyRetentionPolicy } from "../retention";
+import { isDraining, runtimePhase, setRuntimePhase } from "../runtime-phase";
 import { nextRun } from "../schedules";
 import { listWorlds } from "../worlds";
 import { handleIdleSchedules } from "./idle";
@@ -56,7 +56,7 @@ export async function startRuntime(): Promise<void> {
   await bootStep("restore recovery", recoverInterruptedRestores);
   await bootStep("interrupted operation recovery", reconcileInterruptedJobs);
   await bootStep("settings bootstrap", () => bootstrapWorldSettings());
-  await bootStep("process reconciliation", reconcileProcessesAtStartup);
+  await bootStep("process reconciliation", reconcileProcesses);
   await bootStep("running server adoption", adoptOrphanedServers);
   await bootStep("schedule repair", async () => {
     for (const schedule of await database().select().from(schedules)) if (schedule.nextRunAt && schedule.nextRunAt < Date.now()) await database().update(schedules).set({ nextRunAt: nextRun(schedule) }).where(eq(schedules.id, schedule.id));

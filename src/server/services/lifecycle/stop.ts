@@ -1,18 +1,16 @@
 import "server-only";
-import { eq } from "drizzle-orm";
 import killTree from "tree-kill";
 import { errorMessage } from "@/lib/errors";
 import { database } from "@/server/db";
-import { events, worlds } from "@/server/db/schema";
+import { events } from "@/server/db/schema";
 import { hostPlatform } from "@/server/host";
 import { recordHealthyExit } from "@/server/mods/ue4ss-runtime";
-import { stopDeathCapture } from "@/server/mods/relays";
 import { applyDesiredSettings } from "../configuration";
 import { processSnapshot, sameProcess } from "../process-inspection";
 import { palworldRest } from "../rest";
 import { stopWineServer } from "../wine";
 import { requireWorld, setRuntimeState } from "../worlds";
-import { releaseInstallation, verifiedProcesses } from "./leases";
+import { releaseOwnership, verifiedProcesses } from "./leases";
 import { cancelRecovery, delay, withLifecycleLock } from "./state";
 
 export type StopOptions = { waitSeconds?: number; message?: string };
@@ -55,9 +53,7 @@ async function stopWorldProcess(worldId: string, force: boolean, options: StopOp
   await stopWineServer(world, force);
   for (let attempt = 0; attempt < 20 && (await verifiedProcesses(world)).length; attempt++) await delay(250);
   if ((await verifiedProcesses(world)).length) { await setRuntimeState(worldId, "unknown", world.processId); throw new Error("Server processes are still alive; conflicting actions remain blocked."); }
-  await stopDeathCapture(world).catch(() => undefined);
-  await database().update(worlds).set({ processIdentity: null }).where(eq(worlds.id, worldId));
-  await releaseInstallation(world);
+  await releaseOwnership(world);
   await setRuntimeState(worldId, "stopped", null);
   await recordHealthyExit(worldId).catch(() => undefined);
   const application = await applyDesiredSettings(worldId);

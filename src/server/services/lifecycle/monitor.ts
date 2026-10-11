@@ -2,20 +2,22 @@ import "server-only";
 import { eq, sql } from "drizzle-orm";
 import { worldBusy, type WorldView } from "@/contracts/world";
 import { errorMessage } from "@/lib/errors";
-import { isDraining } from "../runtime-phase";
 import { database } from "@/server/db";
 import { events, worlds } from "@/server/db/schema";
 import { recordUnexpectedExit } from "@/server/mods/ue4ss-runtime";
-import { startDeathCapture, stopDeathCapture } from "@/server/mods/relays";
+import { startDeathCapture } from "@/server/mods/relays";
 import { startJob } from "../jobs";
 import { ownedTree, processSnapshot, sameProcess, type ProcessIdentity } from "../process-inspection";
+import { isDraining } from "../runtime-phase";
 import { getWorld, listWorlds, setRuntimeState } from "../worlds";
-import { identities, persistIdentity, releaseInstallation } from "./leases";
+import { identities, persistIdentity, releaseOwnership } from "./leases";
 import { startWorldProcess } from "./start";
-import { cancelRecovery, children, recoveryTimers, tryLifecycleLock, withLifecycleLock } from "./state";
+import { cancelRecovery, children, confirmedLive, recoveryTimers, tryLifecycleLock, withLifecycleLock } from "./state";
 
 // Background reconciliation of registered worlds against the host process table: confirms running
-// servers, detects crashes, and schedules crash recovery.
+// servers, detects crashes, and schedules crash recovery. A vanished server tree counts as a crash
+// only when this manager session has seen it alive; otherwise it was already gone when the manager
+// started (reboot, power loss) and is recorded as stopped, whatever status the previous manager left.
 
 declare global { var __psmProcessTimer: NodeJS.Timeout | undefined; var __psmReconciling: boolean | undefined; var __psmInspectionError: string | undefined; }
 
@@ -45,15 +47,9 @@ function scheduleRecovery(world: WorldView): void {
   recoveryTimers().set(world.id, timer); timer.unref();
 }
 
-/** Drops ownership of a server tree that no longer exists. */
-async function releaseDeadServer(world: WorldView): Promise<void> {
-  await stopDeathCapture(world).catch(() => undefined); await releaseInstallation(world);
-  await database().update(worlds).set({ processIdentity: null }).where(eq(worlds.id, world.id));
-}
-
-/** A server already gone when the manager boots was stopped, not crashed; the autostart setting decides what happens next. */
+/** A server already gone when the manager started was stopped, not crashed; the autostart setting decides what happens next. */
 async function recordStartupStop(world: WorldView): Promise<void> {
-  await releaseDeadServer(world);
+  await releaseOwnership(world);
   await setRuntimeState(world.id, "stopped", null);
 }
 
@@ -61,7 +57,7 @@ async function recordStartupStop(world: WorldView): Promise<void> {
 async function recordCrash(world: WorldView, roots: ProcessIdentity[], snapshot: ProcessIdentity[]): Promise<void> {
   const reused = roots.some((root) => snapshot.some((entry) => entry.pid === root.pid && !sameProcess(root, entry)));
   if (reused) { await setRuntimeState(world.id, "unknown", world.processId); return; }
-  await releaseDeadServer(world);
+  await releaseOwnership(world);
   await setRuntimeState(world.id, "crashed", null);
   const pause = await recordUnexpectedExit(world.id, { code: null, uptimeMs: world.lastStartedAt ? Date.now() - world.lastStartedAt : 0 }).catch(() => true);
   if (world.crashGuard && !pause && !isDraining()) {
@@ -70,10 +66,7 @@ async function recordCrash(world: WorldView, roots: ProcessIdentity[], snapshot:
   }
 }
 
-/** What to do with a world whose saved server tree is no longer on the host. */
-type DeadServerHandler = (world: WorldView, roots: ProcessIdentity[], snapshot: ProcessIdentity[]) => Promise<void>;
-
-async function reconcileWorld(world: WorldView, snapshot: ProcessIdentity[], onDead: DeadServerHandler): Promise<void> {
+async function reconcileWorld(world: WorldView, snapshot: ProcessIdentity[]): Promise<void> {
   if (world.status === "starting" && !world.processId && children().has(world.id)) return;
   const roots = await identities(world.id);
   if (!roots.length && world.processId) { await setRuntimeState(world.id, "unknown", world.processId); return; }
@@ -81,19 +74,17 @@ async function reconcileWorld(world: WorldView, snapshot: ProcessIdentity[], onD
   if (live.length) {
     try { await persistIdentity(world, live); } catch { await setRuntimeState(world.id, "unknown", world.processId); return; }
     if (world.status !== "stopping") await setRuntimeState(world.id, "running", live[0]!.pid);
+    confirmedLive().add(world.id);
     startDeathCapture(world); return;
   }
+  // Never seen alive in this session: nothing observed it exit, and no in-flight transition of
+  // this manager will settle it. Record the stop regardless of the status left behind.
+  if (!confirmedLive().has(world.id)) { if (worldBusy(world)) await recordStartupStop(world); return; }
   if (world.status === "stopping") return;
-  if (world.processId || world.status === "running") await onDead(world, roots, snapshot);
+  if (world.processId || world.status === "running") await recordCrash(world, roots, snapshot);
 }
 
-/** Session reconciliation: a server that vanished since the last pass crashed. */
-export const reconcileProcesses = (): Promise<void> => reconcileRegisteredWorlds(recordCrash);
-
-/** The one pass made while the manager boots: a server already gone was stopped, not crashed. */
-export const reconcileProcessesAtStartup = (): Promise<void> => reconcileRegisteredWorlds((world) => recordStartupStop(world));
-
-async function reconcileRegisteredWorlds(onDead: DeadServerHandler): Promise<void> {
+export async function reconcileProcesses(): Promise<void> {
   if (globalThis.__psmReconciling) return; globalThis.__psmReconciling = true;
   const releases: Array<() => void> = [];
   try {
@@ -114,7 +105,7 @@ async function reconcileRegisteredWorlds(onDead: DeadServerHandler): Promise<voi
       if (globalThis.__psmInspectionError !== message) { globalThis.__psmInspectionError = message; console.error(`Process inspection failed; ownership remains unverified: ${message}`); }
       startProcessMonitor(); return;
     }
-    for (const world of registered) await reconcileWorld(world, snapshot, onDead);
+    for (const world of registered) await reconcileWorld(world, snapshot);
     startProcessMonitor();
   } finally { for (const release of releases) release(); globalThis.__psmReconciling = false; }
 }

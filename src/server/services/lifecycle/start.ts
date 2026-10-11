@@ -18,7 +18,7 @@ import { getWorld, setRuntimeState } from "../worlds";
 import { commandFor, executableAvailable } from "./command";
 import { belongsToInstall, claimInstallation, identities, persistIdentity, releaseInstallation } from "./leases";
 import { adoptRunningServer, runningServerTree } from "./adopt";
-import { children, delay } from "./state";
+import { children, confirmedLive, delay } from "./state";
 
 /** Launches a world's server. Callers hold the lifecycle lock. */
 export async function startWorldProcess(worldId: string): Promise<void> {
@@ -74,6 +74,7 @@ export async function startWorldProcess(worldId: string): Promise<void> {
     if (!tracked.length) throw new Error("Server exited during startup; inspect its log and prerequisite diagnostics.");
     await database().update(worlds).set({ lastStartedAt: Date.now(), updatedAt: Date.now() }).where(eq(worlds.id, worldId));
     await setRuntimeState(worldId, "running", tracked[0]!.pid);
+    confirmedLive().add(worldId);
     startDeathCapture(world);
   } catch (error) {
     const tracked = await identities(worldId);

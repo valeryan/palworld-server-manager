@@ -10,7 +10,7 @@ import { paths } from "@/server/paths";
 import { managerIdentity, readLease, runtimeLeasePath, type RuntimeLease } from "../leases";
 import { insideDirectory, ownedTree, processSnapshot, sameProcess, type ProcessIdentity } from "../process-inspection";
 import { setRuntimeState } from "../worlds";
-import { withLifecycleLock } from "./state";
+import { confirmedLive, withLifecycleLock } from "./state";
 
 // A server that is already running from an installation this manager does not track: typically
 // one launched by a previous manager instance whose database was reset. Adopting it records the
@@ -52,6 +52,7 @@ export async function adoptRunningServer(world: WorldView, tree: ProcessIdentity
   await database().update(worlds).set({ processIdentity: tree, lastStartedAt: now, updatedAt: now }).where(eq(worlds.id, world.id));
   await database().insert(events).values({ worldId: world.id, kind: "lifecycle", message: `Adopted a server already running from this installation (pid ${tree[0]!.pid}).`, createdAt: now });
   await setRuntimeState(world.id, "running", tree[0]!.pid);
+  confirmedLive().add(world.id);
   startDeathCapture(world);
 }
 
