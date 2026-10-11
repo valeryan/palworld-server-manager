@@ -16,7 +16,7 @@ import { cancelRecovery, withLifecycleLock } from "./state";
 // process identities, `start`/`stop` run one transition each, `monitor` reconciles against the
 // host and recovers crashes, `state` holds the lifecycle lock and process-wide maps.
 export { commandFor, parseArguments } from "./command";
-export { reconcileProcesses } from "./monitor";
+export { reconcileProcesses, reconcileProcessesAtStartup } from "./monitor";
 export { assertAdoptable, assertAdoptableInstall, runningServerSummary, runningServerTree } from "./adopt";
 export { stopWorld };
 

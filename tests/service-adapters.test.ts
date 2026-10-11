@@ -96,14 +96,14 @@ describe("service boundaries with isolated fakes", () => {
   });
 
   it("marks a server already gone at manager startup as stopped, not crashed", async () => {
-    const { startWorld, reconcileProcesses } = await import("@/server/services/lifecycle");
+    const { startWorld, reconcileProcessesAtStartup } = await import("@/server/services/lifecycle");
     const { getWorld } = await import("@/server/services/worlds");
     const { processSnapshot } = await import("@/server/services/process-inspection");
     await startWorld(processWorldId);
     const world = (await getWorld(processWorldId))!;
     process.kill(-world.processId!, "SIGKILL");
     await waitFor(async () => !(await processSnapshot()).some((entry) => entry.pid === world.processId), "Fake server did not exit.");
-    await reconcileProcesses({ startup: true });
+    await reconcileProcessesAtStartup();
     expect(await getWorld(processWorldId)).toMatchObject({ status: "stopped", processId: null });
     expect(globalThis.__psmRecoveryTimers?.has(processWorldId) ?? false).toBe(false);
   });

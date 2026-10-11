@@ -69,7 +69,10 @@ async function recordCrash(world: WorldView, roots: ProcessIdentity[], snapshot:
   }
 }
 
-async function reconcileWorld(world: WorldView, snapshot: ProcessIdentity[], startup: boolean): Promise<void> {
+/** What to do with a world whose saved server tree is no longer on the host. */
+type DeadServerHandler = (world: WorldView, roots: ProcessIdentity[], snapshot: ProcessIdentity[]) => Promise<void>;
+
+async function reconcileWorld(world: WorldView, snapshot: ProcessIdentity[], onDead: DeadServerHandler): Promise<void> {
   if (world.status === "starting" && !world.processId && children().has(world.id)) return;
   const roots = await identities(world.id);
   if (!roots.length && world.processId) { await setRuntimeState(world.id, "unknown", world.processId); return; }
@@ -80,11 +83,16 @@ async function reconcileWorld(world: WorldView, snapshot: ProcessIdentity[], sta
     startDeathCapture(world); return;
   }
   if (world.status === "stopping") return;
-  if (world.processId || world.status === "running") { if (startup) await recordStartupStop(world); else await recordCrash(world, roots, snapshot); }
+  if (world.processId || world.status === "running") await onDead(world, roots, snapshot);
 }
 
-/** Reconciles every registered world against the host process table; `startup` marks the one call made while the manager boots. */
-export async function reconcileProcesses(options: { startup?: boolean } = {}): Promise<void> {
+/** Session reconciliation: a server that vanished since the last pass crashed. */
+export const reconcileProcesses = (): Promise<void> => reconcileRegisteredWorlds(recordCrash);
+
+/** The one pass made while the manager boots: a server already gone was stopped, not crashed. */
+export const reconcileProcessesAtStartup = (): Promise<void> => reconcileRegisteredWorlds((world) => recordStartupStop(world));
+
+async function reconcileRegisteredWorlds(onDead: DeadServerHandler): Promise<void> {
   if (globalThis.__psmReconciling) return; globalThis.__psmReconciling = true;
   const releases: Array<() => void> = [];
   try {
@@ -105,7 +113,7 @@ export async function reconcileProcesses(options: { startup?: boolean } = {}): P
       if (globalThis.__psmInspectionError !== message) { globalThis.__psmInspectionError = message; console.error(`Process inspection failed; ownership remains unverified: ${message}`); }
       startProcessMonitor(); return;
     }
-    for (const world of registered) await reconcileWorld(world, snapshot, options.startup === true);
+    for (const world of registered) await reconcileWorld(world, snapshot, onDead);
     startProcessMonitor();
   } finally { for (const release of releases) release(); globalThis.__psmReconciling = false; }
 }
