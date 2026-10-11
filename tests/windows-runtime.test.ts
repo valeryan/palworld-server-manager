@@ -75,7 +75,7 @@ describe("registration and recovery on an incomplete installation", () => {
     id = (await createWorld({ displayName: "Failed install", installDir: path.join(root, "missing") })).id;
   });
   afterAll(() => {
-    globalThis.__psmDraining = false; delete process.env.PSM_ADMIN_TOKEN;
+    globalThis.__psmRuntimePhase = undefined; delete process.env.PSM_ADMIN_TOKEN;
   });
   const request = (body: unknown) => new Request(`http://localhost/api/worlds/${id}/configuration/admin`, { method: "PUT", headers: { cookie: "psm_admin=native-test", "content-type": "application/json" }, body: JSON.stringify(body) });
   it("renames and relocates through the existing admin API without writing an INI", async () => {
@@ -117,7 +117,7 @@ describe("registration and recovery on an incomplete installation", () => {
     await database().insert(jobs).values({ id: "orphan-test", worldId: id, kind: "backup", state: "running", createdAt: Date.now() });
     const { reconcileInterruptedJobs, getJob, beginDrain, startJob } = await import("@/server/services/jobs");
     await reconcileInterruptedJobs(); expect(await getJob("orphan-test")).toMatchObject({ state: "failed", message: "Interrupted" });
-    beginDrain(); await expect(startJob(id, "backup", async () => {})).rejects.toThrow("quitting"); globalThis.__psmDraining = false;
+    beginDrain(); await expect(startJob(id, "backup", async () => {})).rejects.toThrow("quitting"); globalThis.__psmRuntimePhase = undefined;
   });
   it("waits for an in-flight mod change when quitting", async () => {
     const { withWorldLock, beginDrain, activeOperationCount } = await import("@/server/services/jobs");
@@ -130,7 +130,7 @@ describe("registration and recovery on an incomplete installation", () => {
     try {
       expect(beginDrain()).toBe(1);
       await expect(withWorldLock(id, async () => {})).rejects.toThrow("quitting");
-    } finally { release(); await change; globalThis.__psmDraining = false; }
+    } finally { release(); await change; globalThis.__psmRuntimePhase = undefined; }
     expect(activeOperationCount()).toBe(0);
   });
   it("drains a settings save already waiting for a path reservation", async () => {
@@ -145,7 +145,7 @@ describe("registration and recovery on an incomplete installation", () => {
     await ready;
     const save = saveDesiredSettings(id, { baseRevision: current.desiredRevision, manager: { ...current.desiredManager, displayName: "Saved before quit" } });
     try { expect(beginDrain()).toBeGreaterThan(0); }
-    finally { release(); await reservation; await save; globalThis.__psmDraining = false; }
+    finally { release(); await reservation; await save; globalThis.__psmRuntimePhase = undefined; }
     expect(activeOperationCount()).toBe(0);
     expect((await readSettingsState(id)).desiredManager.displayName).toBe("Saved before quit");
   });

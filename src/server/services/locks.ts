@@ -1,12 +1,13 @@
 import "server-only";
 import { ConflictError, HttpError } from "@/server/errors";
+import { isDraining } from "./runtime-phase";
 
 // Admission control for world operations. One world has at most one operation or request-time
-// change in flight; the drain flag refuses new admissions while the desktop shell is quitting.
+// change in flight; the draining phase refuses new admissions while the desktop shell is quitting.
 // This is the outermost lock in the service lock order (see serialize.ts), so it imports no other
-// service.
+// service beyond the phase leaf.
 export const DRAINING = "The manager is quitting; new operations are disabled.";
-declare global { var __psmDraining: boolean | undefined; var __psmWorldLocks: Set<string> | undefined; var __psmActiveChanges: number | undefined; }
+declare global { var __psmWorldLocks: Set<string> | undefined; var __psmActiveChanges: number | undefined; }
 const locks = () => (globalThis.__psmWorldLocks ??= new Set<string>());
 
 export function worldIsLocked(worldId: string): boolean { return locks().has(worldId); }
@@ -14,7 +15,7 @@ export function activeChangeCount(): number { return globalThis.__psmActiveChang
 
 /** Refuses admission while draining or while another operation holds the world. */
 export function assertAdmission(worldId: string | null): void {
-  if (globalThis.__psmDraining) throw new HttpError(DRAINING, 503);
+  if (isDraining()) throw new HttpError(DRAINING, 503);
   if (worldId && locks().has(worldId)) throw new ConflictError("Another operation is already running for this world.");
 }
 

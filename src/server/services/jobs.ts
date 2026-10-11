@@ -1,5 +1,6 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
+import { setRuntimePhase } from "./runtime-phase";
 import { desc, eq, inArray, isNull } from "drizzle-orm";
 import { EXTERNAL_WORKER_JOB_KINDS, type JobScope, type JobView } from "@/contracts/job";
 import type { WorldView } from "@/contracts/world";
@@ -134,7 +135,7 @@ export async function listJobLogs(jobId: string, limit = 1_000) {
   return database().select().from(jobLogs).where(eq(jobLogs.jobId, jobId)).orderBy(jobLogs.id).limit(Math.min(Math.max(Math.trunc(limit) || 1_000, 1), 5_000));
 }
 
-export function beginDrain(): number { globalThis.__psmDraining = true; return activeOperationCount(); }
+export function beginDrain(): number { setRuntimePhase("draining"); return activeOperationCount(); }
 export function activeOperationCount(): number { return controllers().size + activeChangeCount(); }
 
 export async function reconcileInterruptedJobs(): Promise<void> {

@@ -1,5 +1,6 @@
 import "server-only";
 import { timingSafeEqual } from "node:crypto";
+import { isDraining } from "@/server/services/runtime-phase";
 import { ZodError } from "zod";
 import type { PublicWorldView, WorldView } from "@/contracts/world";
 import { HttpError } from "@/server/errors";
@@ -27,7 +28,7 @@ export function requireAdmin(request: Request): Response | null {
   if (!expected) { if (process.env.NODE_ENV !== "development") return Response.json({ ok: false, error: "Desktop authentication is unavailable." }, { status: 503 }); }
   else if (!sameToken(request.headers.get("cookie")?.match(/(?:^|;\s*)psm_admin=([^;]+)/)?.[1], expected)) return Response.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   const mutation = !["GET", "HEAD"].includes(request.method); const pathname = new URL(request.url).pathname;
-  if (mutation && globalThis.__psmDraining && !/\/runtime\/drain$|\/cancel$/.test(pathname)) return Response.json({ ok: false, error: "The manager is quitting; new changes are disabled." }, { status: 503 });
+  if (mutation && isDraining() && !/\/runtime\/drain$|\/cancel$/.test(pathname)) return Response.json({ ok: false, error: "The manager is quitting; new changes are disabled." }, { status: 503 });
   const worldMutation = mutation && pathname.match(/^\/api\/worlds\/([^/]+)(?!.*\/actions$)/);
   if (worldMutation && worldIsLocked(worldMutation[1]!)) return Response.json({ ok: false, error: "Another operation is already running for this world." }, { status: 409 });
   return null;

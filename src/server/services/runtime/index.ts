@@ -2,6 +2,7 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { isWorldStopped } from "@/contracts/world";
 import { errorMessage } from "@/lib/errors";
+import { isDraining, runtimePhase, setRuntimePhase } from "../runtime-phase";
 import { database } from "@/server/db";
 import { schedules } from "@/server/db/schema";
 import { recoverInterruptedRestores } from "../backups";
@@ -21,14 +22,13 @@ import { handleTimedSchedules } from "./timed";
 // on-join messages, `players`/`presence` track who is online.
 
 declare global {
-  var __psmRuntimeStarted: boolean | undefined;
   var __psmSchedulerTimer: NodeJS.Timeout | undefined;
   var __psmRuntimeTicking: boolean | undefined;
   var __psmLastRetentionAt: number | undefined;
 }
 
 export async function runtimeTick(now = Date.now()): Promise<void> {
-  if (globalThis.__psmRuntimeTicking || globalThis.__psmDraining) return;
+  if (globalThis.__psmRuntimeTicking || isDraining()) return;
   globalThis.__psmRuntimeTicking = true;
   try {
     await presenceTick(); await handleIdleSchedules(now); await handleTimedSchedules(now);
@@ -51,8 +51,8 @@ async function bootStep(name: string, work: () => Promise<void>): Promise<void> 
 }
 
 export async function startRuntime(): Promise<void> {
-  if (globalThis.__psmRuntimeStarted) return;
-  globalThis.__psmRuntimeStarted = true;
+  if (runtimePhase()) return;
+  setRuntimePhase("booting");
   await bootStep("restore recovery", recoverInterruptedRestores);
   await bootStep("interrupted operation recovery", reconcileInterruptedJobs);
   await bootStep("settings bootstrap", () => bootstrapWorldSettings());
@@ -71,4 +71,6 @@ export async function startRuntime(): Promise<void> {
   tick();
   globalThis.__psmSchedulerTimer = setInterval(tick, 10_000);
   globalThis.__psmSchedulerTimer.unref();
+  // A drain requested mid-boot wins over readiness.
+  if (runtimePhase() === "booting") setRuntimePhase("ready");
 }

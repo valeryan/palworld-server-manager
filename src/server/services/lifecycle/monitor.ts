@@ -2,6 +2,7 @@ import "server-only";
 import { eq, sql } from "drizzle-orm";
 import { worldBusy, type WorldView } from "@/contracts/world";
 import { errorMessage } from "@/lib/errors";
+import { isDraining } from "../runtime-phase";
 import { database } from "@/server/db";
 import { events, worlds } from "@/server/db/schema";
 import { recordUnexpectedExit } from "@/server/mods/ue4ss-runtime";
@@ -21,7 +22,7 @@ declare global { var __psmProcessTimer: NodeJS.Timeout | undefined; var __psmRec
 export function startProcessMonitor() {
   if (globalThis.__psmProcessTimer) return;
   globalThis.__psmProcessTimer = setInterval(() => {
-    if (globalThis.__psmDraining) return;
+    if (isDraining()) return;
     void reconcileProcesses().catch((error) => {
       const message = errorMessage(error);
       if (globalThis.__psmInspectionError !== message) { globalThis.__psmInspectionError = message; console.error(`Process reconciliation failed: ${message}`); }
@@ -34,10 +35,10 @@ function scheduleRecovery(world: WorldView): void {
   cancelRecovery(world.id);
   const timer = setTimeout(() => {
     recoveryTimers().delete(world.id);
-    if (globalThis.__psmDraining) return;
+    if (isDraining()) return;
     startJob(world.id, "crash-recovery", () => withLifecycleLock(world.id, async () => {
       const current = await getWorld(world.id);
-      if (!current || current.status !== "crashed" || !current.crashGuard || current.lastStartedAt !== world.lastStartedAt || globalThis.__psmDraining) return;
+      if (!current || current.status !== "crashed" || !current.crashGuard || current.lastStartedAt !== world.lastStartedAt || isDraining()) return;
       await startWorldProcess(world.id);
     })).catch((error) => database().insert(events).values({ worldId: world.id, kind: "lifecycle", message: `Crash recovery could not start: ${errorMessage(error)}`, createdAt: Date.now() }).catch(() => undefined));
   }, 5_000);
@@ -63,7 +64,7 @@ async function recordCrash(world: WorldView, roots: ProcessIdentity[], snapshot:
   await releaseDeadServer(world);
   await setRuntimeState(world.id, "crashed", null);
   const pause = await recordUnexpectedExit(world.id, { code: null, uptimeMs: world.lastStartedAt ? Date.now() - world.lastStartedAt : 0 }).catch(() => true);
-  if (world.crashGuard && !pause && !globalThis.__psmDraining) {
+  if (world.crashGuard && !pause && !isDraining()) {
     await database().update(worlds).set({ crashCount: sql`${worlds.crashCount} + 1` }).where(eq(worlds.id, world.id));
     scheduleRecovery(world);
   }
