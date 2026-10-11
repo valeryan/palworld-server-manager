@@ -99,9 +99,6 @@ describe("service boundaries with isolated fakes", () => {
     const { startWorld, reconcileProcesses } = await import("@/server/services/lifecycle");
     const { getWorld } = await import("@/server/services/worlds");
     const { processSnapshot } = await import("@/server/services/process-inspection");
-    const { database } = await import("@/server/db");
-    const { events } = await import("@/server/db/schema");
-    const { eq } = await import("drizzle-orm");
     await startWorld(processWorldId);
     const world = (await getWorld(processWorldId))!;
     process.kill(-world.processId!, "SIGKILL");
@@ -109,8 +106,6 @@ describe("service boundaries with isolated fakes", () => {
     await reconcileProcesses({ startup: true });
     expect(await getWorld(processWorldId)).toMatchObject({ status: "stopped", processId: null });
     expect(globalThis.__psmRecoveryTimers?.has(processWorldId) ?? false).toBe(false);
-    const recorded = await database().select().from(events).where(eq(events.worldId, processWorldId));
-    expect(recorded.some((event) => event.kind === "lifecycle" && event.message.includes("no longer running when the manager started"))).toBe(true);
   });
 
   it.skipIf(process.getuid?.() === 0)("returns captured server output and reports log-directory read failures", async () => {
