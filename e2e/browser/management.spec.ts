@@ -143,7 +143,7 @@ test("adopts and manages an isolated world through critical browser workflows", 
   await expect(page.getByText("No Workshop mods are installed.")).toBeVisible();
 
   await page.getByRole("button", { name: "Backups", exact: true }).click();
-  await page.getByLabel("Keep newest backups").fill("3");
+  await page.getByLabel("Keep newest backups", { exact: true }).fill("3");
   await page.getByRole("button", { name: "Save backup settings" }).click();
   await expect(page.getByText("Backup settings saved", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Back up now" }).click();
